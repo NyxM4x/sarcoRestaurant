@@ -54,7 +54,7 @@ Archivos:
 | `WORKER_TICK_URL` | variable pública | `wrangler.jsonc → vars` |
 | `WORKER_INTERNAL_TOKEN` | **secreto** | Cloudflare secret (nunca en el repo) |
 
-`WORKER_INTERNAL_TOKEN` debe coincidir con `VERCEL_INTERNAL_TOKEN` del endpoint.
+`WORKER_INTERNAL_TOKEN` debe coincidir con `INTERNAL_API_TOKEN` del endpoint.
 **Nunca** se escribe en `wrangler.jsonc`, código, tests, README ni logs.
 
 ## Instalar
@@ -91,7 +91,7 @@ curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 
 ```bash
 npx wrangler secret put WORKER_INTERNAL_TOKEN
-# Pega el valor cuando lo pida. Debe coincidir con VERCEL_INTERNAL_TOKEN.
+# Pega el valor cuando lo pida. Debe coincidir con INTERNAL_API_TOKEN.
 ```
 
 > El valor del token NO se incluye aquí ni en ningún archivo versionado.

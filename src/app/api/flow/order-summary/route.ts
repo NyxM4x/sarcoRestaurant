@@ -23,7 +23,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // 1. Autenticación Bearer (Kapso Function → Vercel), comparación timing-safe.
   const token = extractBearer(request.headers.get('authorization'));
-  if (!env.VERCEL_INTERNAL_TOKEN || !safeCompare(token, env.VERCEL_INTERNAL_TOKEN)) {
+  if (!env.INTERNAL_API_TOKEN || !safeCompare(token, env.INTERNAL_API_TOKEN)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

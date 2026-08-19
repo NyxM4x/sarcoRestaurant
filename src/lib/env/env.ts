@@ -28,7 +28,7 @@ const serverEnvSchema = z.object({
 
   // Requeridas en fases posteriores (webhook / Kapso / correlación).
   // Opcionales por ahora para no bloquear otras fases.
-  VERCEL_INTERNAL_TOKEN: optionalString,
+  INTERNAL_API_TOKEN: optionalString,
   KAPSO_API_KEY: optionalString,
   KAPSO_WEBHOOK_SECRET: optionalString,
   KAPSO_PHONE_NUMBER_ID: optionalString,

@@ -20,7 +20,7 @@ UUID único y el Flow usa `flow_token = order_{order_session_id}`. Los campos
 `flow_action_payload.data`. El mismo `flow_token` se repite en cada `data_exchange`
 y en el `nfm_reply`, y es **único** por pedido (índice parcial `orders_flow_token_unique`).
 
-- **Auth**: header `Authorization: Bearer <VERCEL_INTERNAL_TOKEN>` (comparación timing-safe).
+- **Auth**: header `Authorization: Bearer <INTERNAL_API_TOKEN>` (comparación timing-safe).
 - **Request** (JSON):
   ```jsonc
   {

@@ -14,7 +14,7 @@ export const maxDuration = 60;
  * POST /api/internal/order-notifications/reconcile
  *
  * Reconciliación manual de las notificaciones de un pedido web concreto.
- * Protegido con el Bearer interno (`VERCEL_INTERNAL_TOKEN`).
+ * Protegido con el Bearer interno (`INTERNAL_API_TOKEN`).
  *
  * Opera SOLO sobre notificaciones existentes: consulta `GET /messages`, decide
  * con módulos puros y persiste con las RPC de 0005. NUNCA envía un mensaje ni
@@ -24,7 +24,7 @@ export const maxDuration = 60;
 export async function POST(request: Request): Promise<Response> {
   let internalToken: string | undefined;
   try {
-    internalToken = getServerEnv().VERCEL_INTERNAL_TOKEN;
+    internalToken = getServerEnv().INTERNAL_API_TOKEN;
   } catch {
     log.error('internal.order_notifications.reconcile_env_unavailable');
     return Response.json({ error: 'internal_error' }, { status: 500 });

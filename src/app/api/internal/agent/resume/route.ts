@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * POST /api/internal/agent/resume
  *
  * Devuelve el control de una conversación al agente tras un takeover humano.
- * Protegido con el Bearer interno (`VERCEL_INTERNAL_TOKEN`), igual que el resto
+ * Protegido con el Bearer interno (`INTERNAL_API_TOKEN`), igual que el resto
  * de `/api/internal/*`. No hay superficie pública ni escritura desde el frontend.
  *
  * Es la ÚNICA vía legítima para pasar de `paused` a `active`: registra el
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<Response> {
   let internalToken: string | undefined;
   try {
-    internalToken = getServerEnv().VERCEL_INTERNAL_TOKEN;
+    internalToken = getServerEnv().INTERNAL_API_TOKEN;
   } catch {
     // Entorno incompleto: nunca se detalla qué falta.
     log.error('internal.agent.env_unavailable');

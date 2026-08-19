@@ -70,7 +70,7 @@ Este Worker **no funciona solo**. Necesita, en este orden:
    RPC de reclamo).
 2. El endpoint `/api/internal/webhook-events/worker/tick` **desplegado** en
    Production.
-3. `VERCEL_INTERNAL_TOKEN` configurado en Vercel.
+3. `INTERNAL_API_TOKEN` configurado en Vercel.
 
 Desplegarlo antes no rompe nada —el endpoint devolverá 404 y el log dirá
 `cron_contract_error`— pero tampoco sirve.
@@ -82,7 +82,7 @@ Desplegarlo antes no rompe nada —el endpoint devolverá 404 y el log dirá
 | `WORKER_TICK_URL` | variable pública | `wrangler.jsonc → vars` |
 | `WORKER_INTERNAL_TOKEN` | **secreto** | Cloudflare secret (nunca en el repo) |
 
-`WORKER_INTERNAL_TOKEN` debe coincidir con `VERCEL_INTERNAL_TOKEN` del endpoint.
+`WORKER_INTERNAL_TOKEN` debe coincidir con `INTERNAL_API_TOKEN` del endpoint.
 Es el **mismo valor** que usa `notification-recovery-cron`, guardado por
 separado en cada Worker. **Nunca** se escribe en `wrangler.jsonc`, código,
 tests, README ni logs.
@@ -152,7 +152,7 @@ que aquel no llegó a ejecutar.
 | --- | --- |
 | `cron_started` | arranca la ejecución |
 | `cron_completed` | 200 con `ok`, `claimed`, `processed`, `failed`, `budget_exhausted`, `duration_ms` |
-| `cron_unauthorized` | 401: el Bearer no coincide con `VERCEL_INTERNAL_TOKEN` |
+| `cron_unauthorized` | 401: el Bearer no coincide con `INTERNAL_API_TOKEN` |
 | `cron_contract_error` | 400/404/405/422, config ausente o estado inesperado |
 | `cron_rate_limited` | 429 |
 | `cron_upstream_error` | 5xx del endpoint |

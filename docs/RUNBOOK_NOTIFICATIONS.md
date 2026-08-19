@@ -111,7 +111,7 @@ con `alerted_at is null`.
 
 `cron_unauthorized` en los logs = el Bearer del Worker no coincide con el token
 de Vercel. Verificar que el secreto `WORKER_INTERNAL_TOKEN` (Cloudflare) es
-idéntico a `VERCEL_INTERNAL_TOKEN` (Vercel Production). Rotar ambos a la vez si
+idéntico a `INTERNAL_API_TOKEN` (Vercel Production). Rotar ambos a la vez si
 se sospecha exposición (ver abajo). No imprimir los valores.
 
 ## Secretos: qué existen y dónde viven
@@ -119,8 +119,8 @@ se sospecha exposición (ver abajo). No imprimir los valores.
 | Secreto | Dónde vive | Uso |
 |---|---|---|
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel Production | Acceso backend a Supabase (omite RLS) |
-| `VERCEL_INTERNAL_TOKEN` | Vercel Production | Bearer del endpoint `worker/tick` |
-| `WORKER_INTERNAL_TOKEN` | Cloudflare secret | Igual valor que `VERCEL_INTERNAL_TOKEN` |
+| `INTERNAL_API_TOKEN` | Vercel Production | Bearer del endpoint `worker/tick` |
+| `WORKER_INTERNAL_TOKEN` | Cloudflare secret | Igual valor que `INTERNAL_API_TOKEN` |
 | `KAPSO_API_KEY` | Vercel Production | API de Kapso (envío / `GET /messages`) |
 | `KAPSO_WEBHOOK_SECRET` | Vercel Production | Verificación HMAC del webhook |
 | `MENU_SESSION_SECRET` | Vercel Production | HMAC de sesiones de menú |
@@ -135,7 +135,7 @@ se sospecha exposición (ver abajo). No imprimir los valores.
 - **`TELEGRAM_BOT_TOKEN`**: pendiente de rotación (se compartió durante la
   configuración inicial). Rotar vía `@BotFather` (`/revoke` / nuevo token) y
   actualizar `TELEGRAM_BOT_TOKEN` en Vercel Production. No afecta a WhatsApp.
-- `VERCEL_INTERNAL_TOKEN` / `WORKER_INTERNAL_TOKEN`: si se exponen, rotar **ambos
+- `INTERNAL_API_TOKEN` / `WORKER_INTERNAL_TOKEN`: si se exponen, rotar **ambos
   a la vez** (deben coincidir) — Vercel env + `wrangler secret put`.
 - Cualquier otro: rotar en su plataforma y redeploy.
 

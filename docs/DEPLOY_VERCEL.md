@@ -75,7 +75,7 @@ En **Project Settings → Environment Variables**, agrega (ver también
 |---|---|---|
 | `SUPABASE_URL` | ✅ | Del proyecto Supabase exclusivo de Don Zarco. |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | **Secreto.** Nunca la pegues en un chat, issue o log. |
-| `VERCEL_INTERNAL_TOKEN` | ✅ | Genera un valor aleatorio largo tú mismo (no proviene de Kapso). |
+| `INTERNAL_API_TOKEN` | ✅ | Genera un valor aleatorio largo tú mismo (no proviene de Kapso). |
 | `KAPSO_API_KEY` | ✅ | Del panel de Kapso. |
 | `KAPSO_WEBHOOK_SECRET` | ⏳ | **Todavía no la tienes** — se copia recién en el paso 11, después de crear el webhook. Por ahora puedes dejarla vacía o con un valor temporal; sin ella, el webhook rechaza todo con 401 (comportamiento seguro por defecto). |
 | `KAPSO_PHONE_NUMBER_ID` | ✅ | Del panel de Kapso. |
@@ -144,7 +144,7 @@ Eso corresponde a una fase posterior (4.2+), fuera del alcance de esta guía.
 ## Secretos: nunca al navegador, nunca a Git
 
 - `SUPABASE_SERVICE_ROLE_KEY`, `KAPSO_API_KEY`, `KAPSO_WEBHOOK_SECRET`,
-  `VERCEL_INTERNAL_TOKEN` — **jamás** en código, componentes cliente, commits,
+  `INTERNAL_API_TOKEN` — **jamás** en código, componentes cliente, commits,
   issues, logs ni capturas de pantalla.
 - Ninguna variable de este proyecto usa el prefijo `NEXT_PUBLIC_`: todas son
   server-only por diseño (ver `src/lib/env/env.ts`). No agregues una variante

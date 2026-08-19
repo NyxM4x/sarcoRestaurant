@@ -22,7 +22,7 @@
 
   // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;
   // se entrega en el deploy vía `wrangler secret put`. Debe coincidir con
-  // VERCEL_INTERNAL_TOKEN — es el mismo valor que usa el otro Worker.
+  // INTERNAL_API_TOKEN — es el mismo valor que usa el otro Worker.
   "secrets": {
     "required": ["WORKER_INTERNAL_TOKEN"]
   },

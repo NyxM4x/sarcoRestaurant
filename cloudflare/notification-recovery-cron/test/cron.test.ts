@@ -372,7 +372,7 @@ describe('wrangler.jsonc — un único Cron compartido, secret obligatorio, sin 
     expect(cfg.vars.WORKER_INTERNAL_TOKEN).toBeUndefined();
     expect(raw).not.toMatch(/"WORKER_INTERNAL_TOKEN"\s*:/);
     // Nunca se filtra el nombre del secreto de Vercel ni un valor hardcodeado.
-    expect(raw).not.toContain('VERCEL_INTERNAL_TOKEN');
+    expect(raw).not.toContain('INTERNAL_API_TOKEN');
     // Ningún placeholder que pudiera desplegarse como secreto real.
     expect(raw).not.toMatch(/Bearer\s+\S/);
     expect(cfg.vars.WORKER_TICK_URL).toBe(

@@ -9,7 +9,7 @@ import type { ResumeAgentResult } from '@/lib/agent/core/types';
  *
  * Devolver el control al agente es una acción de OPERACIÓN, no de negocio, y por
  * eso reutiliza tal cual la seguridad ya existente para los endpoints internos
- * (`VERCEL_INTERNAL_TOKEN` por Bearer), igual que
+ * (`INTERNAL_API_TOKEN` por Bearer), igual que
  * `/api/internal/order-notifications/retry`. No hay superficie pública ni
  * escritura desde el frontend, y no se inventa ningún secreto nuevo.
  *

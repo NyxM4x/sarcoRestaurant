@@ -18,7 +18,7 @@ export const maxDuration = 60;
  * POST /api/internal/order-notifications/retry
  *
  * Recuperación manual de las notificaciones de un pedido web concreto.
- * Protegido con el Bearer interno (`VERCEL_INTERNAL_TOKEN`).
+ * Protegido con el Bearer interno (`INTERNAL_API_TOKEN`).
  *
  * Usa `dispatchExistingWebOrderWhatsApp` (nunca `initializeAndDispatch`): el
  * reintento manual opera SOLO sobre notificaciones ya existentes, de modo que
@@ -29,7 +29,7 @@ export const maxDuration = 60;
 export async function POST(request: Request): Promise<Response> {
   let internalToken: string | undefined;
   try {
-    internalToken = getServerEnv().VERCEL_INTERNAL_TOKEN;
+    internalToken = getServerEnv().INTERNAL_API_TOKEN;
   } catch {
     // Entorno incompleto: nunca se detalla qué falta.
     log.error('internal.order_notifications.env_unavailable');

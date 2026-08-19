@@ -7,5 +7,5 @@ WORKER_TICK_URL="https://la-fija-orders.vercel.app/api/internal/order-notificati
 
 # Secreto interno. En producción se guarda con:
 #   npx wrangler secret put WORKER_INTERNAL_TOKEN
-# y debe coincidir con VERCEL_INTERNAL_TOKEN. Aquí va solo para pruebas locales.
+# y debe coincidir con INTERNAL_API_TOKEN. Aquí va solo para pruebas locales.
 WORKER_INTERNAL_TOKEN="<pega-aqui-solo-para-local-nunca-versionar>"

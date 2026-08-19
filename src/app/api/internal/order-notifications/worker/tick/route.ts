@@ -17,13 +17,13 @@ export const maxDuration = 60;
  * con presupuesto acotado (≤1 POST y ≤2 GET por tick) e idempotente. El caller
  * no decide qué pedido, notificación ni cliente se procesa.
  *
- * Protegido con el Bearer interno (`VERCEL_INTERNAL_TOKEN`). La ruta solo cablea
+ * Protegido con el Bearer interno (`INTERNAL_API_TOKEN`). La ruta solo cablea
  * dependencias; la lógica vive en `@/lib/orders/notifications/worker`.
  */
 export async function POST(request: Request): Promise<Response> {
   let internalToken: string | undefined;
   try {
-    internalToken = getServerEnv().VERCEL_INTERNAL_TOKEN;
+    internalToken = getServerEnv().INTERNAL_API_TOKEN;
   } catch {
     log.error('internal.order_notifications.worker_env_unavailable');
     return Response.json({ error: 'internal_error' }, { status: 500 });

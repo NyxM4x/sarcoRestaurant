@@ -109,7 +109,7 @@ Trae `attempt_count`, `max_attempts`, `next_attempt_at`, índice parcial sobre
 que impiden que un terminal siga agendado, una función de selección de trabajo
 vencido y un worker con presupuesto acotado en
 `/api/internal/order-notifications/worker/tick`, protegido con
-`VERCEL_INTERNAL_TOKEN`. Está tickeando cada 60 s ahora mismo.
+`INTERNAL_API_TOKEN`. Está tickeando cada 60 s ahora mismo.
 
 La opción A no es *infraestructura nueva*. Es aplicar a la entrada el mismo
 patrón que ya funciona en la salida, sobre una tabla que ya guarda el payload.

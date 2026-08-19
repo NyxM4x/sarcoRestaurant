@@ -28,13 +28,13 @@ export const maxDuration = 60;
  * que murió a mitad. El caller no decide qué fila se procesa — la elige la base
  * con `claim_due_webhook_events`.
  *
- * Protegido con el Bearer interno (`VERCEL_INTERNAL_TOKEN`), igual que el
+ * Protegido con el Bearer interno (`INTERNAL_API_TOKEN`), igual que el
  * worker de notificaciones. La ruta solo cablea dependencias.
  */
 export async function POST(request: Request): Promise<Response> {
   let internalToken: string | undefined;
   try {
-    internalToken = getServerEnv().VERCEL_INTERNAL_TOKEN;
+    internalToken = getServerEnv().INTERNAL_API_TOKEN;
   } catch {
     log.error('webhook_inbox_worker_env_unavailable');
     return Response.json({ error: 'internal_error' }, { status: 500 });

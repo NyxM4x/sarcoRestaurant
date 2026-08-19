@@ -45,7 +45,7 @@ Scripts:
    |---|---|---|
    | `SUPABASE_URL` | ✅ Sí | URL del proyecto Supabase; usada por el cliente admin. |
    | `SUPABASE_SERVICE_ROLE_KEY` | ✅ Sí | Clave `service_role` (omite RLS) — **solo backend**, nunca en logs ni en el navegador. |
-   | `VERCEL_INTERNAL_TOKEN` | ✅ Sí (para `/api/flow/order-summary`) | Bearer compartido que autentica las llamadas de la Kapso Function hacia Vercel. |
+   | `INTERNAL_API_TOKEN` | ✅ Sí (para `/api/flow/order-summary`) | Bearer compartido que autentica las llamadas de la Kapso Function hacia Vercel. |
    | `KAPSO_API_KEY` | ✅ Sí (para enviar mensajes) | Header `X-API-Key` al llamar a la API de mensajes de Kapso. |
    | `KAPSO_WEBHOOK_SECRET` | ✅ Sí (para el webhook) | Secreto HMAC para validar `X-Webhook-Signature`. **Se obtiene después** de crear el webhook en el panel de Kapso — no antes. |
    | `KAPSO_PHONE_NUMBER_ID` | ✅ Sí (para enviar mensajes) | ID del número de WhatsApp Cloud API conectado en Kapso. |
