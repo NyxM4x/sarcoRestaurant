@@ -1,21 +1,25 @@
 -- ============================================================================
--- La Fija Orders — Seed del menú
+-- Don Zarco Orders — Seed del menú
 -- Aplicar DESPUÉS de la migración 0001_init.sql.
 -- Idempotente: on conflict (code) no duplica ni pisa manualmente.
--- Precios en Bs. (BOB). Fuente de verdad de precios (IDEA.md §3, §9).
+-- Precios en Bs. (BOB), según la carta oficial de "Don Zarco".
+--
+-- Este seed refleja la carta VIGENTE. Para una base ya existente con el
+-- catálogo anterior (La Fija), la transición la hace 0017_don_zarco_menu.sql.
 -- ============================================================================
 
 insert into menu_items (code, name, category, price, sort_order) values
   -- Platos
-  ('la_fija',          'La Fija',           'plato',  22, 10),
-  ('doble_o_nada',     'Doble o Nada',      'plato',  32, 20),
-  ('hat_trick',        'Hat Trick',         'plato',  42, 30),
-  ('lomito_jackpot',   'Lomito Jackpot',    'plato',  25, 40),
+  ('trancaburguer',    'Trancaburguer',     'plato',  30,  10),
+  ('trancapecho',      'Trancapecho',       'plato',  18,  20),
+  ('salchiburguer',    'Salchiburguer',     'plato',  18,  30),
+  ('hamburguesa',      'Hamburguesa',       'plato',  15,  40),
+  ('lomito',           'Lomito',            'plato',  18,  50),
+  ('salchipapa',       'Salchipapa',        'plato',  18,  60),
   -- Bebidas
-  ('gaseosa_2l',       'Gaseosa 2 L',       'bebida', 18, 50),
-  ('gaseosa_personal', 'Gaseosa personal',  'bebida',  8, 60),
-  ('gaseosa_pequena',  'Gaseosa pequeña',   'bebida',  5, 70),
+  ('gaseosa_2l',       'Gaseosa 2 L',       'bebida', 18,  70),
+  ('gaseosa_personal', 'Gaseosa personal',  'bebida',  8,  80),
+  ('gaseosa_pequena',  'Gaseosa pequeña',   'bebida',  5,  90),
   -- Extras
-  ('tocino',           'Tocino',            'extra',   5, 80),
-  ('porcion_papas',    'Porción de papas',  'extra',  10, 90)
+  ('porcion_papas',    'Porción de papa',   'extra',   7, 100)
 on conflict (code) do nothing;

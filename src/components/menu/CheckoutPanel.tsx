@@ -135,7 +135,7 @@ export function CheckoutPanel({
               className={`mt-1.5 w-full rounded-xl border px-4 py-3 text-base text-zinc-900 outline-none disabled:bg-zinc-50 disabled:text-zinc-500 ${
                 errors.customer_name
                   ? 'border-red-400 focus:border-red-500'
-                  : 'border-zinc-200 focus:border-lafija-green-dark'
+                  : 'border-zinc-200 focus:border-donzarco-red-dark'
               }`}
             />
             {errors.customer_name ? (
@@ -244,7 +244,7 @@ export function CheckoutPanel({
               className={`mt-1.5 w-full resize-none rounded-xl border px-4 py-3 text-base text-zinc-900 outline-none disabled:bg-zinc-50 disabled:text-zinc-500 ${
                 errors.notes
                   ? 'border-red-400 focus:border-red-500'
-                  : 'border-zinc-200 focus:border-lafija-green-dark'
+                  : 'border-zinc-200 focus:border-donzarco-red-dark'
               }`}
             />
             {errors.notes ? (
@@ -323,7 +323,7 @@ export function CheckoutPanel({
               type="button"
               disabled
               aria-busy
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-lafija-green-dark px-5 py-4 text-base font-semibold text-white opacity-60"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white opacity-60"
             >
               <Spinner />
               Enviando pedido…
@@ -341,7 +341,7 @@ export function CheckoutPanel({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-3 w-full rounded-full bg-lafija-green-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active"
+              className="mt-3 w-full rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
             >
               Reintentar pedido
             </button>
@@ -351,7 +351,7 @@ export function CheckoutPanel({
             <button
               type="button"
               onClick={onBackToCart}
-              className="mt-3 w-full rounded-full bg-lafija-green-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active"
+              className="mt-3 w-full rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
             >
               Revisar carrito
             </button>
@@ -359,7 +359,7 @@ export function CheckoutPanel({
             <button
               type="button"
               onClick={onSubmit}
-              className="mt-3 w-full rounded-full bg-lafija-green-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active"
+              className="mt-3 w-full rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
             >
               Confirmar pedido
             </button>
@@ -412,7 +412,7 @@ function DeliveryOption({
       disabled={disabled}
       className={`flex flex-col items-center gap-0.5 rounded-xl border px-3 py-3 transition-colors disabled:opacity-50 ${
         active
-          ? 'border-lafija-green-dark bg-lafija-green-dark text-white'
+          ? 'border-donzarco-red-dark bg-donzarco-red-dark text-white'
           : 'border-zinc-200 bg-white text-zinc-700'
       }`}
     >
@@ -453,7 +453,7 @@ function PaymentOption({
       disabled={disabled}
       className={`flex flex-col items-center gap-0.5 rounded-xl border px-3 py-3 transition-colors disabled:opacity-50 ${
         active
-          ? 'border-lafija-green-dark bg-lafija-green-dark text-white'
+          ? 'border-donzarco-red-dark bg-donzarco-red-dark text-white'
           : 'border-zinc-200 bg-white text-zinc-700'
       }`}
     >

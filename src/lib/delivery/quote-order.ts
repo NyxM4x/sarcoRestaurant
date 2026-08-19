@@ -41,7 +41,7 @@ export interface QuoteOrchestratorDeps {
   /** Carga el pedido (GPS + estado de pricing + destinatario). `null` si no existe. */
   loadForQuote(orderId: string): Promise<QuoteOrderRow | null>;
   /**
-   * Distancia de ruta real La Fija → destino. La implementación server-only ya
+   * Distancia de ruta real Don Zarco → destino. La implementación server-only ya
    * conoce el origen (RESTAURANT_LAT/LNG) y el token; aquí solo llega el destino.
    */
   getDistanceMeters(destination: { lat: number; lng: number }): Promise<MapboxDistanceResult>;

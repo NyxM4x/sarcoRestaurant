@@ -13,19 +13,23 @@
 }
 
 /*
- * Paleta de marca La Fija (identidad futbolera/deportiva). Centralizada aquí
- * para evitar verdes distintos por la interfaz. SOLO se usa en el menú del
- * cliente (`/menu`); el dashboard no la utiliza. Genera utilidades Tailwind
- * como `bg-lafija-green-dark`, `text-lafija-green`, `ring-lafija-green/20`, etc.
+ * Paleta de marca Don Zarco (trancapecho cochabambino). Centralizada aquí para
+ * evitar rojos distintos por la interfaz. SOLO se usa en el menú del cliente
+ * (`/menu`); el dashboard no la utiliza. Genera utilidades Tailwind como
+ * `bg-donzarco-red-dark`, `text-donzarco-red`, `ring-donzarco-red/20`, etc.
+ *
+ * Criterio: fondos y superficies en tonos pastel (crema/durazno) y acentos con
+ * el rojo/naranja vivo del logo, para que botones y llamados a la acción
+ * mantengan contraste suficiente sobre blanco.
  */
 @theme {
-  --color-lafija-green: #1a9d4b;        /* verde principal (cancha) — acento */
-  --color-lafija-green-dark: #0b3d2e;   /* verde oscuro de marca — acciones/zonas */
-  --color-lafija-green-hover: #0e5040;  /* hover del verde oscuro */
-  --color-lafija-green-active: #082a20; /* active/pressed del verde oscuro */
-  --color-lafija-ink: #0b1310;          /* casi negro */
-  --color-lafija-surface: #f3f6f2;      /* fondo claro neutro con tinte verde */
-  --color-lafija-gold: #d8b24a;         /* dorado del emblema — acento mínimo */
+  --color-donzarco-red: #e8481f;        /* rojo del logo — acento principal */
+  --color-donzarco-red-dark: #b32d0c;   /* rojo profundo — acciones/zonas */
+  --color-donzarco-red-hover: #cc3814;  /* hover del rojo oscuro */
+  --color-donzarco-red-active: #8d2208; /* active/pressed del rojo oscuro */
+  --color-donzarco-ink: #2b1108;        /* café casi negro — texto de marca */
+  --color-donzarco-surface: #fff5ef;    /* crema durazno pastel — fondo claro */
+  --color-donzarco-gold: #f9a825;       /* naranja/amarillo del aro — acento */
 }
 
 @media (prefers-color-scheme: dark) {

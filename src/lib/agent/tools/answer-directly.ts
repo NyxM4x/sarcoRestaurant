@@ -30,7 +30,7 @@ import { NO_ARGUMENTS, type AgentTool } from './registry';
  *
  * ── Por qué vive aquí y no en el Business Adapter ───────────────────────────
  *
- * "No hace falta ninguna acción" no es un concepto de La Fija: cualquier
+ * "No hace falta ninguna acción" no es un concepto de Don Zarco: cualquier
  * catálogo de acciones necesita poder decirlo. Lo específico del negocio son
  * `send_menu` y `get_menu_items`, y esos sí viven en `menu-tools.ts`.
  */

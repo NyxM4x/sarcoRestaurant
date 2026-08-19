@@ -41,7 +41,7 @@ export function OrderSuccess({
             {isPickup ? 'Pedido confirmado' : 'Pedido registrado'}
           </h2>
 
-          <p className="mt-1 text-2xl font-bold tracking-wide text-lafija-green-dark tabular-nums">
+          <p className="mt-1 text-2xl font-bold tracking-wide text-donzarco-red-dark tabular-nums">
             {order.order_number}
           </p>
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSelectionContext, type ContextMessage } from '@/lib/agent/core/context';
 import type { AgentModelInput, AgentToolDefinition } from '@/lib/agent/core/model';
 import { createOpenAiModel, OPENAI_RESPONSES_URL } from '@/lib/agent/openai/adapter';
-import { LA_FIJA_MAX_OUTPUT_TOKENS, LA_FIJA_SYSTEM_PROMPT } from '@/lib/agent/business/prompt';
+import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from '@/lib/agent/business/prompt';
 import { createAnswerDirectlyAction } from '@/lib/agent/tools/answer-directly';
 import { createGetMenuItemsTool, createSendMenuTool } from '@/lib/agent/tools/menu-tools';
 
@@ -274,12 +274,12 @@ async function seleccionar(caso: Caso): Promise<Resultado> {
   const openai = createOpenAiModel({ apiKey, model, fetchImpl: contandoTokens });
 
   const messages: AgentModelInput[] = [
-    { role: 'system', content: LA_FIJA_SYSTEM_PROMPT },
+    { role: 'system', content: DON_ZARCO_SYSTEM_PROMPT },
     ...buildSelectionContext(caso.historial ?? [], { inboundText: caso.inbound }),
   ];
 
   const respuesta = await openai.complete(messages, {
-    maxOutputTokens: LA_FIJA_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: DON_ZARCO_MAX_OUTPUT_TOKENS,
     tools: definicionesReales(),
     toolChoice: 'required',
     parallelToolCalls: false,

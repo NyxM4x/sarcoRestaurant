@@ -182,7 +182,10 @@ describe('createKapsoTransport.sendMenuCtaUrl (Fase 5.2A)', () => {
   });
 
   it('los textos son EXACTAMENTE los pedidos', () => {
-    expect(MENU_CTA_BODY_TEXT).toBe('🍔 Mira nuestro menú, elige tus productos y arma tu pedido.');
+    expect(MENU_CTA_BODY_TEXT).toBe(
+      'Hola, soy Don Zarco 👋 Atendemos todos los días de 21:00 a 04:00. ' +
+        'Toca el botón para ver el menú y armar tu pedido.',
+    );
     expect(MENU_CTA_BUTTON_TEXT).toBe('Ver menú');
     expect(MENU_URL).toBe('https://la-fija-orders.vercel.app/menu');
     expect(MENU_COVER_URL).toBe('https://la-fija-orders.vercel.app/menu/menu-cover.jpeg');

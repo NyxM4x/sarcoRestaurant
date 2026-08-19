@@ -15,16 +15,16 @@ export function CartButton({
 }) {
   const productLabel = `${units} ${units === 1 ? 'producto' : 'productos'}`;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-lafija-surface via-lafija-surface/95 to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-donzarco-surface via-donzarco-surface/95 to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Ver carrito: ${productLabel}, total ${formatMoney(total)}`}
-        className="flex w-full items-center justify-between gap-3 rounded-full bg-lafija-green-dark px-5 py-4 text-white shadow-lg shadow-black/20 transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active"
+        className="flex w-full items-center justify-between gap-3 rounded-full bg-donzarco-red-dark px-5 py-4 text-white shadow-lg shadow-black/20 transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
       >
         <span className="flex min-w-0 items-center gap-3">
           <span
-            className="flex h-8 min-w-8 items-center justify-center rounded-full bg-white px-1.5 text-sm font-bold text-lafija-green-dark tabular-nums"
+            className="flex h-8 min-w-8 items-center justify-center rounded-full bg-white px-1.5 text-sm font-bold text-donzarco-red-dark tabular-nums"
             aria-hidden
           >
             {units}

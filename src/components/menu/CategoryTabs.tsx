@@ -27,7 +27,7 @@ export function CategoryTabs({
             onClick={() => onChange(tab.id)}
             className={`shrink-0 rounded-full px-4 py-2.5 text-sm font-semibold transition-colors ${
               selected
-                ? 'bg-lafija-green-dark text-white shadow-sm shadow-lafija-green-dark/30 ring-1 ring-lafija-green-dark'
+                ? 'bg-donzarco-red-dark text-white shadow-sm shadow-donzarco-red-dark/30 ring-1 ring-donzarco-red-dark'
                 : 'bg-white text-zinc-600 ring-1 ring-zinc-200 hover:bg-zinc-50'
             }`}
           >

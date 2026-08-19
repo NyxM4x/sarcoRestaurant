@@ -133,9 +133,20 @@ export function buildImagePayload(toDigits: string, imageUrl: string, caption: s
 
 // ── CTA URL "Ver menú" (Fase 5.2A) ───────────────────────────────────────
 
-/** Texto del cuerpo del mensaje interactivo con el botón del menú. */
+/**
+ * Texto del cuerpo del mensaje interactivo con el botón del menú.
+ *
+ * Va SIEMPRE acompañado del botón "Ver menú" en el mismo mensaje: por eso aquí
+ * sí se puede pedir que lo toquen. En un mensaje de texto suelto esa frase
+ * sería una promesa falsa (no habría ningún botón que tocar).
+ *
+ * El horario se repite aquí a propósito, porque este suele ser el primer
+ * mensaje que recibe un cliente nuevo. Su fuente es `BUSINESS_HOURS`
+ * (`src/lib/agent/business/facts.ts`): si cambia el horario, cambiar ambos.
+ */
 export const MENU_CTA_BODY_TEXT =
-  '🍔 Mira nuestro menú, elige tus productos y arma tu pedido.';
+  'Hola, soy Don Zarco 👋 Atendemos todos los días de 21:00 a 04:00. ' +
+  'Toca el botón para ver el menú y armar tu pedido.';
 
 /** Etiqueta del botón (WhatsApp la limita a 20 caracteres). */
 export const MENU_CTA_BUTTON_TEXT = 'Ver menú';

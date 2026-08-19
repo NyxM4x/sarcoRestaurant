@@ -60,7 +60,7 @@ function Brand() {
     <div className="flex items-center gap-2.5 px-5 py-5">
       <span className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-900 text-sm font-bold text-white shadow-sm dark:bg-white dark:text-zinc-900">LF</span>
       <span className="flex flex-col leading-tight">
-        <span className="text-base font-semibold tracking-tight">La Fija</span>
+        <span className="text-base font-semibold tracking-tight">Don Zarco</span>
         <span className="text-[11px] text-zinc-400">Panel operativo</span>
       </span>
     </div>
@@ -96,7 +96,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Barra superior móvil */}
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-black/[0.07] bg-white/90 px-4 py-3 backdrop-blur dark:border-white/10 dark:bg-zinc-950/90 lg:hidden">
         <button type="button" onClick={() => setOpen(true)} aria-label="Abrir menú" className="rounded-lg p-2 text-zinc-600 hover:bg-black/5 dark:text-zinc-300 dark:hover:bg-white/10">☰</button>
-        <span className="text-sm font-semibold">La Fija</span>
+        <span className="text-sm font-semibold">Don Zarco</span>
         <span className="w-9" />
       </div>
 

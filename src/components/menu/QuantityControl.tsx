@@ -26,7 +26,7 @@ export function QuantityControl({
       : 'h-10 w-10 text-lg';
 
   return (
-    <div className="inline-flex items-center gap-1 rounded-full bg-lafija-green-dark p-1 text-white">
+    <div className="inline-flex items-center gap-1 rounded-full bg-donzarco-red-dark p-1 text-white">
       <button
         type="button"
         onClick={onRemove}

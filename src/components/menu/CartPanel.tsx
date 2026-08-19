@@ -140,7 +140,7 @@ export function CartPanel({
             onClick={onContinue}
             disabled={!canCheckout}
             aria-describedby={checkoutNotice ? 'cart-checkout-notice' : undefined}
-            className="mt-4 w-full rounded-full bg-lafija-green-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active disabled:pointer-events-none disabled:opacity-40"
+            className="mt-4 w-full rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active disabled:pointer-events-none disabled:opacity-40"
           >
             Continuar pedido
           </button>

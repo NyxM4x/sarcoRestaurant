@@ -10,8 +10,8 @@ import { MenuHeader } from '@/components/menu/MenuHeader';
 import { MenuStore } from '@/components/menu/MenuStore';
 
 export const metadata: Metadata = {
-  title: 'La Fija — Menú',
-  description: 'Menú de La Fija: hamburguesas, bebidas y extras. Pide por WhatsApp.',
+  title: 'Don Zarco — Menú',
+  description: 'Menú de Don Zarco: platos, bebidas y extras. Pide por WhatsApp.',
 };
 
 export const viewport: Viewport = {
@@ -73,7 +73,7 @@ export default async function MenuPage(props: {
   }
 
   return (
-    <main className="flex-1 bg-lafija-surface text-zinc-900">
+    <main className="flex-1 bg-donzarco-surface text-zinc-900">
       <MenuHeader />
 
       {items === null ? (
@@ -99,7 +99,7 @@ export default async function MenuPage(props: {
 /** Sesión expirada o inválida. */
 function MenuSessionExpired() {
   return (
-    <div className="flex-1 bg-lafija-surface px-4 py-16">
+    <div className="flex-1 bg-donzarco-surface px-4 py-16">
       <div className="mx-auto max-w-sm rounded-2xl bg-white px-6 py-10 text-center ring-1 ring-zinc-200">
         <span className="text-4xl" aria-hidden>
           ⏱️

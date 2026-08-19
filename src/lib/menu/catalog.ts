@@ -16,18 +16,18 @@ export type CategoryFilter = 'all' | MenuCategory;
 
 export const CATEGORY_TABS: ReadonlyArray<{ id: CategoryFilter; label: string }> = [
   { id: 'all', label: 'Todo' },
-  { id: 'plato', label: 'Hamburguesas' },
+  { id: 'plato', label: 'Platos' },
   { id: 'bebida', label: 'Bebidas' },
   { id: 'extra', label: 'Extras' },
 ] as const;
 
 const CATEGORY_LABELS: Record<MenuCategory, string> = {
-  plato: 'Hamburguesas',
+  plato: 'Platos',
   bebida: 'Bebidas',
   extra: 'Extras',
 };
 
-/** Etiqueta visible de una categoría del esquema (`plato` → `Hamburguesas`). */
+/** Etiqueta visible de una categoría del esquema (`plato` → `Platos`). */
 export function categoryLabel(category: MenuCategory): string {
   return CATEGORY_LABELS[category];
 }
@@ -41,14 +41,15 @@ export function categoryLabel(category: MenuCategory): string {
  * muestra descripción (y la búsqueda solo lo encuentra por nombre).
  */
 const PRODUCT_DESCRIPTIONS: Record<string, string> = {
-  la_fija: 'Hamburguesa simple de carne, queso y salsa de la casa.',
-  doble_o_nada: 'Doble carne, doble queso. Para el que viene con hambre.',
-  hat_trick: 'Triple carne, triple queso. El pedido de los valientes.',
-  lomito_jackpot: 'Lomito jugoso con verduras frescas y salsa especial.',
+  trancaburguer: 'Nuestro grande: hamburguesa con milanesa, huevo y salchicha.',
+  trancapecho: 'El clásico cochabambino: carne, huevo, arroz y ensalada.',
+  salchiburguer: 'Hamburguesa con salchicha, huevo y ensalada fresca.',
+  hamburguesa: 'Hamburguesa de carne con ensalada y salsa de la casa.',
+  lomito: 'Lomito jugoso en pan francés con verduras frescas.',
+  salchipapa: 'Papas fritas con salchicha dorada al sartén.',
   gaseosa_2l: 'Botella de 2 litros para compartir.',
   gaseosa_personal: 'Botella personal bien helada.',
   gaseosa_pequena: 'Vaso pequeño para acompañar.',
-  tocino: 'Porción extra de tocino crocante.',
   porcion_papas: 'Papas fritas doradas con sal.',
 };
 
@@ -62,7 +63,8 @@ export function productDescription(code: string): string | null {
 /**
  * Foto de cada producto, mapeada por `code`.
  *
- * Los 9 productos actuales tienen su foto real en `public/menu/` (WebP). El
+ * Los diez productos del catálogo tienen su foto real en `public/menu/`
+ * (WebP). El
  * `emoji` se conserva como fallback: si una foto falla al cargar, `ProductImage`
  * cae al placeholder (gradiente + emoji) vía `onError`.
  *
@@ -81,19 +83,20 @@ export interface ProductImage {
 }
 
 const PRODUCT_IMAGES: Record<string, ProductImage> = {
-  la_fija: { src: '/menu/la-fija.webp', file: 'la-fija.webp', emoji: '🍔' },
-  doble_o_nada: { src: '/menu/doble-o-nada.webp', file: 'doble-o-nada.webp', emoji: '🍔' },
-  hat_trick: { src: '/menu/hat-trick.webp', file: 'hat-trick.webp', emoji: '🍔' },
-  lomito_jackpot: { src: '/menu/lomito-jackpot.webp', file: 'lomito-jackpot.webp', emoji: '🥪' },
+  trancaburguer: { src: '/menu/trancaburguer.webp', file: 'trancaburguer.webp', emoji: '🍔' },
+  trancapecho: { src: '/menu/trancapecho.webp', file: 'trancapecho.webp', emoji: '🥪' },
+  salchiburguer: { src: '/menu/salchiburguer.webp', file: 'salchiburguer.webp', emoji: '🌭' },
+  hamburguesa: { src: '/menu/hamburguesa.webp', file: 'hamburguesa.webp', emoji: '🍔' },
+  lomito: { src: '/menu/lomito.webp', file: 'lomito.webp', emoji: '🥪' },
+  salchipapa: { src: '/menu/salchipapa.webp', file: 'salchipapa.webp', emoji: '🍟' },
   gaseosa_2l: { src: '/menu/gaseosa-2l.webp', file: 'gaseosa-2l.webp', emoji: '🥤' },
   gaseosa_personal: { src: '/menu/gaseosa-personal.webp', file: 'gaseosa-personal.webp', emoji: '🥤' },
   gaseosa_pequena: { src: '/menu/gaseosa-peque.webp', file: 'gaseosa-peque.webp', emoji: '🥤' },
-  tocino: { src: '/menu/tocino.webp', file: 'tocino.webp', emoji: '🥓' },
   porcion_papas: { src: '/menu/porcion-papas.webp', file: 'porcion-papas.webp', emoji: '🍟' },
 };
 
 const FALLBACK_EMOJI: Record<MenuCategory, string> = {
-  plato: '🍔',
+  plato: '🥪',
   bebida: '🥤',
   extra: '🍟',
 };

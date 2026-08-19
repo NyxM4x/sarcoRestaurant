@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Configuración — La Fija Orders',
+  title: 'Configuración — Don Zarco Orders',
 };
 
 /**

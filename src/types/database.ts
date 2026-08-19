@@ -1,5 +1,5 @@
 /**
- * Tipos del modelo de datos de La Fija Orders.
+ * Tipos del modelo de datos de Don Zarco Orders.
  *
  * Reflejan el esquema definido en `supabase/migrations/0001_init.sql`.
  * Se mantienen a mano en la Fase 1; en fases posteriores pueden

@@ -9,7 +9,7 @@ el **modelo real**, a mano o en un runner aparte.
 > reglas están en el prompt y que el prompt encabeza cada turno— se prueba en
 > `src/lib/agent/business/prompt.test.ts` y `src/lib/agent/core/run.test.ts`.
 
-Cuándo volver a pasarlo: al cambiar `LA_FIJA_SYSTEM_PROMPT`, al cambiar
+Cuándo volver a pasarlo: al cambiar `DON_ZARCO_SYSTEM_PROMPT`, al cambiar
 `OPENAI_MODEL`, y antes de ampliar el agente a teléfonos reales.
 
 ## Cómo ejecutarlo sin engañarse

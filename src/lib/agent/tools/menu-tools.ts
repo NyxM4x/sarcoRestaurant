@@ -55,7 +55,7 @@ export function createGetMenuItemsTool(catalog: MenuCatalogPort): AgentTool {
     definition: {
       name: GET_MENU_ITEMS,
       description:
-        'Consulta el menú real de La Fija: nombre, precio y categoría de cada ' +
+        'Consulta el menú real de Don Zarco: nombre, precio y categoría de cada ' +
         'producto disponible. Úsala SOLO para una pregunta PUNTUAL sobre uno o ' +
         'dos productos concretos QUE EL CLIENTE HAYA NOMBRADO: cuánto cuesta ' +
         'algo, si existe tal producto. Los productos los acota el cliente, no ' +
@@ -140,7 +140,7 @@ export function createSendMenuTool(dispatcher: MenuDispatchPort): AgentTool {
     definition: {
       name: SEND_MENU,
       description:
-        'Envía al cliente el menú interactivo de La Fija por WhatsApp. Úsala ' +
+        'Envía al cliente el menú interactivo de Don Zarco por WhatsApp. Úsala ' +
         'SIEMPRE que la respuesta tendría que enumerar VARIOS productos, una ' +
         'CATEGORÍA entera o lo que hay disponible: "qué tienen?", "qué ' +
         'hamburguesas hay?", "qué bebidas tienen?", "qué extras hay?", "qué ' +

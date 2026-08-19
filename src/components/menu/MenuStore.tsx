@@ -173,7 +173,7 @@ export function MenuStore({
   return (
     <>
       {/* Barra fija: fondo a todo el ancho, contenido centrado con el catálogo. */}
-      <div className="sticky top-0 z-20 bg-lafija-surface px-4 pt-4 pb-3">
+      <div className="sticky top-0 z-20 bg-donzarco-surface px-4 pt-4 pb-3">
         <div className="mx-auto max-w-5xl space-y-3">
           <SearchBar value={query} onChange={setQuery} />
           <CategoryTabs active={category} onChange={setCategory} />
@@ -184,8 +184,8 @@ export function MenuStore({
         {hasResults ? (
           groups.map((group) => (
             <section key={group.category} aria-label={group.label}>
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wide text-lafija-green-dark uppercase">
-                <span className="h-4 w-1 rounded-full bg-lafija-green" aria-hidden />
+              <h2 className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wide text-donzarco-red-dark uppercase">
+                <span className="h-4 w-1 rounded-full bg-donzarco-red" aria-hidden />
                 {group.label}
               </h2>
               {/* Móvil: 1 columna (igual que antes). Tablet: 2. Desktop amplio: 3. */}

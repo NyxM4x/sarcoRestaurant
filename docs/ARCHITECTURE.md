@@ -1,4 +1,4 @@
-# ARCHITECTURE — La Fija Orders
+# ARCHITECTURE — Don Zarco Orders
 
 Resumen de la arquitectura y del estado actual (**Fase 1 — Base**). La
 especificación completa está en `IDEA.md` (raíz del repo `DeliveryWa`).

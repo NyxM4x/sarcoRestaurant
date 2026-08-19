@@ -1,5 +1,5 @@
 /**
- * Tarifario de delivery de La Fija (Fase 6D.2A) — módulo PURO.
+ * Tarifario de delivery de Don Zarco (Fase 6D.2A) — módulo PURO.
  *
  * Trabaja EXCLUSIVAMENTE con metros enteros: la decisión de escalón nunca usa
  * coma flotante para elegir el tramo (solo una división entera dentro de `ceil`).

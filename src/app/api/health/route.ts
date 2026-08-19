@@ -7,5 +7,5 @@ import { NextResponse } from 'next/server';
  * versiones internas: solo confirma que el proceso de Next.js responde.
  */
 export async function GET(): Promise<Response> {
-  return NextResponse.json({ ok: true, service: 'la-fija-orders' });
+  return NextResponse.json({ ok: true, service: 'don-zarco-orders' });
 }

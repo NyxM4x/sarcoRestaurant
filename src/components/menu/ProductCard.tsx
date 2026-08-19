@@ -27,7 +27,7 @@ export function ProductCard({
   return (
     <article
       className={`flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 transition-shadow hover:shadow-md ${
-        inCart ? 'ring-2 ring-lafija-green-dark' : 'ring-zinc-200 hover:ring-lafija-green/40'
+        inCart ? 'ring-2 ring-donzarco-red-dark' : 'ring-zinc-200 hover:ring-donzarco-red/40'
       } ${available ? '' : 'opacity-70'}`}
     >
       <ProductImage
@@ -46,7 +46,7 @@ export function ProductCard({
         ) : null}
 
         <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-          <span className="text-lg font-extrabold text-lafija-green-dark tabular-nums">
+          <span className="text-lg font-extrabold text-donzarco-red-dark tabular-nums">
             {formatMoney(item.price)}
           </span>
 
@@ -66,7 +66,7 @@ export function ProductCard({
               type="button"
               onClick={onAdd}
               aria-label={`Agregar ${item.name} al carrito`}
-              className="rounded-full bg-lafija-green-dark px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-lafija-green-hover active:bg-lafija-green-active"
+              className="rounded-full bg-donzarco-red-dark px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
             >
               Agregar
             </button>

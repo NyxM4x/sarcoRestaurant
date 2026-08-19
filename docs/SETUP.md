@@ -1,4 +1,4 @@
-# SETUP — La Fija Orders
+# SETUP — Don Zarco Orders
 
 Guía para levantar el proyecto en local y preparar Supabase. El backend
 (`/api/flow/order-summary`, `/api/kapso/webhook` con `nfm_reply` y `location`)
@@ -11,7 +11,7 @@ Kapso — ver [ROADMAP](#próximos-pasos). Para desplegar en Vercel, ver
 
 - Node.js 18.18+ (probado con Node 24).
 - npm.
-- Una cuenta de Supabase (se creará un proyecto **exclusivo** para La Fija).
+- Una cuenta de Supabase (se creará un proyecto **exclusivo** para Don Zarco).
 
 ## 1. Instalar y correr en local
 
@@ -59,29 +59,58 @@ Scripts:
 
 ## 3. Configurar Supabase (manual)
 
-> ⚠️ En esta fase **no** se ejecutan migraciones desde el código ni se usan
-> credenciales reales. Los siguientes pasos son manuales, para cuando exista el
-> proyecto exclusivo de La Fija.
+> ⚠️ Las migraciones **no** se ejecutan desde el código: se aplican a mano.
+> Los siguientes pasos son para el proyecto exclusivo de Don Zarco.
 
 1. Crea un **proyecto nuevo y exclusivo** en Supabase (no reutilizar otros).
-2. Aplica el esquema. Opciones:
+2. Aplica el esquema **completo**, en orden numérico estricto.
 
-   - **SQL Editor** (Dashboard de Supabase): pega y ejecuta, en orden:
-     1. [`supabase/migrations/0001_init.sql`](../supabase/migrations/0001_init.sql)
-     2. [`supabase/seed.sql`](../supabase/seed.sql)
+   No basta con `0001_init.sql`: cada migración posterior añade tablas,
+   funciones y RPCs de los que depende el código. Saltarse una no da error al
+   aplicarla — falla más tarde, en runtime, la primera vez que alguien intenta
+   hacer un pedido.
+
+   - **SQL Editor** (Dashboard de Supabase): pega y ejecuta, uno por uno:
+
+     | # | Archivo | Qué agrega |
+     |---|---|---|
+     | 1 | `0001_init.sql` | `menu_items`, `orders`, `order_items`, `webhook_events` |
+     | 2 | `0002_menu_sessions.sql` | `menu_sessions` |
+     | 3 | `0003_web_checkout.sql` | RPC de checkout web |
+     | 4 | `0004_order_notifications.sql` | `order_notifications` |
+     | 5 | `0005_order_notification_recovery.sql` | recuperación y reintentos |
+     | 6 | `0006_discover_stale_reconciling_notifications.sql` | detección de colgadas |
+     | 7 | `0007_notification_alert_claims.sql` | claims de alerta |
+     | 8 | `0008_payment_method.sql` | método de pago |
+     | 9 | `0009_dynamic_delivery.sql` | delivery dinámico |
+     | 10 | `0010_delivery_quote_result.sql` | resultado de cotización |
+     | 11 | `0011_fix_delivery_quote_result_guard_order.sql` | corrección del guard |
+     | 12 | `0012_add_order_received_notification.sql` | aviso de pedido recibido |
+     | 13 | `0013_dynamic_delivery_notifications.sql` | notificaciones de delivery |
+     | 14 | `0014_agent_foundation.sql` | tablas del agente de WhatsApp |
+     | 15 | `0015_menu_send_deliveries.sql` | `menu_send_deliveries` |
+     | 16 | `0016_webhook_events_durable_inbox.sql` | inbox durable de webhooks |
+     | 17 | [`supabase/seed.sql`](../supabase/seed.sql) | **la carta de Don Zarco** |
+     | 18 | `0017_don_zarco_menu.sql` | ver nota de abajo |
 
    - **Supabase CLI** (si lo usas localmente):
      ```bash
-     supabase db push          # aplica migraciones
+     supabase db push          # aplica las 17 migraciones en orden
      # luego ejecuta el seed manualmente (SQL Editor o psql)
      ```
+
+   > **Sobre `0017_don_zarco_menu.sql` en una base nueva:** es la migración que
+   > convirtió el catálogo de La Fija al de Don Zarco. En una base nueva no hace
+   > falta —`seed.sql` ya trae la carta correcta— pero aplicarla es inocuo
+   > (es idempotente) y deja el historial de migraciones alineado con el repo.
+   > Si la aplicas, hazlo al final.
 
 3. Copia `Project URL` y `service_role key` a `.env.local`
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
 
 ### Notas del esquema
 
-- **RLS habilitado** en las 4 tablas, **sin políticas públicas**. El backend usa
+- **RLS habilitado** en las 11 tablas, **sin políticas públicas**. El backend usa
   `service_role` (omite RLS); el acceso anónimo queda cerrado por defecto.
 - **Idempotencia**: `orders.source_message_id` y `webhook_events.event_id` son
   únicos → los reintentos no duplican pedidos.

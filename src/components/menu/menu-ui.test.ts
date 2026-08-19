@@ -114,7 +114,7 @@ describe('6B.1R — header sin datos inventados', () => {
     ]) {
       expect(s, fake).not.toContain(fake);
     }
-    expect(s).toContain('La Fija'); // sí conserva la marca
+    expect(s).toContain('Don Zarco'); // sí conserva la marca
   });
 });
 
@@ -263,7 +263,7 @@ describe('6B.2A — catálogo responsive (grid)', () => {
 describe('6B.2A — sticky y sesión intactos', () => {
   it('la barra de búsqueda + categorías sigue sticky con fondo propio', () => {
     const s = comp('MenuStore');
-    expect(s).toMatch(/sticky top-0[^"]*bg-lafija-surface/);
+    expect(s).toMatch(/sticky top-0[^"]*bg-donzarco-surface/);
     expect(s).toContain('<SearchBar');
     expect(s).toContain('<CategoryTabs');
   });

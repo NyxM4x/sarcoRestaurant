@@ -36,7 +36,7 @@ refuerzan entre sí:
 
 | Control | Valor | Dónde |
 |---|---|---|
-| `max_output_tokens` | `300` | `LA_FIJA_MAX_OUTPUT_TOKENS`, con el mismo valor por defecto en el adaptador |
+| `max_output_tokens` | `300` | `DON_ZARCO_MAX_OUTPUT_TOKENS`, con el mismo valor por defecto en el adaptador |
 | `text.verbosity` | `low` | adaptador |
 | `reasoning.effort` | `none` | adaptador |
 | Prompt | "una o dos frases" | Business Adapter |

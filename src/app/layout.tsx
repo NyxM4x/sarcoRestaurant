@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "La Fija Orders",
-  description: "Sistema de pedidos por WhatsApp para La Fija.",
+  title: "Don Zarco Orders",
+  description: "Sistema de pedidos por WhatsApp para Don Zarco.",
 };
 
 export default function RootLayout({

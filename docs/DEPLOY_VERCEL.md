@@ -1,4 +1,4 @@
-# DEPLOY_VERCEL — Primer deploy manual de La Fija Orders
+# DEPLOY_VERCEL — Primer deploy manual de Don Zarco Orders
 
 Guía paso a paso para el **primer deploy manual** en Vercel. Este documento no
 ejecuta ninguna acción por sí mismo: cada paso lo realizas tú, manualmente, en
@@ -17,7 +17,7 @@ tu momento.
 ## 1. Revisar `git status`
 
 ```bash
-cd la-fija-orders
+cd don-zarco-orders
 git status
 ```
 
@@ -58,11 +58,11 @@ Ver la sección "Git" del reporte de esta fase para una propuesta de mensaje.
 ## 5. Verificar el Root Directory
 
 Si el repositorio de GitHub tiene `IDEA.md` en la raíz y el proyecto Next.js
-vive en `la-fija-orders/`, en la pantalla de configuración de Vercel:
+vive en `don-zarco-orders/`, en la pantalla de configuración de Vercel:
 
-- **Root Directory** → `la-fija-orders`.
+- **Root Directory** → `don-zarco-orders`.
 
-Si el repositorio que subiste ya tiene `la-fija-orders/` como raíz, deja
+Si el repositorio que subiste ya tiene `don-zarco-orders/` como raíz, deja
 `Root Directory` vacío (`.`). Verifica que Vercel detecte automáticamente
 **Next.js** como framework antes de continuar.
 
@@ -73,7 +73,7 @@ En **Project Settings → Environment Variables**, agrega (ver también
 
 | Variable | Obligatoria | Notas |
 |---|---|---|
-| `SUPABASE_URL` | ✅ | Del proyecto Supabase exclusivo de La Fija. |
+| `SUPABASE_URL` | ✅ | Del proyecto Supabase exclusivo de Don Zarco. |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | **Secreto.** Nunca la pegues en un chat, issue o log. |
 | `VERCEL_INTERNAL_TOKEN` | ✅ | Genera un valor aleatorio largo tú mismo (no proviene de Kapso). |
 | `KAPSO_API_KEY` | ✅ | Del panel de Kapso. |
@@ -81,6 +81,14 @@ En **Project Settings → Environment Variables**, agrega (ver también
 | `KAPSO_PHONE_NUMBER_ID` | ✅ | Del panel de Kapso. |
 | `KAPSO_API_BASE_URL` | ⬜ | **Omítela.** Sin esta variable, el cliente usa la URL oficial de Kapso por defecto. |
 | `APP_BASE_URL` | ✅ | Déjala provisional (p. ej. `https://placeholder.vercel.app`) — la actualizas en el paso 10 con el dominio real. |
+| `MENU_SESSION_SECRET` | ✅ | Firma los tokens de sesión del menú. Genera uno con `openssl rand -hex 32`. |
+| `MAPBOX_ACCESS_TOKEN` | ✅ | Del panel de Mapbox. Sin ella el checkout no puede cotizar el envío. |
+| `RESTAURANT_LAT` | ✅ | Origen de la ruta. Don Zarco: `-17.811417`. |
+| `RESTAURANT_LNG` | ✅ | Origen de la ruta. Don Zarco: `-63.208222`. |
+| `DASHBOARD_PASSWORD` | ✅ | Contraseña compartida del panel interno. Sin ella el dashboard queda cerrado. |
+| `DASHBOARD_SESSION_SECRET` | ✅ | Mínimo 32 caracteres; firma la cookie de sesión del panel. |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | ⬜ | Opcionales. Sin ellas el worker simplemente no envía alertas. |
+| `AI_ENABLED`, `AI_ACCESS_MODE`, `AI_TEST_PHONES`, `OPENAI_API_KEY` | ⬜ | Opcionales. Si falta cualquiera, el agente de WhatsApp queda apagado y el sistema funciona igual que sin él. |
 
 Marca todas para los entornos que uses (mínimo **Production**).
 
@@ -95,7 +103,7 @@ push a la rama configurada). Espera a que el build termine en verde.
 - Abre `https://<tu-deployment>.vercel.app/api/health` — debe responder:
 
   ```json
-  { "ok": true, "service": "la-fija-orders" }
+  { "ok": true, "service": "don-zarco-orders" }
   ```
 
 ## 9. Comprobar que `/api/kapso/webhook` rechaza requests sin firma

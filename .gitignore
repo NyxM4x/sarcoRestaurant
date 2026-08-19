@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...salvo la plantilla sin secretos, que SÍ debe viajar con el repo: el código
+# remite a ella cuando falta una variable.
+!.env.example
 
 # vercel
 .vercel

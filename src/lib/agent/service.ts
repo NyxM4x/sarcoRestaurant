@@ -19,7 +19,7 @@ import { persistCustomerInbound } from './memory/persist-inbound';
 import { runAgentTurn } from './core/run';
 import { createOpenAiModel, OPENAI_DEFAULT_MODEL } from './openai/adapter';
 import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
-import { LA_FIJA_MAX_OUTPUT_TOKENS, LA_FIJA_SYSTEM_PROMPT } from './business/prompt';
+import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './business/prompt';
 import {
   parseAccessMode,
   parseTestPhones,
@@ -85,9 +85,9 @@ export function createAgentChannel(): AgentChannelPort {
           }),
           send: createKapsoSendPort(),
           config: readAgentEligibility(),
-          // El prompt viene del Business Adapter: el core no sabe de La Fija.
-          systemPrompt: LA_FIJA_SYSTEM_PROMPT,
-          maxOutputTokens: LA_FIJA_MAX_OUTPUT_TOKENS,
+          // El prompt viene del Business Adapter: el core no sabe de Don Zarco.
+          systemPrompt: DON_ZARCO_SYSTEM_PROMPT,
+          maxOutputTokens: DON_ZARCO_MAX_OUTPUT_TOKENS,
           actions: createAgentActions(),
           // Vision (5C.5). Su ausencia sería el interruptor de apagado: sin
           // resolver, el turno no mira ninguna foto y avisa de que no pudo.
@@ -100,7 +100,7 @@ export function createAgentChannel(): AgentChannelPort {
 }
 
 /**
- * CATÁLOGO DE ACCIONES de La Fija (Fases 6D.2F.5B y 6D.2F.5B.1).
+ * CATÁLOGO DE ACCIONES de Don Zarco (Fases 6D.2F.5B y 6D.2F.5B.1).
  *
  * El modelo elige exactamente UNA por turno. Qué acciones existen es decisión
  * del negocio y por eso vive aquí: el core solo sabe que hay una lista, que hay
