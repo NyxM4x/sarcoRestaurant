@@ -11,7 +11,7 @@ export function LoginForm({ configured }: { configured: boolean }) {
   return (
     <form action={formAction} className="w-full max-w-sm rounded-2xl border border-black/[0.07] bg-white p-8 shadow-sm dark:border-white/10 dark:bg-zinc-900">
       <div className="mb-6 flex flex-col items-center gap-2">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-zinc-900 text-base font-bold text-white dark:bg-white dark:text-zinc-900">LF</span>
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-zinc-900 text-base font-bold text-white dark:bg-white dark:text-zinc-900">DZ</span>
         <h1 className="text-lg font-semibold tracking-tight">Don Zarco · Panel</h1>
         <p className="text-sm text-zinc-500">Acceso interno del restaurante</p>
       </div>

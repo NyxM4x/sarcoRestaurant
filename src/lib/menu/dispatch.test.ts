@@ -26,7 +26,7 @@ const PHONE = '59162139119';
 const WAMID_IN = 'wamid.IN_1';
 const WAMID_CTA = 'wamid.CTA_1';
 const NOW = '2026-08-15T12:00:00.000Z';
-const MENU_URL = 'https://la-fija-orders.vercel.app/menu?session=TOKEN_SECRETO';
+const MENU_URL = 'https://sarco-restaurant.vercel.app/menu?session=TOKEN_SECRETO';
 
 interface FakeDelivery {
   id: string;

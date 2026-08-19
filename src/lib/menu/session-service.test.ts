@@ -4,7 +4,7 @@ import { generateMenuSessionToken, hashMenuSessionToken } from './session-token'
 import type { MenuSession } from '@/types';
 
 const SECRET = 'test-secret-menu-session';
-const APP = 'https://la-fija-orders.vercel.app';
+const APP = 'https://sarco-restaurant.vercel.app';
 
 function session(over: Partial<MenuSession> = {}): MenuSession {
   const sourceId = over.source_message_id ?? 'wamid.OLD';

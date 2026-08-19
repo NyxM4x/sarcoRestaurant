@@ -187,8 +187,8 @@ describe('createKapsoTransport.sendMenuCtaUrl (Fase 5.2A)', () => {
         'Toca el botón para ver el menú y armar tu pedido.',
     );
     expect(MENU_CTA_BUTTON_TEXT).toBe('Ver menú');
-    expect(MENU_URL).toBe('https://la-fija-orders.vercel.app/menu');
-    expect(MENU_COVER_URL).toBe('https://la-fija-orders.vercel.app/menu/menu-cover.jpeg');
+    expect(MENU_URL).toBe('https://sarco-restaurant.vercel.app/menu');
+    expect(MENU_COVER_URL).toBe('https://sarco-restaurant.vercel.app/menu/menu-cover.jpeg');
   });
 
   it('6D.2E: header image + el session_token viaja SOLO en la URL (no en body/header)', async () => {
@@ -198,7 +198,7 @@ describe('createKapsoTransport.sendMenuCtaUrl (Fase 5.2A)', () => {
       fetchImpl: fakeFetch(200, { messages: [{ id: 'wamid.CTA_TOK' }] }, captured),
     });
 
-    const menuUrl = 'https://la-fija-orders.vercel.app/menu?session=TOKEN_SECRETO_123';
+    const menuUrl = 'https://sarco-restaurant.vercel.app/menu?session=TOKEN_SECRETO_123';
     await client.sendMenuCtaUrl('59170000001', { menuUrl });
 
     const interactive = (captured[0].body as { interactive: Record<string, unknown> }).interactive;
@@ -570,7 +570,7 @@ describe('createKapsoTransport.sendImage (6D.1)', () => {
 
     const res = await client.sendImage(
       '59170000001',
-      'https://la-fija-orders.vercel.app/payment/qr.png',
+      'https://sarco-restaurant.vercel.app/payment/qr.png',
       'Pedido ORD-000042: paga con QR',
     );
     expect(res).toEqual({ ok: true, wamid: 'wamid.IMG_1' });
@@ -582,7 +582,7 @@ describe('createKapsoTransport.sendImage (6D.1)', () => {
       to: '59170000001',
       type: 'image',
       image: {
-        link: 'https://la-fija-orders.vercel.app/payment/qr.png',
+        link: 'https://sarco-restaurant.vercel.app/payment/qr.png',
         caption: 'Pedido ORD-000042: paga con QR',
       },
     });

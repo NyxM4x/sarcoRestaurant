@@ -281,7 +281,7 @@ describe('6D.1 — confirmación según método de pago', () => {
     expect(h.log).not.toContain('sendText'); // un solo mensaje, no texto aparte
     expect(h.sentImages).toHaveLength(1);
     const img = h.sentImages[0];
-    expect(img.imageUrl).toBe('https://la-fija-orders.vercel.app/payment/qr.png');
+    expect(img.imageUrl).toBe('https://sarco-restaurant.vercel.app/payment/qr.png');
     // El caption lleva el número de pedido (clave de reconciliación) y la indicación de pago.
     expect(img.caption).toContain('ORD-000042');
     expect(img.caption).toContain('QR');

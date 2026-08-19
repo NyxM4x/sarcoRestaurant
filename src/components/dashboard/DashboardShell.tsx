@@ -58,7 +58,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-5 py-5">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-900 text-sm font-bold text-white shadow-sm dark:bg-white dark:text-zinc-900">LF</span>
+      <span className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-900 text-sm font-bold text-white shadow-sm dark:bg-white dark:text-zinc-900">DZ</span>
       <span className="flex flex-col leading-tight">
         <span className="text-base font-semibold tracking-tight">Don Zarco</span>
         <span className="text-[11px] text-zinc-400">Panel operativo</span>

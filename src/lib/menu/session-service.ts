@@ -55,7 +55,7 @@ function defaultDeps(): MenuSessionServiceDeps {
 
   const repo = createMenuSessionRepository(getSupabaseAdmin());
   return {
-    appBaseUrl: env.APP_BASE_URL ?? 'https://la-fija-orders.vercel.app',
+    appBaseUrl: env.APP_BASE_URL ?? 'https://sarco-restaurant.vercel.app',
     secret,
     envPhoneNumberId: env.KAPSO_PHONE_NUMBER_ID ?? null,
     findValidByPhone: (phone) => repo.findValidByPhone(phone),

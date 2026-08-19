@@ -91,7 +91,7 @@ export function buildTextPayload(toDigits: string, text: string) {
  * `http://localhost:3000`, inaccesible desde el teléfono. Fuente única: si
  * cambia el dominio del deployment, cambiar aquí.
  */
-export const PAYMENT_QR_URL = 'https://la-fija-orders.vercel.app/payment/qr.png';
+export const PAYMENT_QR_URL = 'https://sarco-restaurant.vercel.app/payment/qr.png';
 
 /**
  * Texto para el cliente cuando su ubicación queda FUERA de la zona de delivery
@@ -157,7 +157,7 @@ export const MENU_CTA_BUTTON_TEXT = 'Ver menú';
  * NO admite WebP en mensajes tipo imagen (solo stickers). Fuente única: si cambia
  * el dominio del deployment, cambiar aquí.
  */
-export const MENU_COVER_URL = 'https://la-fija-orders.vercel.app/menu/menu-cover.jpeg';
+export const MENU_COVER_URL = 'https://sarco-restaurant.vercel.app/menu/menu-cover.jpeg';
 
 /**
  * URL de la tienda. Es una constante y NO se deriva de `APP_BASE_URL` a
@@ -165,7 +165,7 @@ export const MENU_COVER_URL = 'https://la-fija-orders.vercel.app/menu/menu-cover
  * vale `http://localhost:3000`, que abriría un enlace roto en el teléfono.
  * Si cambia el dominio del deployment, cambiar aquí.
  */
-export const MENU_URL = 'https://la-fija-orders.vercel.app/menu';
+export const MENU_URL = 'https://sarco-restaurant.vercel.app/menu';
 
 /**
  * Payload del mensaje interactivo CTA URL con el botón "Ver menú".
