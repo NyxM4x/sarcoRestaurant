@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/*
+ * Paleta de marca La Fija (identidad futbolera/deportiva). Centralizada aquí
+ * para evitar verdes distintos por la interfaz. SOLO se usa en el menú del
+ * cliente (`/menu`); el dashboard no la utiliza. Genera utilidades Tailwind
+ * como `bg-lafija-green-dark`, `text-lafija-green`, `ring-lafija-green/20`, etc.
+ */
+@theme {
+  --color-lafija-green: #1a9d4b;        /* verde principal (cancha) — acento */
+  --color-lafija-green-dark: #0b3d2e;   /* verde oscuro de marca — acciones/zonas */
+  --color-lafija-green-hover: #0e5040;  /* hover del verde oscuro */
+  --color-lafija-green-active: #082a20; /* active/pressed del verde oscuro */
+  --color-lafija-ink: #0b1310;          /* casi negro */
+  --color-lafija-surface: #f3f6f2;      /* fondo claro neutro con tinte verde */
+  --color-lafija-gold: #d8b24a;         /* dorado del emblema — acento mínimo */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

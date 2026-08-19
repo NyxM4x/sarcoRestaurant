@@ -1,0 +1,136 @@
+import { after, NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getServerEnv } from '@/lib/env/env';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { log } from '@/lib/log';
+import {
+  attachLocationForOrder,
+  confirmDraftOrder,
+  ensureLocationRequestForOrder,
+} from '@/lib/orders/service';
+import { sendMenuCtaMessage } from '@/lib/kapso/send-menu-cta';
+import { createSupabaseOutboundStore } from '@/lib/orders/notifications/service';
+import { createAgentChannel } from '@/lib/agent/service';
+import { quoteDynamicDeliveryForOrder } from '@/lib/delivery/quote-service';
+import { createSupabaseWebhookStore } from '@/lib/webhook/store';
+import {
+  acceptKapsoWebhook,
+  handleKapsoWebhook,
+  processWebhookEvent,
+  type HandleKapsoWebhookParams,
+} from '@/lib/webhook/kapso';
+
+// Requiere APIs de Node (crypto, service_role) — no Edge. Siempre dinámico.
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+// 6D.2C: al recibir la ubicación de un delivery dinámico se consulta Mapbox
+// (con un reintento) y se envía la confirmación de forma síncrona; se amplía el
+// presupuesto de la invocación como en la ruta de checkout.
+//
+// 6D.2F.5C.1: en modo asíncrono el trabajo de `after()` corre dentro de este
+// mismo presupuesto, y el lease del inbox (90 s) está por encima a propósito.
+export const maxDuration = 60;
+
+/**
+ * POST /api/kapso/webhook.
+ *
+ * Dos modos, UNA implementación del negocio:
+ *
+ *   inline (por defecto)  accept + process antes de responder. Es exactamente
+ *                         el comportamiento anterior a 5C.1, cuerpos incluidos.
+ *   async                 accept → 200 → `after()` procesa.
+ *
+ * El fast path del takeover humano es síncrono en LOS DOS: una pausa que llega
+ * tarde no sirve para nada, porque el turno del agente la habría consultado
+ * antes de que estuviera escrita.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const env = getServerEnv();
+
+  // El body crudo es necesario para validar el HMAC de la firma.
+  const rawBody = await request.text();
+
+  const headers = {
+    signature: request.headers.get('x-webhook-signature'),
+    version: request.headers.get('x-webhook-payload-version'),
+    event: request.headers.get('x-webhook-event'),
+    idempotencyKey: request.headers.get('x-idempotency-key'),
+  };
+
+  const startedAt = Date.now();
+
+  try {
+    const supabase: SupabaseClient = getSupabaseAdmin();
+    const params: HandleKapsoWebhookParams = {
+      rawBody,
+      headers,
+      secret: env.KAPSO_WEBHOOK_SECRET ?? '',
+      store: createSupabaseWebhookStore(supabase),
+      confirmOrder: confirmDraftOrder,
+      ensureLocationRequest: ensureLocationRequestForOrder,
+      attachOrderLocation: attachLocationForOrder,
+      sendMenuCta: sendMenuCtaMessage,
+      // Fase 6D.2C: cotización de delivery dinámico tras guardar el GPS.
+      quoteDynamicDelivery: quoteDynamicDeliveryForOrder,
+      // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
+      outbound: createSupabaseOutboundStore(supabase),
+      // Fase 6D.2F.2B: historial del cliente + human takeover.
+      agentChannel: createAgentChannel(),
+    };
+
+    // Solo la cadena 'true' enciende el ACK durable.
+    const asyncAck = env.WEBHOOK_ASYNC_ACK === 'true';
+
+    const accepted = asyncAck ? await acceptKapsoWebhook(params) : null;
+    const result = accepted ?? (await handleKapsoWebhook(params));
+    const ackDurationMs = Date.now() - startedAt;
+
+    if (accepted?.pending) {
+      const { rowId } = accepted.pending;
+      // `after()` es el fast path de LATENCIA, no la durabilidad: la fila ya
+      // está escrita, así que si esto no llega a correr —o muere a mitad— el
+      // lease vence y el worker de recovery la recoge.
+      after(async () => {
+        const processingStartedAt = Date.now();
+        try {
+          const processed = await processWebhookEvent(rowId, params);
+          log.info('webhook_processed_async', {
+            event: headers.event,
+            outcome: processed.outcome,
+            processing_duration_ms: Date.now() - processingStartedAt,
+          });
+        } catch {
+          // `processWebhookEvent` ya deja la fila reclamable o terminal por sí
+          // mismo. Esto solo evita una promesa rechazada sin dueño.
+          log.error('webhook_async_processing_failed', { event: headers.event });
+        }
+      });
+    }
+
+    // Logs estructurados sin secretos (nunca firma, secreto ni payload completo).
+    const logFields = { event: headers.event, outcome: result.outcome, ack_duration_ms: ackDurationMs };
+    if (result.outcome === 'unsupported_batch') {
+      // Mala configuración: el webhook de Kapso debe estar SIN buffering.
+      log.warn('webhook_unsupported_batch', {
+        ...logFields,
+        hint: 'configure_kapso_webhook_without_buffering',
+      });
+    } else if (result.outcome === 'invalid_signature') {
+      log.warn('webhook_rejected', logFields);
+    } else if (result.body.handled === 'menu_cta' && result.body.result === 'sent') {
+      // Fase 5.2A. Sin teléfono (ni siquiera enmascarado) ni URL de la API:
+      // el wamid del CTA no se persiste porque no hay pedido al que asociarlo.
+      log.info('menu_cta_sent', logFields);
+    } else {
+      log.info('webhook_handled', logFields);
+    }
+
+    return NextResponse.json(result.body, { status: result.status });
+  } catch (error) {
+    log.error('webhook_unhandled_error', {
+      event: headers.event,
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
+}

@@ -1,0 +1,33 @@
+{
+  // Cloudflare Worker DEDICADO al recovery del inbox de webhooks (6D.2F.5C.1).
+  //
+  // Es un despliegue INDEPENDIENTE de `notification-recovery-cron`, y lo es a
+  // propósito: un evento de este inbox puede llevar un turno completo del
+  // agente (11-12 s medidos), así que compartir ventana de ejecución con el
+  // recovery de notificaciones haría que uno le comiera el presupuesto al otro
+  // y que un timeout tumbara a los dos el mismo minuto.
+  "name": "webhook-events-recovery-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-31",
+
+  // Un ÚNICO Cron Trigger: una ejecución por minuto (UTC). No añadir un segundo.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  // Variable NO secreta: URL del endpoint interno en Vercel.
+  "vars": {
+    "WORKER_TICK_URL": "https://la-fija-orders.vercel.app/api/internal/webhook-events/worker/tick"
+  },
+
+  // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;
+  // se entrega en el deploy vía `wrangler secret put`. Debe coincidir con
+  // VERCEL_INTERNAL_TOKEN — es el mismo valor que usa el otro Worker.
+  "secrets": {
+    "required": ["WORKER_INTERNAL_TOKEN"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

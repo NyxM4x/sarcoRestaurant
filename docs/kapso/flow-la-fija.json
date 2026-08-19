@@ -1,0 +1,375 @@
+{
+  "version": "7.2",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "ORDER_FORM": ["ORDER_SUMMARY"],
+    "ORDER_SUMMARY": []
+  },
+  "screens": [
+    {
+      "id": "ORDER_FORM",
+      "title": "Haz tu pedido",
+      "terminal": false,
+      "data": {
+        "flow_token": {
+          "type": "string",
+          "__example__": "order_9f1c8f2e-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Haz tu pedido"
+          },
+          {
+            "type": "TextBody",
+            "text": "Revisa la imagen del menú que te enviamos en el chat y elige las cantidades. Deja en 0 lo que no quieras."
+          },
+          {
+            "type": "Form",
+            "name": "order_form",
+            "children": [
+              {
+                "type": "TextInput",
+                "name": "customer_name",
+                "label": "Tu nombre",
+                "input-type": "text",
+                "required": true
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Hamburguesas"
+              },
+              {
+                "type": "Dropdown",
+                "name": "la_fija",
+                "label": "La Fija",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "doble_o_nada",
+                "label": "Doble o Nada",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "hat_trick",
+                "label": "Hat Trick",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "lomito_jackpot",
+                "label": "Lomito Jackpot",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Bebidas"
+              },
+              {
+                "type": "Dropdown",
+                "name": "gaseosa_2l",
+                "label": "Gaseosa 2 L",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "gaseosa_personal",
+                "label": "Gaseosa personal",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "gaseosa_pequena",
+                "label": "Gaseosa pequeña",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Extras"
+              },
+              {
+                "type": "Dropdown",
+                "name": "tocino",
+                "label": "Tocino",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "Dropdown",
+                "name": "porcion_papas",
+                "label": "Porción de papas",
+                "required": false,
+                "init-value": "0",
+                "data-source": [
+                  { "id": "0", "title": "0" },
+                  { "id": "1", "title": "1" },
+                  { "id": "2", "title": "2" },
+                  { "id": "3", "title": "3" },
+                  { "id": "4", "title": "4" },
+                  { "id": "5", "title": "5" },
+                  { "id": "6", "title": "6" },
+                  { "id": "7", "title": "7" },
+                  { "id": "8", "title": "8" },
+                  { "id": "9", "title": "9" },
+                  { "id": "10", "title": "10" }
+                ]
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Entrega"
+              },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "delivery_type",
+                "label": "¿Cómo lo recibes?",
+                "required": true,
+                "data-source": [
+                  { "id": "delivery", "title": "Delivery" },
+                  { "id": "pickup", "title": "Recojo en local" }
+                ]
+              },
+              {
+                "type": "TextArea",
+                "name": "notes",
+                "label": "Notas (opcional)",
+                "required": false
+              },
+              {
+                "type": "Footer",
+                "label": "Ver resumen",
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "flow_token": "${data.flow_token}",
+                    "customer_name": "${form.customer_name}",
+                    "delivery_type": "${form.delivery_type}",
+                    "notes": "${form.notes}",
+                    "la_fija": "${form.la_fija}",
+                    "doble_o_nada": "${form.doble_o_nada}",
+                    "hat_trick": "${form.hat_trick}",
+                    "lomito_jackpot": "${form.lomito_jackpot}",
+                    "gaseosa_2l": "${form.gaseosa_2l}",
+                    "gaseosa_personal": "${form.gaseosa_personal}",
+                    "gaseosa_pequena": "${form.gaseosa_pequena}",
+                    "tocino": "${form.tocino}",
+                    "porcion_papas": "${form.porcion_papas}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "ORDER_SUMMARY",
+      "title": "Resumen del pedido",
+      "terminal": true,
+      "data": {
+        "order_draft_id": {
+          "type": "string",
+          "__example__": "e8a5de18-91dd-44fd-b372-adfa87a922fa"
+        },
+        "flow_token": {
+          "type": "string",
+          "__example__": "order_9f1c8f2e-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+        },
+        "summary_lines": {
+          "type": "array",
+          "items": { "type": "string" },
+          "__example__": [
+            "1x La Fija — Bs. 22",
+            "1x Gaseosa personal — Bs. 8",
+            "1x Porción de papas — Bs. 10"
+          ]
+        },
+        "total_text": {
+          "type": "string",
+          "__example__": "Bs. 40"
+        },
+        "delivery_type": {
+          "type": "string",
+          "__example__": "delivery"
+        },
+        "customer_name": {
+          "type": "string",
+          "__example__": "Cliente Delivery"
+        },
+        "notes": {
+          "type": "string",
+          "__example__": "Sin cebolla"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Resumen de tu pedido"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.summary_lines}"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Total: ${data.total_text}"
+          },
+          {
+            "type": "Switch",
+            "value": "${data.delivery_type}",
+            "cases": {
+              "delivery": [
+                {
+                  "type": "TextBody",
+                  "text": "Entrega: Delivery. Después de confirmar te pediremos tu ubicación."
+                }
+              ],
+              "pickup": [
+                {
+                  "type": "TextBody",
+                  "text": "Entrega: Recojo en local."
+                }
+              ]
+            }
+          },
+          {
+            "type": "TextCaption",
+            "text": "A nombre de: ${data.customer_name}"
+          },
+          {
+            "type": "TextCaption",
+            "text": "Notas: ${data.notes}"
+          },
+          {
+            "type": "Footer",
+            "label": "Confirmar pedido",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "order_draft_id": "${data.order_draft_id}",
+                "flow_token": "${data.flow_token}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

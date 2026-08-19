@@ -1,0 +1,19 @@
+{
+  "name": "webhook-events-recovery-cron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Cron dedicado que despierta el recovery del inbox durable de webhooks (POST {} al endpoint interno de Vercel). Despliegue independiente de notification-recovery-cron.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5",
+    "typescript": "^5",
+    "vitest": "^4.1.10",
+    "wrangler": "^4"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  // Cloudflare Worker COMPARTIDO: un único despertador del worker interno de
+  // recuperación de notificaciones. NO crear uno por restaurante.
+  "name": "notification-recovery-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-31",
+
+  // Un ÚNICO Cron Trigger: una ejecución por minuto (UTC; para "cada minuto" la
+  // zona horaria no altera la frecuencia). No añadir un segundo trigger.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  // Variable NO secreta: URL del endpoint interno en Vercel.
+  "vars": {
+    "WORKER_TICK_URL": "https://la-fija-orders.vercel.app/api/internal/order-notifications/worker/tick"
+  },
+
+  // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;
+  // se entrega en el deploy vía --secrets-file (o `wrangler secret put`).
+  "secrets": {
+    "required": ["WORKER_INTERNAL_TOKEN"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
