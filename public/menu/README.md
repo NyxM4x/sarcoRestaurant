@@ -2,7 +2,7 @@
 
 Aquí van las **fotos individuales** de cada producto del menú.
 
-> Los diez productos del catálogo ya tienen foto. Para uno nuevo sin foto,
+> Los nueve productos del catálogo ya tienen foto. Para uno nuevo sin foto,
 > dejar `src: null`: `/menu` dibuja un **placeholder propio** (gradiente CSS +
 > emoji, según la categoría), sin pedir nada a la red y sin errores en consola.
 
@@ -35,7 +35,6 @@ cuyo original trae el rótulo "SABOR ÚNICO" arriba y se recortó por debajo.
 | `salchipapa` | Salchipapa | `salchipapa.webp` | ✅ |
 | `gaseosa_2l` | Gaseosa 2 L | `gaseosa-2l.webp` | ✅ |
 | `gaseosa_personal` | Gaseosa personal | `gaseosa-personal.webp` | ✅ |
-| `gaseosa_pequena` | Gaseosa pequeña | `gaseosa-peque.webp` | ✅ |
 | `porcion_papas` | Porción de papa | `porcion-papas.webp` | ✅ |
 
 ## Recomendaciones

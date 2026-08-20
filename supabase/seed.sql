@@ -19,7 +19,6 @@ insert into menu_items (code, name, category, price, sort_order) values
   -- Bebidas
   ('gaseosa_2l',       'Gaseosa 2 L',       'bebida', 18,  70),
   ('gaseosa_personal', 'Gaseosa personal',  'bebida',  8,  80),
-  ('gaseosa_pequena',  'Gaseosa pequeña',   'bebida',  5,  90),
   -- Extras
   ('porcion_papas',    'Porción de papa',   'extra',   7, 100)
 on conflict (code) do nothing;

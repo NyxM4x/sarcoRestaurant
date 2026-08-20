@@ -40,7 +40,6 @@ const MENU: MenuItem[] = [
   item('salchipapa', 'Salchipapa', 'plato', 18, 60),
   item('gaseosa_2l', 'Gaseosa 2 L', 'bebida', 18, 70),
   item('gaseosa_personal', 'Gaseosa personal', 'bebida', 8, 80),
-  item('gaseosa_pequena', 'Gaseosa pequeña', 'bebida', 5, 90),
   item('porcion_papas', 'Porción de papa', 'extra', 7, 100),
 ];
 
@@ -95,7 +94,6 @@ describe('filterMenuItems — filtrado por categoría', () => {
     expect(filterMenuItems(MENU, 'bebida', '').map((i) => i.code)).toEqual([
       'gaseosa_2l',
       'gaseosa_personal',
-      'gaseosa_pequena',
     ]);
     expect(filterMenuItems(MENU, 'extra', '').map((i) => i.code)).toEqual(['porcion_papas']);
   });
@@ -110,9 +108,6 @@ describe('filterMenuItems — búsqueda', () => {
   });
 
   it('ignora acentos en ambos sentidos', () => {
-    expect(filterMenuItems(MENU, 'all', 'pequena').map((i) => i.code)).toEqual([
-      'gaseosa_pequena',
-    ]);
     expect(filterMenuItems(MENU, 'all', 'porción').map((i) => i.code)).toEqual([
       'porcion_papas',
     ]);
@@ -131,7 +126,7 @@ describe('filterMenuItems — búsqueda', () => {
   });
 
   it('combina búsqueda con la categoría activa', () => {
-    expect(filterMenuItems(MENU, 'bebida', 'gaseosa')).toHaveLength(3);
+    expect(filterMenuItems(MENU, 'bebida', 'gaseosa')).toHaveLength(2);
     expect(filterMenuItems(MENU, 'extra', 'gaseosa')).toEqual([]);
   });
 
@@ -146,7 +141,7 @@ describe('filterMenuItems — búsqueda', () => {
 });
 
 describe('descripciones e imágenes', () => {
-  it('los 10 productos del seed tienen descripción', () => {
+  it('los 9 productos del seed tienen descripción', () => {
     for (const menuItem of MENU) {
       expect(productDescription(menuItem.code), menuItem.code).toBeTruthy();
     }
@@ -156,7 +151,7 @@ describe('descripciones e imágenes', () => {
     expect(productDescription('producto_inexistente')).toBeNull();
   });
 
-  it('los diez productos del seed tienen foto en /menu/*.webp', () => {
+  it('los nueve productos del seed tienen foto en /menu/*.webp', () => {
     for (const menuItem of MENU) {
       const image = productImage(menuItem);
       expect(image.src, menuItem.code).toMatch(/^\/menu\/[a-z0-9-]+\.webp$/);
@@ -187,7 +182,7 @@ describe('groupByCategory', () => {
     expect(groups.map((g) => g.category)).toEqual(['plato', 'bebida', 'extra']);
     expect(groups.map((g) => g.label)).toEqual(['Platos', 'Bebidas', 'Extras']);
     expect(groups[0].items).toHaveLength(6);
-    expect(groups[1].items).toHaveLength(3);
+    expect(groups[1].items).toHaveLength(2);
     expect(groups[2].items).toHaveLength(1);
   });
 

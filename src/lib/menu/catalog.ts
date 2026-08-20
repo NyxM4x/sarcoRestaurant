@@ -49,7 +49,6 @@ const PRODUCT_DESCRIPTIONS: Record<string, string> = {
   salchipapa: 'Papas fritas con salchicha dorada al sartén.',
   gaseosa_2l: 'Botella de 2 litros para compartir.',
   gaseosa_personal: 'Botella personal bien helada.',
-  gaseosa_pequena: 'Vaso pequeño para acompañar.',
   porcion_papas: 'Papas fritas doradas con sal.',
 };
 
@@ -91,7 +90,6 @@ const PRODUCT_IMAGES: Record<string, ProductImage> = {
   salchipapa: { src: '/menu/salchipapa.webp', file: 'salchipapa.webp', emoji: '🍟' },
   gaseosa_2l: { src: '/menu/gaseosa-2l.webp', file: 'gaseosa-2l.webp', emoji: '🥤' },
   gaseosa_personal: { src: '/menu/gaseosa-personal.webp', file: 'gaseosa-personal.webp', emoji: '🥤' },
-  gaseosa_pequena: { src: '/menu/gaseosa-peque.webp', file: 'gaseosa-peque.webp', emoji: '🥤' },
   porcion_papas: { src: '/menu/porcion-papas.webp', file: 'porcion-papas.webp', emoji: '🍟' },
 };
 
@@ -114,7 +112,7 @@ export function productImage(item: Pick<MenuItem, 'code' | 'category'>): Product
 
 // ── Filtrado y búsqueda ─────────────────────────────────────────────────────
 
-/** Minúsculas sin acentos, para comparar "Gaseosa pequeña" con "pequena". */
+/** Minúsculas sin acentos, para comparar "Porción de papa" con "porcion". */
 export function normalizeText(value: string): string {
   return value
     .toLowerCase()
