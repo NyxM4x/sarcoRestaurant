@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getServerEnv } from '@/lib/env/env';
 import { getKapsoClient } from '@/lib/kapso/client';
+import { log } from '@/lib/log';
 import { OUT_OF_COVERAGE_TEXT } from '@/lib/kapso/messages';
 import { createTelegramAlertSender } from '@/lib/alerts/telegram';
 import {
@@ -158,6 +159,23 @@ export function createQuoteOrchestratorDeps(
 }
 
 /** Cotiza un delivery dinámico ya con GPS (server-only). Nunca lanza. */
-export function quoteDynamicDeliveryForOrder(orderId: string): Promise<QuoteOutcome> {
-  return quoteDynamicOrder(createQuoteOrchestratorDeps(), orderId);
+export async function quoteDynamicDeliveryForOrder(orderId: string): Promise<QuoteOutcome> {
+  const outcome = await quoteDynamicOrder(createQuoteOrchestratorDeps(), orderId);
+
+  // El orquestador es puro y no puede registrar nada; aquí sí. Sin esto, los
+  // tres desenlaces sin cotización eran indistinguibles del éxito: el pedido
+  // quedaba en `awaiting_location` y no había nada que mirar.
+  //
+  // Ninguno de estos campos lleva secretos: `order_id` es un uuid, y `reason` /
+  // `error` son mensajes de configuración o enums de Mapbox. El token jamás
+  // aparece en ellos.
+  if (outcome.result === 'error') {
+    log.error('delivery_quote_error', { order_id: orderId, reason: outcome.reason });
+  } else if (outcome.result === 'failed') {
+    log.warn('delivery_quote_failed', { order_id: orderId, error: outcome.error });
+  } else if (outcome.result === 'skipped') {
+    log.info('delivery_quote_skipped', { order_id: orderId, reason: outcome.reason });
+  }
+
+  return outcome;
 }

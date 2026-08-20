@@ -71,7 +71,8 @@ export type QuoteOutcome =
   | { result: 'failed'; error: string }
   | { result: 'conflict' }
   | { result: 'skipped'; reason: string }
-  | { result: 'error' };
+  /** `reason` es el mensaje del error atrapado; nunca lleva valores de config. */
+  | { result: 'error'; reason: string };
 
 /**
  * Errores de Mapbox que SÍ ameritan un reintento inmediato (transitorios). El
@@ -206,8 +207,18 @@ export async function quoteDynamicOrder(
     }
     // conflict / error: una cotización cerrada nunca se pisa y no se confirma aquí.
     return { result: 'conflict' };
-  } catch {
+  } catch (error) {
     // Defensa final: el orquestador nunca propaga hacia el webhook.
-    return { result: 'error' };
+    //
+    // Pero el MOTIVO sí sale, porque tragarlo en silencio costaba carísimo: si
+    // `getDeliveryConfig()` lanza (una variable de Mapbox ausente o inválida),
+    // no se llega a `markQuoteResult`, el pedido se queda en `pending` para
+    // siempre y no hay una sola línea que diga por qué. Quien loguea es
+    // `quoteDynamicDeliveryForOrder`, que sí es server-only; este módulo
+    // sigue siendo puro.
+    //
+    // `getDeliveryConfig` construye su mensaje con los NOMBRES de las variables
+    // faltantes, nunca sus valores: por eso es seguro propagarlo.
+    return { result: 'error', reason: error instanceof Error ? error.message : 'unknown' };
   }
 }

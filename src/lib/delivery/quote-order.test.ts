@@ -294,6 +294,34 @@ describe('quoteDynamicOrder — defensa', () => {
       async sendOutOfCoverageMessage() {},
       async dispatchConfirmation() {},
     };
-    expect(await quoteDynamicOrder(deps, ORDER_ID)).toEqual({ result: 'error' });
+    // El motivo viaja en el resultado: un catch mudo dejaba el pedido en
+    // `pending` sin rastro de por qué. Sigue sin propagarse hacia el webhook.
+    expect(await quoteDynamicOrder(deps, ORDER_ID)).toEqual({
+      result: 'error',
+      reason: 'db down',
+    });
+  });
+
+  it('un throw sin Error devuelve reason "unknown" en vez de romper', async () => {
+    const deps: QuoteOrchestratorDeps = {
+      async loadForQuote() {
+        throw 'no soy un Error';
+      },
+      async getDistanceMeters() {
+        return ok(1);
+      },
+      async applyQuote() {
+        return { result: 'applied' };
+      },
+      async markQuoteResult() {
+        return { result: 'applied' };
+      },
+      async sendOutOfCoverageMessage() {},
+      async dispatchConfirmation() {},
+    };
+    expect(await quoteDynamicOrder(deps, ORDER_ID)).toEqual({
+      result: 'error',
+      reason: 'unknown',
+    });
   });
 });
