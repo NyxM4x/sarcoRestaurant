@@ -6,6 +6,7 @@ import { getKapsoClient } from '@/lib/kapso/client';
 import { log } from '@/lib/log';
 import { OUT_OF_COVERAGE_TEXT } from '@/lib/kapso/messages';
 import { createTelegramAlertSender } from '@/lib/alerts/telegram';
+import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
 import {
   createKapsoNotificationSender,
   createSupabaseNotificationStore,
@@ -152,6 +153,11 @@ export function createQuoteOrchestratorDeps(
       // Envío directo inmediato; la durabilidad la cubre select_due (0011), que
       // descubre la confirmación dinámica una vez el pedido queda 'quoted'.
       await dispatchSingleNotification(store, sender, orderId, 'confirmation');
+
+      // Aviso al grupo de reparto. Va DESPUÉS de la confirmación al cliente y
+      // nunca lanza: si Telegram falla, el cliente ya recibió lo suyo. Su
+      // propia marca de claim evita que `select_due` lo repita.
+      await notifyDeliveryGroup(orderId, supabase);
     },
 
     alert: buildAlert(),
