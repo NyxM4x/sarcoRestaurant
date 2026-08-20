@@ -48,7 +48,23 @@ export async function GET(request: Request): Promise<Response> {
 
   if (!result.ok) {
     log.warn('delivery_config_invalid', { missing: result.missing });
-    return Response.json({ ok: false, missing: result.missing }, { status: 200 });
+    // `missing` no distingue "no está" de "está pero no valida", y cada caso
+    // se arregla distinto (agregarla vs. corregir cómo se pegó). Para las que
+    // NO son secretas se devuelve el valor crudo entre comillas simples: así
+    // se ven los espacios y las comillas literales, que son el error clásico
+    // al pegar variables en un panel y son invisibles de otro modo.
+    const raw: Record<string, unknown> = {};
+    for (const name of ['RESTAURANT_LAT', 'RESTAURANT_LNG', 'MAPBOX_DIRECTIONS_TIMEOUT_MS']) {
+      const value = process.env[name];
+      raw[name] = value === undefined ? { present: false } : { present: true, value: `'${value}'` };
+    }
+    const token = process.env.MAPBOX_ACCESS_TOKEN;
+    raw.MAPBOX_ACCESS_TOKEN =
+      token === undefined
+        ? { present: false }
+        : { present: true, length: token.length, prefix: token.slice(0, 3) };
+
+    return Response.json({ ok: false, missing: result.missing, raw }, { status: 200 });
   }
 
   const { mapboxAccessToken, restaurantLat, restaurantLng, mapboxTimeoutMs } = result.config;
