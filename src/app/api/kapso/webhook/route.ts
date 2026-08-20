@@ -121,6 +121,20 @@ export async function POST(request: Request): Promise<Response> {
       // Fase 5.2A. Sin teléfono (ni siquiera enmascarado) ni URL de la API:
       // el wamid del CTA no se persiste porque no hay pedido al que asociarlo.
       log.info('menu_cta_sent', logFields);
+    } else if (result.body.handled === 'location') {
+      // El motivo del rechazo viajaba SOLO en el body HTTP hacia Kapso y aquí
+      // se descartaba: en Vercel un `not_found` era indistinguible de un
+      // `attached`, y los cuatro modos de fallo de la correlación
+      // (`invalid_shape`, `not_found`, `phone_mismatch`, `invalid_status`) se
+      // veían igual — como un `webhook_handled` cualquiera.
+      //
+      // Sin coordenadas ni teléfono: `result` y `reason` son enums cerrados de
+      // `AttachLocationResult`, no datos del cliente.
+      log.info('webhook_location', {
+        ...logFields,
+        result: result.body.result,
+        reason: result.body.reason ?? null,
+      });
     } else {
       log.info('webhook_handled', logFields);
     }
