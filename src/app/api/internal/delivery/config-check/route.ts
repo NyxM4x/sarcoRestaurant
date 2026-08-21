@@ -44,6 +44,26 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
   }
 
+  // Estado del canal de avisos al grupo de reparto. Va SIEMPRE, valide o no la
+  // config de delivery: son dos funciones independientes y saber que una está
+  // rota no dice nada de la otra.
+  //
+  // Sin estas dos variables, `notifyDeliveryGroup` retorna en silencio —es una
+  // función apagada, no un error— y el grupo no recibe nada aunque el pedido se
+  // confirme perfectamente. Ese silencio es indistinguible de un fallo de envío
+  // si no se puede mirar aquí.
+  //
+  // El chat_id se devuelve entero: es un identificador de destino, no una
+  // credencial, y verlo permite comprobar que apunta al grupo correcto (los
+  // grupos empiezan con `-`). Del bot token, solo su longitud.
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const telegram = {
+    enabled: Boolean(botToken) && Boolean(chatId),
+    botToken: botToken === undefined ? { present: false } : { present: true, length: botToken.length },
+    chatId: chatId === undefined ? { present: false } : { present: true, value: `'${chatId}'` },
+  };
+
   const result = parseDeliveryConfig(process.env);
 
   if (!result.ok) {
@@ -64,13 +84,14 @@ export async function GET(request: Request): Promise<Response> {
         ? { present: false }
         : { present: true, length: token.length, prefix: token.slice(0, 3) };
 
-    return Response.json({ ok: false, missing: result.missing, raw }, { status: 200 });
+    return Response.json({ ok: false, missing: result.missing, raw, telegram }, { status: 200 });
   }
 
   const { mapboxAccessToken, restaurantLat, restaurantLng, mapboxTimeoutMs } = result.config;
 
   return Response.json({
     ok: true,
+    telegram,
     restaurant: { lat: restaurantLat, lng: restaurantLng },
     mapboxTimeoutMs,
     // Solo forma, nunca contenido: un token pegado con comillas o cortado se
