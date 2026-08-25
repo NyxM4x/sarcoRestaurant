@@ -12,8 +12,9 @@ exactamente como antes de la Fase 6D.2F.3.
 
 | Variable | Efecto | Valor en producción hoy |
 |---|---|---|
-| `AI_ENABLED` | Interruptor general. **Solo la cadena exacta `true` enciende el agente.** Ausente, vacía, `TRUE`, `1` o cualquier otra cosa lo dejan apagado. | `true` (solo para `AI_TEST_PHONE`) |
-| `AI_TEST_PHONES` | Teléfonos atendidos, separados por coma, por **coincidencia exacta** de dígitos normalizados. Sin prefijos ni comodines. Se recortan espacios y se ignoran entradas vacías. | `59162139119,59172654203` |
+| `AI_ENABLED` | Interruptor general. **Solo la cadena exacta `true` enciende el agente.** Ausente, vacía, `TRUE`, `1` o cualquier otra cosa lo dejan apagado. | `true` |
+| `AI_ACCESS_MODE` | A quién atiende. **Solo la cadena exacta `all`** abre el agente a cualquier teléfono de cliente e ignora la lista. Ausente, vacía, `ALL`, `true` o un typo dejan el modo `allowlist` (cerrado). | `all` |
+| `AI_TEST_PHONES` | Teléfonos atendidos en modo `allowlist`, separados por coma, por **coincidencia exacta** de dígitos normalizados. Sin prefijos ni comodines. Se recortan espacios y se ignoran entradas vacías. En modo `all` **se sigue leyendo pero no se consulta**: volver atrás es cambiar una palabra, no reconstruir la lista. | `59162139119,59172654203` |
 | `AI_TEST_PHONE` | Forma anterior: un solo teléfono. **Respaldo** — solo se usa si `AI_TEST_PHONES` no está definida. | `59162139119` |
 | `OPENAI_API_KEY` | Credencial del modelo. Sin ella, el agente queda apagado (`not_configured`) y **no se hace ninguna llamada externa**. | configurada |
 | `OPENAI_MODEL` | Modelo a usar. Por defecto `gpt-4o-mini`. | `gpt-4.1-mini` |
@@ -428,10 +429,16 @@ Ninguna combinación parcial amplía el alcance:
 | `AI_ENABLED=true`, sin `OPENAI_API_KEY` | `not_configured` — sin llamada externa |
 | `AI_ENABLED=true`, sin `AI_TEST_PHONES` ni `AI_TEST_PHONE` | `phone_not_allowed` — no se atiende a nadie |
 | `AI_ENABLED=true`, teléfono fuera de la lista | `phone_not_allowed` |
+| `AI_ACCESS_MODE` ausente, vacía o con un typo | `allowlist` — abrir el agente nunca es una omisión |
+| `AI_ACCESS_MODE=all`, teléfono del cliente vacío | `phone_not_allowed` — ni la demo abierta atiende sin número |
 
 Un `no` **no crea `agent_runs`**: la tabla mide ejecuciones del agente, y
 anotar cada mensaje de cada cliente mientras el despliegue está limitado a un
 teléfono la dejaría sin significado.
+
+`AI_ACCESS_MODE=all` mueve **una** de las puertas. Las demás siguen donde
+estaban: datos mínimos, tipo de contenido, conversación existente, claim de
+idempotencia y pausa por takeover humano.
 
 ## Garantías del pipeline
 

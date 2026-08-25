@@ -65,7 +65,7 @@ La clave se lee de `.env.local`, que git ignora (`.env*` en `.gitignore`). **No
 se pega en el chat, ni en un comando, ni en un informe.**
 
 ```bash
-# en la raíz de la-fija-orders/
+# en la raíz de don-zarco-orders/
 cat > .env.local <<'EOF'
 OPENAI_API_KEY=<la clave>
 OPENAI_MODEL=gpt-4.1-mini

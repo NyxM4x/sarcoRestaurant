@@ -25,7 +25,7 @@ pagos, repartidores ni IA (fuera de alcance del MVP).
 ## Estructura del proyecto
 
 ```text
-la-fija-orders/
+don-zarco-orders/
   src/
     app/
       api/                 # placeholders de Route Handlers (ver api/README.md)

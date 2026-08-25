@@ -33,7 +33,7 @@ y en el `nfm_reply`, y es **único** por pedido (índice parcial `orders_flow_to
       "customer_name": "Juan",
       "notes": "sin cebolla",
       "delivery_type": "delivery",       // "delivery" | "pickup"
-      "la_fija": "2",                     // cantidades por CODE de producto (0..10)
+      "trancapecho": "2",                // cantidades por CODE de producto (0..10)
       "gaseosa_2l": "1"
     }
   }
@@ -47,8 +47,8 @@ y en el `nfm_reply`, y es **único** por pedido (índice parcial `orders_flow_to
     "screen": "ORDER_SUMMARY",
     "data": {
       "order_draft_id": "uuid",
-      "summary_lines": ["2x La Fija — Bs. 44", "1x Gaseosa 2 L — Bs. 18"],
-      "total_text": "Bs. 62",
+      "summary_lines": ["2x Trancapecho — Bs. 36", "1x Gaseosa 2 L — Bs. 18"],
+      "total_text": "Bs. 54",
       "delivery_type": "delivery",
       "customer_name": "Juan",
       "notes": "sin cebolla"

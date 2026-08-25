@@ -22,8 +22,8 @@ export const FLOW_TOKEN_RE =
  * `flow_token` se repite en cada `data_exchange` y en el `nfm_reply`.
  *
  * `data` es un mapa plano de los campos `${form.campo}` del Flow: incluye
- * `customer_name`, `notes`, `delivery_type` y las cantidades por producto,
- * donde cada clave de cantidad es el `code` del producto (p. ej. `la_fija: "2"`).
+ * `customer_name`, `notes`, `delivery_type` y las cantidades por producto, donde
+ * cada clave de cantidad es el `code` del producto (p. ej. `trancapecho: "2"`).
  */
 export const orderSummaryRequestSchema = z.object({
   /** Token del Flow para correlacionar el borrador (único; `order_{order_session_id}`). */
