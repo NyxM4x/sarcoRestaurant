@@ -45,12 +45,14 @@ const serverEnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: optionalString,
   TELEGRAM_CHAT_ID: optionalString,
   /**
-   * Dashboard operativo interno (Fase 6A). Server-only, nunca NEXT_PUBLIC_.
-   * DASHBOARD_PASSWORD: contrasena compartida del panel. DASHBOARD_SESSION_SECRET:
-   * secreto HMAC (>=32 chars) que firma la cookie de sesion. Si faltan, el
-   * dashboard queda cerrado (fail-closed) y no autentica a nadie.
+   * Acceso interno (/dashboard y /cocina). Server-only, nunca NEXT_PUBLIC_.
+   *
+   * Secreto HMAC (>=32 chars) que firma la cookie de sesion. Si falta, el
+   * acceso queda cerrado (fail-closed) y no autentica a nadie.
+   *
+   * Las CREDENCIALES ya no viven aqui: desde la migracion 0020 cada persona
+   * tiene su usuario y su rol en la tabla `dashboard_users` (ver docs/SETUP.md).
    */
-  DASHBOARD_PASSWORD: optionalString,
   DASHBOARD_SESSION_SECRET: optionalString,
   /**
    * Agent Core (Fase 6D.2F.3). Todas opcionales: si falta cualquiera, el agente

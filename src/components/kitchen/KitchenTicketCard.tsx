@@ -1,0 +1,153 @@
+'use client';
+
+import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
+import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
+import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
+
+/**
+ * Ticket del KDS. No tiene temporizador propio: recibe `nowMs` del reloj
+ * compartido del tablero (un unico `setInterval` para toda la pantalla).
+ *
+ * El color NUNCA comunica solo: el header amarillo/azul/rojo va siempre
+ * acompanado de la etiqueta de etapa y, en alerta, de la palabra "Atrasado".
+ */
+export interface KitchenTicketCardProps {
+  ticket: KitchenTicket;
+  nowMs: number;
+  busy: boolean;
+  onAction: (orderNumber: string, action: KdsAction) => void;
+}
+
+const DELIVERY_LABELS = {
+  delivery: 'Delivery',
+  pickup: 'Recojo en local',
+} as const;
+
+export function KitchenTicketCard({ ticket, nowMs, busy, onAction }: KitchenTicketCardProps) {
+  // La alerta de atraso solo tiene sentido mientras el plato esta en la plancha.
+  const late = ticket.stage === 'in_progress' && isLate(ticket.enteredAt, nowMs);
+  const headerTone =
+    late
+      ? 'bg-red-600 text-white'
+      : ticket.stage === 'in_progress'
+        ? 'bg-blue-600 text-white'
+        : 'bg-amber-300 text-zinc-900';
+
+  const buttons = buttonsForStage(ticket.stage);
+
+  return (
+    <article className="flex max-h-full w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-black/5">
+      <header className={`shrink-0 px-4 py-3 ${headerTone}`}>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="truncate text-2xl font-extrabold tracking-tight">{ticket.orderNumber}</h2>
+          <span className="shrink-0 text-2xl font-bold tabular-nums">
+            {formatElapsedSince(ticket.enteredAt, nowMs)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide opacity-90">
+          {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
+          {late && ' · Atrasado'}
+        </p>
+      </header>
+
+      {/* Unica zona scrollable: un pedido enorme no rompe la columna. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {ticket.lines.length === 0 ? (
+          <p className="text-sm italic text-zinc-400">Sin productos registrados</p>
+        ) : (
+          <ul className="flex flex-col gap-2.5">
+            {ticket.lines.map((line, i) => (
+              <li key={`${line.name}-${i}`}>
+                <div className="flex items-baseline gap-2.5">
+                  <span className="text-2xl font-extrabold tabular-nums text-zinc-900">
+                    {line.quantity}
+                  </span>
+                  <span className="text-base font-semibold leading-snug text-zinc-800">
+                    {line.name}
+                  </span>
+                </div>
+                {/* Modificadores: hoy siempre vacios (la base aun no los guarda),
+                    pero la tarjeta ya esta lista para pintarlos. */}
+                {line.modifiers.length > 0 && (
+                  <ul className="mt-1 pl-8">
+                    {line.modifiers.map((m, j) => (
+                      <li key={`${m}-${j}`} className="text-sm font-medium text-orange-700">
+                        – {m}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <footer className="shrink-0 px-4 pb-4">
+        {ticket.notes && (
+          <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Notas</p>
+            <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800">{ticket.notes}</p>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          {buttons
+            .filter((b) => b.kind !== 'secondary')
+            .map((b) => (
+              <button
+                key={b.action}
+                type="button"
+                disabled={busy}
+                onClick={() => onAction(ticket.orderNumber, b.action)}
+                aria-label={b.kind === 'danger' ? 'Cancelar pedido' : undefined}
+                className={
+                  b.kind === 'danger'
+                    ? 'grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:opacity-50'
+                    : 'h-16 flex-1 rounded-xl bg-emerald-600 text-xl font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50'
+                }
+              >
+                {b.kind === 'danger' ? <TrashIcon /> : b.label}
+              </button>
+            ))}
+        </div>
+
+        {buttons
+          .filter((b) => b.kind === 'secondary')
+          .map((b) => (
+            <button
+              key={b.action}
+              type="button"
+              disabled={busy}
+              onClick={() => onAction(ticket.orderNumber, b.action)}
+              className="mt-2 h-11 w-full rounded-lg bg-zinc-200 text-sm font-bold uppercase tracking-wide text-zinc-700 hover:bg-zinc-300 active:bg-zinc-400 disabled:opacity-50"
+            >
+              {b.label}
+            </button>
+          ))}
+      </footer>
+    </article>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}

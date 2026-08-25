@@ -4,12 +4,13 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { ORDER_STATUSES, type OrderStatus } from '@/types';
 import {
-  verifyDashboardPassword,
+  authenticateUser,
   establishSession,
   clearSession,
   hasValidSession,
   isDashboardAuthConfigured,
 } from '@/lib/dashboard/auth';
+import { landingPathForRole, LOGIN_PATH } from '@/lib/dashboard/session-role';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 
@@ -17,18 +18,27 @@ export interface LoginState {
   error: 'invalid' | 'not_configured' | null;
 }
 
-/** Login por contrasena. Establece la cookie y redirige al panel. */
+/**
+ * Login por usuario + contrasena contra `dashboard_users`. Es el MISMO
+ * formulario para los dos roles: el rol guardado del usuario decide donde
+ * aterriza (el cocinero en `/cocina`, el encargado en `/dashboard`).
+ *
+ * El mensaje de error es identico para usuario inexistente y contrasena mala,
+ * para no revelar que nombres de usuario existen.
+ */
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
   if (!isDashboardAuthConfigured()) return { error: 'not_configured' };
+  const username = String(formData.get('username') ?? '');
   const password = String(formData.get('password') ?? '');
-  if (!verifyDashboardPassword(password)) return { error: 'invalid' };
-  await establishSession();
-  redirect('/dashboard');
+  const role = await authenticateUser(username, password);
+  if (role === null) return { error: 'invalid' };
+  await establishSession(role);
+  redirect(landingPathForRole(role));
 }
 
 export async function logoutAction(): Promise<void> {
   await clearSession();
-  redirect('/dashboard/login');
+  redirect(LOGIN_PATH);
 }
 
 export type UpdateActionResult =

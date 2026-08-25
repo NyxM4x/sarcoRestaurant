@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { hasValidSession, isDashboardAuthConfigured } from '@/lib/dashboard/auth';
+import { currentSessionRole, isDashboardAuthConfigured } from '@/lib/dashboard/auth';
+import { landingPathForRole } from '@/lib/dashboard/session-role';
 import { LoginForm } from '@/components/dashboard/LoginForm';
 
 export const dynamic = 'force-dynamic';
@@ -10,9 +11,10 @@ export const metadata = {
 
 export default async function LoginPage() {
   const configured = isDashboardAuthConfigured();
-  // Ya autenticado: al panel.
-  if (configured && (await hasValidSession())) {
-    redirect('/dashboard');
+  // Ya autenticado: cada rol aterriza donde trabaja.
+  const role = configured ? await currentSessionRole() : null;
+  if (role !== null) {
+    redirect(landingPathForRole(role));
   }
   return (
     <main className="mx-auto flex min-h-full max-w-lg flex-1 items-center justify-center px-6 py-16">

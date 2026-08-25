@@ -16,7 +16,7 @@ Kapso — ver [ROADMAP](#próximos-pasos). Para desplegar en Vercel, ver
 ## 1. Instalar y correr en local
 
 ```bash
-cd la-fija-orders
+cd don-zarco-orders
 npm install
 npm run dev      # http://localhost:3000  (landing → /dashboard)
 ```
@@ -92,10 +92,13 @@ Scripts:
      | 16 | `0016_webhook_events_durable_inbox.sql` | inbox durable de webhooks |
      | 17 | [`supabase/seed.sql`](../supabase/seed.sql) | **la carta de Don Zarco** |
      | 18 | `0017_don_zarco_menu.sql` | ver nota de abajo |
+     | 19 | `0018_retire_gaseosa_pequena.sql` | retira un producto de la carta |
+     | 20 | `0019_delivery_notice.sql` | marca del aviso al grupo de reparto |
+     | 21 | `0020_dashboard_users.sql` | **`dashboard_users`** (acceso interno) |
 
    - **Supabase CLI** (si lo usas localmente):
      ```bash
-     supabase db push          # aplica las 17 migraciones en orden
+     supabase db push          # aplica las 20 migraciones en orden
      # luego ejecuta el seed manualmente (SQL Editor o psql)
      ```
 
@@ -108,9 +111,60 @@ Scripts:
 3. Copia `Project URL` y `service_role key` a `.env.local`
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
 
+4. **Da de alta al menos un usuario admin** (ver seccion siguiente). Sin esto
+   nadie puede entrar al panel: no existen contrasenas compartidas de respaldo.
+
+### Usuarios del acceso interno
+
+El panel (`/dashboard`) y la cocina (`/cocina`) NO usan una contrasena
+compartida por variable de entorno. Cada persona tiene su usuario en la tabla
+`dashboard_users`, y el **rol guardado** decide donde aterriza al ingresar:
+
+| Rol | Entra a | Puede ver |
+|---|---|---|
+| `admin` | `/dashboard` | el panel del encargado y tambien la cocina |
+| `kitchen` | `/cocina` | solo el tablero de cocina |
+
+La contrasena se guarda **hasheada con bcrypt**, nunca en claro. El alta es
+manual, en dos pasos:
+
+1. Genera el hash (con las dependencias del proyecto ya instaladas):
+
+   ```bash
+   node -e "require('bcryptjs').hash(process.argv[1], 12).then(console.log)" 'la-contrasena-elegida'
+   ```
+
+   > Usa **comillas simples** alrededor de la contrasena. Sin ellas, una shell
+   > se come caracteres como `$1` y acabarias guardando el hash de otra cosa.
+
+2. Inserta el usuario en el **SQL Editor** de Supabase:
+
+   ```sql
+   insert into dashboard_users (username, password_hash, role) values
+     ('nombre.usuario', '<el hash del paso 1>', 'admin')
+   on conflict (lower(username)) do nothing;
+   ```
+
+**Cambiar una contrasena** (genera un hash nuevo con el paso 1):
+
+```sql
+update dashboard_users set password_hash = '<hash nuevo>' where lower(username) = 'nombre.usuario';
+```
+
+**Dar de baja a alguien** sin borrar el historial de su alta:
+
+```sql
+update dashboard_users set is_active = false where lower(username) = 'nombre.usuario';
+```
+
+Un usuario con `is_active = false` no entra aunque su contrasena sea correcta.
+Cerrar sesiones ya abiertas es distinto: la cookie dura 8 h y se firma con
+`DASHBOARD_SESSION_SECRET`, asi que para invalidarlas todas de golpe hay que
+rotar ese secreto.
+
 ### Notas del esquema
 
-- **RLS habilitado** en las 11 tablas, **sin políticas públicas**. El backend usa
+- **RLS habilitado** en las 12 tablas, **sin políticas públicas**. El backend usa
   `service_role` (omite RLS); el acceso anónimo queda cerrado por defecto.
 - **Idempotencia**: `orders.source_message_id` y `webhook_events.event_id` son
   únicos → los reintentos no duplican pedidos.

@@ -22,6 +22,22 @@ export function LoginForm({ configured }: { configured: boolean }) {
         </p>
       )}
 
+      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200" htmlFor="username">
+        Usuario
+      </label>
+      <input
+        id="username"
+        name="username"
+        type="text"
+        autoComplete="username"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        required
+        disabled={!configured || pending}
+        className="mb-4 mt-1 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm shadow-sm focus:border-zinc-400 focus:outline-none disabled:opacity-50 dark:border-white/15 dark:bg-zinc-950"
+      />
+
       <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-200" htmlFor="password">
         Contraseña
       </label>
@@ -36,7 +52,7 @@ export function LoginForm({ configured }: { configured: boolean }) {
       />
 
       {state.error === 'invalid' && (
-        <p className="mt-2 text-sm text-red-600 dark:text-red-400">Contraseña incorrecta.</p>
+        <p className="mt-2 text-sm text-red-600 dark:text-red-400">Usuario o contraseña incorrectos.</p>
       )}
       {state.error === 'not_configured' && (
         <p className="mt-2 text-sm text-red-600 dark:text-red-400">El acceso no está configurado.</p>

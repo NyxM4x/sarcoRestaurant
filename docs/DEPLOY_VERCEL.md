@@ -85,7 +85,7 @@ En **Project Settings → Environment Variables**, agrega (ver también
 | `MAPBOX_ACCESS_TOKEN` | ✅ | Del panel de Mapbox. Sin ella el checkout no puede cotizar el envío. |
 | `RESTAURANT_LAT` | ✅ | Origen de la ruta. Don Zarco: `-17.811417`. |
 | `RESTAURANT_LNG` | ✅ | Origen de la ruta. Don Zarco: `-63.208222`. |
-| `DASHBOARD_PASSWORD` | ✅ | Contraseña compartida del panel interno. Sin ella el dashboard queda cerrado. |
+| ~~`DASHBOARD_PASSWORD`~~ | ❌ | **Eliminada.** Los usuarios del panel viven en la tabla `dashboard_users` (migración 0020); ver [SETUP.md](SETUP.md). Bórrala de Vercel. |
 | `DASHBOARD_SESSION_SECRET` | ✅ | Mínimo 32 caracteres; firma la cookie de sesión del panel. |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | ⬜ | Opcionales. Sin ellas el worker simplemente no envía alertas. |
 | `AI_ENABLED`, `AI_ACCESS_MODE`, `AI_TEST_PHONES`, `OPENAI_API_KEY` | ⬜ | Opcionales. Si falta cualquiera, el agente de WhatsApp queda apagado y el sistema funciona igual que sin él. |

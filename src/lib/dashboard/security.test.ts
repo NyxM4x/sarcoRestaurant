@@ -40,9 +40,11 @@ describe('seguridad — sin NEXT_PUBLIC', () => {
 
   it('15. las variables del dashboard en env.ts no son NEXT_PUBLIC_', () => {
     const env = read('../env/env.ts');
-    expect(env).toContain('DASHBOARD_PASSWORD');
     expect(env).toContain('DASHBOARD_SESSION_SECRET');
     expect(env).not.toMatch(/NEXT_PUBLIC_DASHBOARD/);
+    // Las credenciales ya no viven en el entorno: estan en `dashboard_users`.
+    expect(env).not.toContain('DASHBOARD_PASSWORD');
+    expect(env).not.toContain('KITCHEN_PASSWORD');
   });
 });
 

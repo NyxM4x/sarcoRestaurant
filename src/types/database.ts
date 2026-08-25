@@ -306,3 +306,30 @@ export interface AgentControlEvent {
   metadata: Record<string, unknown> | null;
   created_at: string;
 }
+
+// ── Usuarios del acceso interno (0020) ───────────────────────────────────
+
+/**
+ * Roles del panel interno. `admin` gobierna el panel del encargado
+ * (/dashboard); `kitchen` el tablero de cocina (/cocina).
+ */
+export const DASHBOARD_USER_ROLES = ['admin', 'kitchen'] as const;
+export type DashboardUserRole = (typeof DASHBOARD_USER_ROLES)[number];
+
+/**
+ * Usuario del acceso interno. Sustituye a las contrasenas compartidas por
+ * variable de entorno: cada persona tiene su usuario y su rol.
+ *
+ * `password_hash` guarda SIEMPRE un hash bcrypt, nunca texto plano, y no debe
+ * salir jamas de la capa server-only.
+ */
+export interface DashboardUser {
+  id: string;
+  username: string;
+  password_hash: string;
+  role: DashboardUserRole;
+  /** Baja logica: desactivar conserva el historial del alta. */
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}

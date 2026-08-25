@@ -1,29 +1,39 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { getServerEnv } from '@/lib/env/env';
-import { safeCompare } from '@/lib/security/compare';
 import {
   createSessionToken,
+  readSessionRole,
   verifySessionToken,
   readSessionCookie,
   DASHBOARD_COOKIE,
   DASHBOARD_SESSION_TTL_MS,
+  type SessionRole,
 } from './session-token';
+import { createUsersRepository } from './users-repository';
+import { createSupabaseUsersDataSource } from './users-data-source';
 
 /**
- * Autenticacion del dashboard — server-only.
+ * Autenticacion del acceso interno — server-only.
  *
- * Contrasena compartida + cookie httpOnly firmada HMAC. Fail-closed: si faltan
- * DASHBOARD_PASSWORD o DASHBOARD_SESSION_SECRET, nadie entra. La verificacion de
- * la contrasena es en tiempo constante; la cookie nunca guarda datos personales.
+ * Usuario + contrasena contra la tabla `dashboard_users` (migracion 0020), mas
+ * cookie httpOnly firmada HMAC. Ya NO existen contrasenas compartidas por
+ * variable de entorno: el rol de cada persona vive en la base.
+ *
+ * Fail-closed: sin DASHBOARD_SESSION_SECRET no se puede firmar ninguna cookie,
+ * asi que nadie entra. La cookie prueba QUE ROL tiene la sesion (`admin` o
+ * `kitchen`) y nunca guarda datos personales; la politica de a que puede entrar
+ * cada rol vive en `session-role.ts`, que es puro y testeable.
  */
 
 interface DashboardAuthConfig {
-  password: string;
   secret: string;
 }
 
-/** Config valida solo si ambos secretos existen y el secreto es suficientemente largo. */
+/**
+ * Config valida solo si el secreto de firma existe y es suficientemente largo.
+ * Las credenciales ya no viven aqui: estan en `dashboard_users`.
+ */
 function readConfig(): DashboardAuthConfig | null {
   let env;
   try {
@@ -31,21 +41,32 @@ function readConfig(): DashboardAuthConfig | null {
   } catch {
     return null;
   }
-  const password = env.DASHBOARD_PASSWORD ?? '';
   const secret = env.DASHBOARD_SESSION_SECRET ?? '';
-  if (password.length < 1 || secret.length < 32) return null;
-  return { password, secret };
+  if (secret.length < 32) return null;
+  return { secret };
 }
 
 export function isDashboardAuthConfigured(): boolean {
   return readConfig() !== null;
 }
 
-/** Verifica la contrasena en tiempo constante. */
-export function verifyDashboardPassword(candidate: string): boolean {
-  const cfg = readConfig();
-  if (!cfg) return false;
-  return safeCompare(candidate, cfg.password);
+/**
+ * Valida usuario + contrasena contra la base y devuelve el rol probado.
+ * `null` si las credenciales no valen o el servidor no esta configurado.
+ */
+export async function authenticateUser(
+  username: string,
+  password: string,
+): Promise<SessionRole | null> {
+  if (!readConfig()) return null;
+  try {
+    const repo = createUsersRepository(createSupabaseUsersDataSource());
+    return await repo.authenticate(username, password);
+  } catch {
+    // Error de base sanitizado: un fallo de conexion no distingue de
+    // credenciales malas hacia el cliente, y nunca expone SQL ni stack.
+    return null;
+  }
 }
 
 /** Verifica la cookie de sesion de un Request (para route handlers). */
@@ -56,20 +77,33 @@ export function isRequestAuthorized(request: Request): boolean {
   return verifySessionToken(token, cfg.secret, Date.now());
 }
 
-/** ¿La sesion actual (cookie del contexto server) es valida? */
-export async function hasValidSession(): Promise<boolean> {
+/** Rol probado por la cookie de un Request (para route handlers). `null` si no hay sesion. */
+export function requestSessionRole(request: Request): SessionRole | null {
   const cfg = readConfig();
-  if (!cfg) return false;
+  if (!cfg) return null;
+  const token = readSessionCookie(request.headers.get('cookie'));
+  return readSessionRole(token, cfg.secret, Date.now());
+}
+
+/** Rol de la sesion actual (cookie del contexto server). `null` si no hay sesion valida. */
+export async function currentSessionRole(): Promise<SessionRole | null> {
+  const cfg = readConfig();
+  if (!cfg) return null;
   const store = await cookies();
   const token = store.get(DASHBOARD_COOKIE)?.value ?? null;
-  return verifySessionToken(token, cfg.secret, Date.now());
+  return readSessionRole(token, cfg.secret, Date.now());
+}
+
+/** ¿La sesion actual (cookie del contexto server) es valida? */
+export async function hasValidSession(): Promise<boolean> {
+  return (await currentSessionRole()) !== null;
 }
 
 /** Crea la sesion (tras validar la contrasena) escribiendo la cookie httpOnly. */
-export async function establishSession(): Promise<boolean> {
+export async function establishSession(role: SessionRole = 'admin'): Promise<boolean> {
   const cfg = readConfig();
   if (!cfg) return false;
-  const value = createSessionToken(cfg.secret, Date.now());
+  const value = createSessionToken(cfg.secret, Date.now(), DASHBOARD_SESSION_TTL_MS, role);
   const store = await cookies();
   store.set(DASHBOARD_COOKIE, value, {
     httpOnly: true,
