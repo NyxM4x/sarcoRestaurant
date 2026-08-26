@@ -15,7 +15,7 @@ describe('password — hashing con sal', () => {
     // Pero ambos verifican: la sal viaja dentro del propio hash.
     expect(await verifyPassword('misma', a)).toBe(true);
     expect(await verifyPassword('misma', b)).toBe(true);
-  });
+  }, 30_000);
 
   it('usa el coste configurado y el formato bcrypt', async () => {
     expect(PASSWORD_SALT_ROUNDS).toBe(12);
@@ -30,8 +30,11 @@ describe('password — verificacion', () => {
     expect(await verifyPassword('correcta', hash)).toBe(true);
     expect(await verifyPassword('incorrecta', hash)).toBe(false);
     expect(await verifyPassword('Correcta', hash)).toBe(false);
-  });
+  }, 30_000);
 
+  // Timeout explícito: bcrypt con coste 12 tarda ~250 ms por operación a
+  // propósito, y este caso hace doce. El coste ALTO es la característica, no un
+  // problema a optimizar; lo que se ajusta es la espera del test.
   it('respeta caracteres especiales sin mutilarlos', async () => {
     // Caso real: una contrasena terminada en `$1` o con `%` debe funcionar tal
     // cual. Los valores son ficticios: las credenciales reales del restaurante
@@ -41,7 +44,7 @@ describe('password — verificacion', () => {
       expect(await verifyPassword(raw, hash), raw).toBe(true);
       expect(await verifyPassword(raw.slice(0, -1), hash), raw).toBe(false);
     }
-  });
+  }, 30_000);
 });
 
 describe('password — nunca lanza', () => {

@@ -333,3 +333,87 @@ export interface DashboardUser {
   created_at: string;
   updated_at: string;
 }
+
+// ── Comprobantes de pago (0021) ──────────────────────────────────────────
+
+/**
+ * Estado de revision de un intento de pago. Es una dimension INDEPENDIENTE de
+ * `orders.status`: confirmar un pago no avanza el pedido.
+ */
+export const PAYMENT_REVIEW_STATUSES = ['pending_review', 'accepted', 'rejected'] as const;
+export type PaymentReviewStatus = (typeof PAYMENT_REVIEW_STATUSES)[number];
+
+/** Como se asocio un comprobante con su pedido. */
+export const PROOF_ASSOCIATION_METHODS = [
+  'reply_to_qr',
+  'single_open_qr_order',
+  'duplicate',
+  'ambiguous',
+  'unresolved',
+] as const;
+export type ProofAssociationMethod = (typeof PROOF_ASSOCIATION_METHODS)[number];
+
+/**
+ * Por que NO se pudo enrutar un comprobante a un intento. Si hay excepcion, el
+ * comprobante no se une a ningun intento (lo garantiza un CHECK en la base).
+ */
+export const PROOF_ROUTING_EXCEPTIONS = [
+  'signal_conflict',
+  'expired_target',
+  'payment_already_accepted',
+  'closed_order',
+] as const;
+export type ProofRoutingException = (typeof PROOF_ROUTING_EXCEPTIONS)[number];
+
+/** Estado de captura y almacenamiento del archivo. */
+export const PROOF_CAPTURE_STATUSES = ['pending', 'stored', 'failed'] as const;
+export type ProofCaptureStatus = (typeof PROOF_CAPTURE_STATUSES)[number];
+
+/** Analisis automatico futuro. `pending` es su estado NORMAL, no un fallo. */
+export const PROOF_ANALYSIS_STATUSES = ['pending', 'done', 'failed'] as const;
+export type ProofAnalysisStatus = (typeof PROOF_ANALYSIS_STATUSES)[number];
+
+/** Episodio de revision de pago. Un pedido puede tener varios; se conservan todos. */
+export interface PaymentAttempt {
+  id: string;
+  order_id: string;
+  review_status: PaymentReviewStatus;
+  opened_at: string;
+  /** La pone el servidor al decidir; `null` mientras esta pendiente. */
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Archivo de comprobante recibido. Nunca se borra ni se fusiona: un duplicado
+ * se registra aparte apuntando al original con `duplicate_of_id`.
+ */
+export interface PaymentProof {
+  id: string;
+  /** WAMID del mensaje de origen. Unico en la base: garantiza idempotencia. */
+  source_message_id: string;
+  order_id: string | null;
+  attempt_id: string | null;
+  association_method: ProofAssociationMethod | null;
+  routing_exception: ProofRoutingException | null;
+  /** Tipo declarado por el proveedor. */
+  declared_mime_type: string | null;
+  /** Tipo REAL verificado sobre los bytes; es el que manda para presentar. */
+  verified_mime_type: string | null;
+  safe_filename: string | null;
+  /** Hash del contenido: reconoce el mismo archivo en un mensaje nuevo. */
+  content_sha256: string | null;
+  duplicate_of_id: string | null;
+  capture_status: ProofCaptureStatus;
+  received_at: string;
+  /** Referencias PRIVADAS. Nunca una URL publica ni firmada. */
+  storage_provider: string | null;
+  storage_namespace: string | null;
+  storage_key: string | null;
+  storage_stored_at: string | null;
+  storage_expires_at: string | null;
+  analysis_status: ProofAnalysisStatus;
+  created_at: string;
+  updated_at: string;
+}

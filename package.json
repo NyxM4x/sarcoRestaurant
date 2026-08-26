@@ -11,6 +11,7 @@
     "eval:selection": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1118.0",
     "@supabase/supabase-js": "^2.110.7",
     "bcryptjs": "^3.0.3",
     "next": "16.2.10",

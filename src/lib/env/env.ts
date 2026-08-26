@@ -55,6 +55,21 @@ const serverEnvSchema = z.object({
    */
   DASHBOARD_SESSION_SECRET: optionalString,
   /**
+   * Almacenamiento de comprobantes de pago (Cloudflare R2, compatible S3).
+   *
+   * Server-only, nunca NEXT_PUBLIC_. Los comprobantes son archivos privados de
+   * clientes: el bucket NO debe tener dominio publico conectado, y la app nunca
+   * genera una URL publica ni firmada como fuente de verdad — los sirve por su
+   * propio endpoint autenticado.
+   *
+   * Si falta cualquiera de las cuatro, la captura de comprobantes queda
+   * apagada y el resto del sistema sigue funcionando igual (fail-closed).
+   */
+  R2_ACCOUNT_ID: optionalString,
+  R2_ACCESS_KEY_ID: optionalString,
+  R2_SECRET_ACCESS_KEY: optionalString,
+  R2_BUCKET: optionalString,
+  /**
    * Agent Core (Fase 6D.2F.3). Todas opcionales: si falta cualquiera, el agente
    * no llama a OpenAI y el sistema se comporta exactamente como antes.
    *

@@ -60,7 +60,7 @@ describe('usuarios — autenticación correcta', () => {
       // A la fuente siempre se le pide la forma normalizada.
       expect(asked[0]).toBe('encargado.demo');
     }
-  });
+  }, 30_000);
 
   it('la contraseña SÍ distingue mayúsculas y caracteres especiales', async () => {
     const { source } = fakeSource(await user());
@@ -68,7 +68,7 @@ describe('usuarios — autenticación correcta', () => {
     expect(await repo.authenticate('encargado.demo', PASSWORD)).toBe('admin');
     expect(await repo.authenticate('encargado.demo', 'claveDePrueba$')).toBeNull();
     expect(await repo.authenticate('encargado.demo', 'CLAVEDEPRUEBA$1')).toBeNull();
-  });
+  }, 30_000);
 });
 
 describe('usuarios — credenciales rechazadas', () => {
@@ -123,7 +123,7 @@ describe('usuarios — el comodín no entrega otra cuenta', () => {
     expect(await createUsersRepository(source).authenticate('%', PASSWORD)).toBeNull();
     expect(await createUsersRepository(source).authenticate('encargado%', PASSWORD)).toBeNull();
     expect(await createUsersRepository(source).authenticate('_'.repeat(25), PASSWORD)).toBeNull();
-  });
+  }, 30_000);
 });
 
 describe('normalizeUsername', () => {
