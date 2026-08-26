@@ -80,14 +80,25 @@ export function createSupabaseOrdersDataSource(
 
       const itemCounts: Record<string, number> = {};
       const flags: Record<string, OrderNotificationFlags> = {};
+      const pendingPayment = new Set<string>();
       if (ids.length > 0) {
-        const [{ data: itemRows }, { data: notifRows }] = await Promise.all([
+        // Una sola consulta más para los pagos pendientes de TODA la página
+        // (nada de una consulta por tarjeta).
+        const [{ data: itemRows }, { data: notifRows }, { data: pendingRows }] = await Promise.all([
           client.from('order_items').select('order_id').in('order_id', ids),
           client
             .from('order_notifications')
             .select('order_id,manual_review_required,terminal_at,status')
             .in('order_id', ids),
+          client
+            .from('payment_attempts')
+            .select('order_id')
+            .in('order_id', ids)
+            .eq('review_status', 'pending_review'),
         ]);
+        for (const p of (pendingRows ?? []) as Array<{ order_id: string }>) {
+          pendingPayment.add(p.order_id);
+        }
         for (const it of (itemRows ?? []) as Array<{ order_id: string }>) {
           itemCounts[it.order_id] = (itemCounts[it.order_id] ?? 0) + 1;
         }
@@ -98,7 +109,7 @@ export function createSupabaseOrdersDataSource(
         for (const id of ids) flags[id] = flagsFrom(grouped[id] ?? []);
       }
 
-      return { rows, itemCounts, flags };
+      return { rows, itemCounts, flags, pendingPayment };
     },
 
     async countsByStatus(since, until): Promise<StatusCounts> {

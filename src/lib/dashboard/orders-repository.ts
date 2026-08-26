@@ -39,6 +39,12 @@ export interface ListRows {
   itemCounts: Record<string, number>;
   /** Banderas de notificacion por order id (sanitizadas). */
   flags: Record<string, OrderNotificationFlags>;
+  /**
+   * Ids de pedidos con un pago pendiente de revision (0021). Opcional: si la
+   * fuente no lo aporta, el indicador simplemente no se enciende y la lista
+   * sigue funcionando igual que antes.
+   */
+  pendingPayment?: Set<string>;
 }
 
 export interface DetailRows {
@@ -108,7 +114,12 @@ export function createOrdersRepository(source: OrdersDataSource): OrdersReposito
       const hasMore = list.rows.length > filters.limit;
       const pageRows = hasMore ? list.rows.slice(0, filters.limit) : list.rows;
       const orders = pageRows.map((row) =>
-        toOrderListItem(row, list.itemCounts[row.id] ?? 0, list.flags[row.id] ?? NO_FLAGS),
+        toOrderListItem(
+          row,
+          list.itemCounts[row.id] ?? 0,
+          list.flags[row.id] ?? NO_FLAGS,
+          list.pendingPayment?.has(row.id) ?? false,
+        ),
       );
 
       return {

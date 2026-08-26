@@ -13,6 +13,7 @@ import {
   type OutboundReconciliationStore,
 } from '@/lib/orders/notifications/outbound-webhook';
 import { log } from '@/lib/log';
+import type { ImageAttachment } from '@/lib/kapso/channel/image';
 import {
   dispositionAfterFailure,
   WEBHOOK_LEASE_SECONDS,
@@ -232,7 +233,28 @@ export interface HandleKapsoWebhookParams {
    * NO implica OpenAI: en esta fase el agente no responde.
    */
   agentChannel?: AgentChannelPort;
+  /**
+   * Captura de comprobantes de pago (0021-0023). Opcional: sin este puerto el
+   * webhook se comporta EXACTAMENTE como antes y ninguna imagen se captura.
+   * Es el interruptor de apagado de la funcion.
+   *
+   * Se inyecta en las TRES vias (inline, asincrona y worker) porque todas pasan
+   * por `processClaimedEvent`, asi que un solo cableado las cubre.
+   */
+  paymentProofIntake?: PaymentProofIntake;
 }
+
+/**
+ * Puerto de captura de comprobantes. Devuelve una etiqueta corta del resultado
+ * para el cuerpo de la respuesta; nunca datos del cliente ni del archivo.
+ */
+export type PaymentProofIntake = (input: {
+  sourceMessageId: string;
+  customerPhone: string;
+  attachment: ImageAttachment;
+  providerPhoneNumberId: string | null;
+  receivedAtMs: number;
+}) => Promise<{ result: string }>;
 
 const DUPLICATE: WebhookResult = {
   status: 200,
@@ -1078,6 +1100,49 @@ export async function processWebhookEvent(
  * reclamar aquí le robaría su propia fila. El trabajo, en cambio, es el mismo,
  * y este es el punto donde los dos caminos convergen.
  */
+
+/**
+ * Captura los comprobantes de una entrega.
+ *
+ * Recorre los sobres ya normalizados —el individual es un lote de uno— y manda
+ * al motor cada adjunto ENTRANTE del cliente. Los salientes se ignoran: el QR
+ * que enviamos nosotros no es un comprobante.
+ *
+ * Nunca lanza. Devuelve solo etiquetas de resultado, jamas datos del cliente ni
+ * del archivo.
+ */
+async function capturePaymentProofs(
+  envelopes: ReadonlyArray<{ payload: unknown }>,
+  eventName: string | null,
+  intake: PaymentProofIntake,
+): Promise<string[]> {
+  const outcomes: string[] = [];
+  for (const envelope of envelopes) {
+    const provenance = parseKapsoProvenance(eventName, envelope.payload);
+    if (provenance.kind !== 'customer_inbound') continue;
+
+    const { message } = provenance;
+    const attachment = message.image;
+    if (!attachment) continue;
+    if (!message.providerMessageId || !message.customerPhone) continue;
+
+    try {
+      const res = await intake({
+        sourceMessageId: message.providerMessageId,
+        customerPhone: message.customerPhone,
+        attachment,
+        providerPhoneNumberId: message.providerPhoneNumberId,
+        receivedAtMs: Date.now(),
+      });
+      outcomes.push(res.result);
+    } catch {
+      // Un comprobante problematico no tumba la entrega del resto.
+      outcomes.push('failed');
+    }
+  }
+  return outcomes;
+}
+
 export async function processClaimedEvent(
   claimed: WebhookEventRow,
   params: HandleKapsoWebhookParams,
@@ -1159,6 +1224,21 @@ async function runBusiness(
       quoteDynamicDelivery: params.quoteDynamicDelivery,
     });
 
+    // ── Comprobantes de pago ─────────────────────────────────────────────────
+    //
+    // Todo adjunto entrante del cliente pasa por el motor canonico. Se ESPERA a
+    // proposito (nada de `void`): en modo asincrono este trabajo corre dentro
+    // del `after()` de la ruta, y soltar la promesa dejaria la captura a merced
+    // de que la funcion serverless siga viva.
+    //
+    // Un fallo aqui NO tumba el resto del webhook: el pedido, la ubicacion y el
+    // agente ya se atendieron arriba, y perder un comprobante es recuperable
+    // (la fila queda reclamable y se reintenta) mientras que tumbar la entrega
+    // entera no lo es.
+    const proofs = params.paymentProofIntake
+      ? await capturePaymentProofs(normalized.envelopes, eventName, params.paymentProofIntake)
+      : [];
+
     // ── El turno agregado ────────────────────────────────────────────────────
     //
     // COMO MÁXIMO uno por entrega, ancla incluida. No se concatena nada ni se
@@ -1186,6 +1266,7 @@ async function runBusiness(
 
     // Camino individual: el cuerpo es EXACTAMENTE el de antes de 5C.2.
     let body = results[0].body;
+    if (proofs.length > 0) body = { ...body, payment_proofs: proofs };
     if (results[0].history !== null) body = { ...body, agent_history: results[0].history };
     if (turn !== null) body = { ...body, agent_turn: turn };
     return body;

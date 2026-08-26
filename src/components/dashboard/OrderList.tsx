@@ -47,7 +47,11 @@ function OrderCard({
   onQuickAction: (to: OrderStatus) => void;
 }) {
   const primary = primaryActionFor(order.status, order.deliveryType);
-  const hasFlags = order.locationPending || order.manualReview || order.notificationIssue;
+  const hasFlags =
+    order.locationPending ||
+    order.manualReview ||
+    order.notificationIssue ||
+    order.paymentPendingReview;
 
   const terminal = isTerminalStatus(order.status);
   const minutes = elapsedMinutes(order.createdAt, nowMs);
@@ -129,6 +133,9 @@ function OrderCard({
           ) : (
             order.locationPending && <Flag tone="amber">📍 Ubicación pendiente</Flag>
           )}
+          {/* El pago es una dimensión SEPARADA del estado operativo: un pedido
+              puede estar "En preparación" y tener el pago aún sin revisar. */}
+          {order.paymentPendingReview && <Flag tone="amber">💳 Pago por revisar</Flag>}
           {order.manualReview && <Flag tone="red">⚠ Revisión manual</Flag>}
           {order.notificationIssue && <Flag tone="amber">✉ Problema de notificación</Flag>}
         </div>

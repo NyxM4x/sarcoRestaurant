@@ -213,3 +213,27 @@ export function decideAssociation(input: AssociationInput): AssociationDecision 
     attemptEligible: false,
   };
 }
+
+/**
+ * Marca una decision ya tomada como DUPLICADO.
+ *
+ * El duplicado se descubre despues de descargar (hace falta el hash del
+ * contenido), asi que llega cuando el enrutado ya decidio a que pedido va. No
+ * es un resultado aparte: la fila se sigue capturando con normalidad, pero su
+ * `matchMethod` pasa a `duplicate`, guarda a quien duplica, y deja de alimentar
+ * un intento — un reenvio del mismo archivo no es evidencia nueva.
+ *
+ * El pedido asociado SE CONSERVA: saber a que pedido iba el reenvio es
+ * justamente lo que hace util el registro.
+ */
+export function overrideAsDuplicate(
+  decision: AssociationDecision,
+  duplicateOfProofId: string,
+): AssociationDecision {
+  return {
+    ...decision,
+    method: 'duplicate',
+    duplicateOfProofId,
+    attemptEligible: false,
+  };
+}

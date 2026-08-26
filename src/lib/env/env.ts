@@ -112,6 +112,16 @@ const serverEnvSchema = z.object({
    * único que cambia es si se procesa antes o después de responder.
    */
   WEBHOOK_ASYNC_ACK: optionalString,
+  /**
+   * Captura de comprobantes de pago (0021-0023). Solo la cadena exacta 'true'
+   * la enciende; ausente, vacia o cualquier otro valor la deja APAGADA.
+   *
+   * El default apagado es deliberado y del mismo tipo que AI_ENABLED: esto
+   * corre dentro del webhook que atiende a TODOS los clientes, asi que se
+   * enciende cuando se decide, no por el hecho de desplegar. Apagarla en
+   * produccion es cambiar esta variable, sin revertir codigo.
+   */
+  PAYMENT_PROOF_CAPTURE_ENABLED: optionalString,
   OPENAI_API_KEY: optionalString,
   OPENAI_MODEL: optionalString,
   // Sin OPENAI_BASE_URL a propósito: el host de OpenAI es una constante del

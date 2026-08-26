@@ -11,6 +11,7 @@ import {
 import { sendMenuCtaMessage } from '@/lib/kapso/send-menu-cta';
 import { createSupabaseOutboundStore } from '@/lib/orders/notifications/service';
 import { createAgentChannel } from '@/lib/agent/service';
+import { intakePaymentProof } from '@/lib/payment-proof/intake-service';
 import { quoteDynamicDeliveryForOrder } from '@/lib/delivery/quote-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
@@ -76,6 +77,8 @@ export async function POST(request: Request): Promise<Response> {
       outbound: createSupabaseOutboundStore(supabase),
       // Fase 6D.2F.2B: historial del cliente + human takeover.
       agentChannel: createAgentChannel(),
+      // Cubre las vias inline y asincrona: ambas comparten estos params.
+      paymentProofIntake: intakePaymentProof,
     };
 
     // Solo la cadena 'true' enciende el ACK durable.

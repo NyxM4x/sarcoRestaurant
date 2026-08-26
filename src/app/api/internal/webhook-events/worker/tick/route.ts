@@ -9,6 +9,7 @@ import {
 import { sendMenuCtaMessage } from '@/lib/kapso/send-menu-cta';
 import { createSupabaseOutboundStore } from '@/lib/orders/notifications/service';
 import { createAgentChannel } from '@/lib/agent/service';
+import { intakePaymentProof } from '@/lib/payment-proof/intake-service';
 import { quoteDynamicDeliveryForOrder } from '@/lib/delivery/quote-service';
 import { createSupabaseDueSelector, createSupabaseWebhookStore } from '@/lib/webhook/store';
 import { handleInboxTick } from '@/lib/webhook/inbox-worker';
@@ -65,6 +66,8 @@ export async function POST(request: Request): Promise<Response> {
         quoteDynamicDelivery: quoteDynamicDeliveryForOrder,
         outbound: createSupabaseOutboundStore(supabase),
         agentChannel: createAgentChannel(),
+        // Vía del worker: el mismo motor canonico que las otras dos.
+        paymentProofIntake: intakePaymentProof,
       },
     };
   } catch {

@@ -7,12 +7,19 @@
  */
 import { normalizeFilters } from './filters';
 import type { OrdersRepository } from './orders-repository';
+import type { PaymentView } from './attempt-review';
 
 export interface DashboardHandlerDeps {
   /** Verifica la cookie de sesion del request. */
   isAuthorized(request: Request): boolean;
   repo: OrdersRepository;
   now(): number;
+  /**
+   * Carga el historial de pagos del pedido (0021). Opcional: si no se inyecta,
+   * el detalle responde exactamente como antes y el panel no muestra la seccion
+   * de Pago. Asi la funcion se puede desplegar por partes sin romper nada.
+   */
+  loadPayment?(orderNumber: string): Promise<PaymentView | null>;
 }
 
 function json(status: number, body: unknown): Response {
@@ -66,7 +73,17 @@ export async function handleDetailRequest(
   try {
     const detail = await deps.repo.getDetail(orderNumber);
     if (!detail) return json(404, { error: 'not_found' });
-    return json(200, detail);
+    if (!deps.loadPayment) return json(200, detail);
+
+    // Un fallo leyendo los pagos NO debe tumbar el detalle del pedido: el
+    // encargado tiene que poder seguir operando aunque los comprobantes fallen.
+    let payment: PaymentView | null = null;
+    try {
+      payment = await deps.loadPayment(orderNumber);
+    } catch {
+      payment = null;
+    }
+    return json(200, { ...detail, payment });
   } catch {
     return json(500, { error: 'internal_error' });
   }

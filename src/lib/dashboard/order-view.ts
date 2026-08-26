@@ -75,6 +75,12 @@ export interface OrderListItem {
   notificationIssue: boolean;
   /** Estado de envío dinámico para el chip (6D.2D). `null` en pickup/legacy. */
   deliveryState: DeliveryStateView | null;
+  /**
+   * Hay un comprobante esperando decisión (0021). Es una dimensión SEPARADA del
+   * estado operativo: un pedido puede estar "En preparación" y a la vez tener el
+   * pago sin revisar.
+   */
+  paymentPendingReview: boolean;
 }
 
 export interface OrderDetailItem {
@@ -146,6 +152,7 @@ export function toOrderListItem(
   row: RawOrderRow,
   itemCount: number,
   flags: OrderNotificationFlags = NO_FLAGS,
+  paymentPendingReview = false,
 ): OrderListItem {
   return {
     orderNumber: row.order_number,
@@ -161,6 +168,7 @@ export function toOrderListItem(
     manualReview: flags.manualReview,
     notificationIssue: flags.notificationIssue,
     deliveryState: deliveryStateOf(row),
+    paymentPendingReview,
   };
 }
 

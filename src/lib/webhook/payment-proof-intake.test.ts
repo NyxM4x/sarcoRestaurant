@@ -1,0 +1,167 @@
+/**
+ * Recorrido de un comprobante DESDE LA FRONTERA DEL WEBHOOK (§5.4).
+ *
+ * No llama al motor directamente: entra por `processClaimedEvent`, que es el
+ * punto por el que pasan las tres vías (inline, asíncrona y worker). Usa el
+ * fixture REAL de imagen del proyecto —contrato observado en Production el
+ * 18-08-2026— para que lo que se prueba sea el payload que de verdad llega.
+ */
+import { describe, it, expect } from 'vitest';
+import { processClaimedEvent, type HandleKapsoWebhookParams, type WebhookEventRow } from './kapso';
+import {
+  IMAGE_CAPTION_WAMID,
+  IMAGE_NO_CAPTION_WAMID,
+  imageNoCaptionEnvelope,
+  imageWithCaptionEnvelope,
+} from '@/lib/kapso/channel/image.fixtures';
+
+const KAPSO_EVENT = 'whatsapp.message.received';
+
+function row(payload: unknown): WebhookEventRow {
+  return {
+    id: 'evt-1',
+    eventId: 'evt-1',
+    eventName: KAPSO_EVENT,
+    payload,
+    attempts: 0,
+    maxAttempts: 5,
+  } as unknown as WebhookEventRow;
+}
+
+/** Params mínimos: solo lo que este camino necesita. */
+function params(
+  intake?: HandleKapsoWebhookParams['paymentProofIntake'],
+): HandleKapsoWebhookParams {
+  return {
+    rawBody: '',
+    headers: { signature: null, version: null, event: KAPSO_EVENT, idempotencyKey: null },
+    secret: 'x'.repeat(32),
+    store: {
+      markProcessed: async () => {},
+      markFailed: async () => {},
+      releaseForRetry: async () => {},
+    } as unknown as HandleKapsoWebhookParams['store'],
+    confirmOrder: async () => ({ ok: false, reason: 'not_found' }) as never,
+    ensureLocationRequest: async () => ({ ok: false }) as never,
+    attachOrderLocation: async () => ({ ok: false }) as never,
+    sendMenuCta: async () => ({ ok: false }) as never,
+    paymentProofIntake: intake,
+  } as unknown as HandleKapsoWebhookParams;
+}
+
+describe('frontera del webhook → motor de comprobantes', () => {
+  it('una imagen entrante llega al motor con el WAMID y el teléfono reales', async () => {
+    const vistos: Array<{ wamid: string; phone: string; mime: string | null }> = [];
+    const res = await processClaimedEvent(
+      row(imageNoCaptionEnvelope()),
+      params(async (input) => {
+        vistos.push({
+          wamid: input.sourceMessageId,
+          phone: input.customerPhone,
+          mime: input.attachment.facts.mimeType,
+        });
+        return { result: 'captured' };
+      }),
+    );
+
+    expect(res.outcome).toBe('processed');
+    expect(vistos).toHaveLength(1);
+    expect(vistos[0].wamid).toBe(IMAGE_NO_CAPTION_WAMID);
+    expect(vistos[0].phone).toBeTruthy();
+    expect(vistos[0].mime).toBe('image/jpeg');
+  });
+
+  it('el resultado del motor viaja en el cuerpo, sin datos del cliente', async () => {
+    const res = await processClaimedEvent(
+      row(imageWithCaptionEnvelope()),
+      params(async () => ({ result: 'captured' })),
+    );
+    expect(res.body).toMatchObject({ payment_proofs: ['captured'] });
+    const json = JSON.stringify(res.body);
+    expect(json).not.toContain(IMAGE_CAPTION_WAMID);
+    expect(json).not.toContain('59100000000');
+  });
+
+  it('la imagen CON caption también se captura (el caption no la descarta)', async () => {
+    const vistos: string[] = [];
+    await processClaimedEvent(
+      row(imageWithCaptionEnvelope()),
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'captured' };
+      }),
+    );
+    expect(vistos).toEqual([IMAGE_CAPTION_WAMID]);
+  });
+});
+
+describe('el puerto es un interruptor de apagado', () => {
+  it('sin `paymentProofIntake` el webhook se comporta como antes', async () => {
+    const res = await processClaimedEvent(row(imageNoCaptionEnvelope()), params(undefined));
+    expect(res.outcome).toBe('processed');
+    expect(res.body).not.toHaveProperty('payment_proofs');
+  });
+});
+
+describe('un comprobante problemático NO tumba la entrega', () => {
+  it('si el motor lanza, el evento sigue procesándose', async () => {
+    const res = await processClaimedEvent(
+      row(imageNoCaptionEnvelope()),
+      params(async () => {
+        throw new Error('boom');
+      }),
+    );
+    expect(res.outcome).toBe('processed');
+    expect(res.body).toMatchObject({ payment_proofs: ['failed'] });
+  });
+
+  it('un resultado `failed` del motor tampoco rompe el webhook', async () => {
+    const res = await processClaimedEvent(
+      row(imageNoCaptionEnvelope()),
+      params(async () => ({ result: 'failed' })),
+    );
+    expect(res.outcome).toBe('processed');
+  });
+});
+
+describe('regresión: lo que NO es un comprobante', () => {
+  it('un mensaje de texto no llama al motor', async () => {
+    const vistos: string[] = [];
+    const texto = {
+      message: {
+        id: 'wamid.TEXTO',
+        type: 'text',
+        from: '59100000000',
+        text: { body: 'hola' },
+        kapso: { direction: 'inbound', origin: 'customer' },
+      },
+      conversation: { id: '00000000-0000-4000-8000-000000000002', phone_number: '59100000000' },
+      phone_number_id: '000000000000000',
+    };
+    const res = await processClaimedEvent(
+      row(texto),
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'captured' };
+      }),
+    );
+    expect(vistos).toEqual([]);
+    expect(res.body).not.toHaveProperty('payment_proofs');
+  });
+
+  it('un evento de ciclo de vida no llama al motor', async () => {
+    const vistos: string[] = [];
+    const lifecycle = {
+      message: { id: 'wamid.X', kapso: { status: 'delivered', origin: 'cloud_api' } },
+      conversation: { id: '00000000-0000-4000-8000-000000000002' },
+    };
+    await processClaimedEvent(
+      { ...row(lifecycle), eventName: 'whatsapp.message.delivered' } as WebhookEventRow,
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'captured' };
+      }),
+    );
+    expect(vistos).toEqual([]);
+  });
+});

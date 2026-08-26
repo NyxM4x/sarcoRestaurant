@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition, useCallback } from 'react';
 import type { OrderDetail } from '@/lib/dashboard/order-view';
+import type { PaymentView } from '@/lib/dashboard/attempt-review';
+import { PaymentSection } from './PaymentSection';
 import type { OrderStatus } from '@/types';
 import { actionsFor, actionRequiresConfirmation } from '@/lib/dashboard/status';
 import { googleMapsUrl } from '@/lib/dashboard/geo';
@@ -39,7 +41,9 @@ export function OrderDetailPanel({
   onClose: () => void;
   onUpdated: () => void;
 }) {
-  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  // El endpoint adjunta `payment` al detalle (0021). Es opcional: si el
+  // servidor no lo manda, la seccion de Pago simplemente no se pinta.
+  const [detail, setDetail] = useState<(OrderDetail & { payment?: PaymentView | null }) | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'notfound'>('loading');
   const [pending, startTransition] = useTransition();
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -55,7 +59,7 @@ export function OrderDetailPanel({
       });
       if (res.status === 404) return setState('notfound');
       if (!res.ok) return setState('error');
-      setDetail((await res.json()) as OrderDetail);
+      setDetail((await res.json()) as OrderDetail & { payment?: PaymentView | null });
       setState('ready');
     } catch {
       setState('error');
@@ -236,6 +240,10 @@ export function OrderDetailPanel({
                   </div>
                 </div>
               </div>
+
+              {/* Bloque: Pago (0021). El estado del pago es una dimension
+                  SEPARADA del estado operativo del pedido. */}
+              <PaymentSection payment={detail.payment ?? null} onDecided={load} />
 
               {/* Bloque: Observaciones */}
               {detail.notes && (

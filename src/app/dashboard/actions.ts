@@ -13,6 +13,8 @@ import {
 import { landingPathForRole, LOGIN_PATH } from '@/lib/dashboard/session-role';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
+import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
+import { isReviewDecision, type ReviewResult } from '@/lib/payment-proof/review-result';
 
 export interface LoginState {
   error: 'invalid' | 'not_configured' | null;
@@ -72,4 +74,36 @@ export async function updateOrderStatusAction(
     // Error de base sanitizado: nunca se expone SQL ni stack al navegador.
     return { ok: false, reason: 'error' };
   }
+}
+
+/** Formato estricto de UUID; se valida ANTES de tocar la base. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Confirma o rechaza un intento de pago desde el panel.
+ *
+ * Frontera publica MINIMA: no se abre un endpoint de escritura: una Server
+ * Action basta y ya viaja autenticada por la cookie de sesion.
+ *
+ * NO acepta el telefono del cliente desde el navegador. El aviso se manda a
+ * partir del pedido que devuelve la propia RPC, leido en servidor; si el
+ * navegador pudiera elegir el destinatario, cualquiera con sesion haria que el
+ * sistema mandase mensajes a un numero arbitrario.
+ *
+ * `revalidatePath` solo se llama tras un resultado PERSISTIDO con exito: no
+ * tiene sentido refrescar la vista por un intento fallido.
+ */
+export async function reviewPaymentAttemptAction(
+  attemptId: string,
+  decision: string,
+): Promise<ReviewResult> {
+  if (!(await hasValidSession())) return { ok: false, reason: 'unauthorized' };
+  if (!isReviewDecision(decision)) return { ok: false, reason: 'invalid_decision' };
+  if (typeof attemptId !== 'string' || !UUID_RE.test(attemptId)) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const result = await decidePaymentAttempt(attemptId, decision);
+  if (result.ok) revalidatePath('/dashboard');
+  return result;
 }
