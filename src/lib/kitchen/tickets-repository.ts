@@ -111,19 +111,33 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
       const { since, until } = dateBounds('today', nowMs);
       const { rows, items } = await source.listBoard(since, until);
 
-      // El pago NO puede tumbar el tablero. Si la consulta falla, la cocina
-      // sigue viendo sus tickets y puede cocinar: perder la seccion de pago es
-      // molesto, quedarse sin comandas en plena noche no es recuperable.
+      // ── El pago NO puede tumbar el tablero ────────────────────────────────
+      //
+      // Desde que el comprobante decide la ENTRADA al tablero, "no hay pagos" y
+      // "no pude consultar los pagos" dejaron de significar lo mismo, y
+      // confundirlos vacía la cocina: sin datos, todo pedido por QR parece no
+      // haber pagado y se filtra entero.
+      //
+      // Por eso el fallo se marca en vez de devolver un mapa vacio. Cuando no se
+      // pudo consultar, el filtro se desactiva y entran todos los tickets — la
+      // cocina puede quedarse sin ver el estado del pago, pero nunca sin
+      // comandas. Perder la seccion de pago es molesto; perder la pantalla en
+      // plena noche no es recuperable.
       let payments: Record<string, PaymentView> = {};
+      let pagosConsultados = false;
       if (source.listPayments) {
         try {
           payments = agruparPagos(await source.listPayments(rows.map((r) => r.id)));
+          pagosConsultados = true;
         } catch {
           payments = {};
         }
       }
 
-      return { tickets: toKitchenTickets(rows, items, payments), serverNow: nowMs };
+      return {
+        tickets: toKitchenTickets(rows, items, payments, pagosConsultados),
+        serverNow: nowMs,
+      };
     },
 
     async applyAction(orderNumber, action) {

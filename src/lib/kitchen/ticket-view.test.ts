@@ -177,11 +177,11 @@ describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
   } as never;
 
   it('sin comprobante NO aparece: el QR enviado no es un pago', () => {
-    expect(toKitchenTickets([pedido()], [])).toEqual([]);
+    expect(toKitchenTickets([pedido()], [], {}, true)).toEqual([]);
   });
 
   it('con comprobante aparece, y ya trae qué revisar', () => {
-    const tickets = toKitchenTickets([pedido()], [], { 'order-1': CON_COMPROBANTE });
+    const tickets = toKitchenTickets([pedido()], [], { 'order-1': CON_COMPROBANTE }, true);
     expect(tickets).toHaveLength(1);
     expect(tickets[0].payment).not.toBeNull();
   });
@@ -194,21 +194,62 @@ describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
       unlinkedProofs: [{ id: 'p1', isAvailable: false }],
       hasPendingReview: false,
     } as never;
-    expect(toKitchenTickets([pedido()], [], { 'order-1': sinArchivo })).toHaveLength(1);
+    expect(toKitchenTickets([pedido()], [], { 'order-1': sinArchivo }, true)).toHaveLength(1);
   });
 
   it('ya empezado, se queda aunque el pago se rechace después', () => {
     // La regla frena la ENTRADA, no saca de la pantalla lo que ya está en la
     // plancha: hacerlo desaparecer no devuelve la hamburguesa al refrigerador.
     for (const status of ['preparing', 'ready'] as const) {
-      const tickets = toKitchenTickets([pedido({ status })], []);
+      const tickets = toKitchenTickets([pedido({ status })], [], {}, true);
       expect(tickets, status).toHaveLength(1);
     }
   });
 
   it('los históricos en efectivo entran como siempre', () => {
     // No tienen comprobante que esperar; exigirles uno los dejaría invisibles.
-    expect(toKitchenTickets([pedido({ payment_method: 'cash' })], [])).toHaveLength(1);
-    expect(toKitchenTickets([pedido({ payment_method: null })], [])).toHaveLength(1);
+    expect(toKitchenTickets([pedido({ payment_method: 'cash' })], [], {}, true)).toHaveLength(1);
+    expect(toKitchenTickets([pedido({ payment_method: null })], [], {}, true)).toHaveLength(1);
+  });
+});
+
+describe('si no se pudo consultar el pago, entran TODOS', () => {
+  /**
+   * "No hay comprobantes" y "no pude consultar los comprobantes" dejaron de ser
+   * lo mismo en cuanto el comprobante decide la entrada al tablero.
+   *
+   * Confundirlos vacía la cocina: sin datos de pago, todo pedido por QR parece
+   * impagado y se filtra entero. Una consulta caída dejaría la pantalla en
+   * blanco en plena noche, que es exactamente el fallo que el tablero no puede
+   * permitirse. Ante la duda entran todos: ver un pedido de más es preferible a
+   * perder la pantalla.
+   */
+  function porQr(): RawKitchenOrderRow {
+    return {
+      id: 'order-1',
+      order_number: 'ORD-000200',
+      status: 'confirmed',
+      delivery_type: 'delivery',
+      notes: null,
+      created_at: '2026-08-27T20:00:00.000Z',
+      confirmed_at: '2026-08-27T20:01:00.000Z',
+      updated_at: '2026-08-27T20:01:00.000Z',
+      payment_method: 'qr',
+    };
+  }
+
+  it('sin poder consultar el pago, el pedido se ve igualmente', () => {
+    // `pagosConsultados = false`: la consulta falló.
+    expect(toKitchenTickets([porQr()], [], {}, false)).toHaveLength(1);
+  });
+
+  it('y con la consulta OK sin comprobante, se filtra como debe', () => {
+    expect(toKitchenTickets([porQr()], [], {}, true)).toEqual([]);
+  });
+
+  it('por defecto no filtra: quien no pasa el dato no puede vaciar el tablero', () => {
+    // El parámetro es opcional y su default es el seguro. Un llamador que aún no
+    // sepa de pagos —o un test antiguo— no puede dejar la cocina sin comandas.
+    expect(toKitchenTickets([porQr()], [])).toHaveLength(1);
   });
 });

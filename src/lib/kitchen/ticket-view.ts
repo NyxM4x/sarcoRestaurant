@@ -195,6 +195,16 @@ export function toKitchenTickets(
   items: RawKitchenItemRow[],
   /** Pago por `order_id`. Ausente = el tablero se pinta sin seccion de pago. */
   payments: Record<string, PaymentView> = {},
+  /**
+   * ¿Se pudo consultar el pago de verdad?
+   *
+   * `false` NO significa "no hay comprobantes": significa que no lo sabemos. Sin
+   * esta distincion, un fallo de la consulta haria desaparecer del tablero todos
+   * los pedidos por QR —parecerian impagados— y la cocina se quedaria sin
+   * comandas. Ante la duda entran todos: es preferible ver un pedido de mas que
+   * perder la pantalla entera.
+   */
+  pagosConsultados = false,
 ): KitchenTicket[] {
   const lines = groupItemsByOrder(items);
   const tickets: KitchenTicket[] = [];
@@ -203,7 +213,7 @@ export function toKitchenTickets(
     if (stage === null) continue;
 
     const payment = payments[row.id] ?? null;
-    if (esperandoComprobante(row, stage, payment)) continue;
+    if (pagosConsultados && esperandoComprobante(row, stage, payment)) continue;
 
     tickets.push({
       orderNumber: row.order_number,
