@@ -5,7 +5,14 @@ import {
   isInternalHost,
   shouldSendKapsoKey,
 } from './media-url-policy';
-import { KAPSO_MEDIA_URL, META_LOOKASIDE_URL } from './channel/image.fixtures';
+import {
+  KAPSO_MEDIA_URL,
+  KAPSO_R2_REDIRECT_URL,
+  META_LOOKASIDE_URL,
+} from './channel/image.fixtures';
+
+/** El host de R2 tal cual aparece en el `Location`, para no reescribirlo en cada test. */
+const R2_HOST = 'kapso-ai-prod.d77f1e59818b5ed2ec009d1a9116b255.r2.cloudflarestorage.com';
 
 /**
  * POLÍTICA DE URL DE MEDIA — SSRF (endurecimiento pre-push de 5C.5).
@@ -24,10 +31,21 @@ describe('media-url-policy — lo que SÍ pasa', () => {
     });
   });
 
-  it('la lista blanca tiene exactamente los dos hosts observados', () => {
+  it('el bucket de R2 al que redirige Kapso: es quien entrega los bytes', () => {
+    // Sin esta entrada la descarga moría en el salto 1 y todo comprobante
+    // quedaba `failed` con el archivo inalcanzable. Es el caso REAL, no un
+    // añadido preventivo.
+    expect(checkMediaUrl(KAPSO_R2_REDIRECT_URL)).toEqual({ ok: true, hostname: R2_HOST });
+  });
+
+  it('la lista blanca tiene exactamente los tres hosts observados', () => {
     // Si alguien añade uno, que sea una decisión visible en un diff, no un
     // efecto colateral de tocar otra cosa.
-    expect([...ALLOWED_MEDIA_HOSTS]).toEqual(['app.kapso.ai', 'lookaside.fbsbx.com']);
+    expect([...ALLOWED_MEDIA_HOSTS]).toEqual([
+      'app.kapso.ai',
+      'lookaside.fbsbx.com',
+      R2_HOST,
+    ]);
   });
 
   it('el puerto 443 explícito y las mayúsculas del host no molestan', () => {
@@ -127,6 +145,75 @@ describe('media-url-policy — hosts desconocidos', () => {
     }
   });
 
+  it('R2 NO queda abierto: solo el bucket de Kapso, nunca el servicio', () => {
+    // Admitir `.r2.cloudflarestorage.com` por sufijo convertiría el bucket de
+    // cualquiera con una cuenta de Cloudflare en un destino de descarga
+    // server-side. Cada uno de estos comparte sufijo con el permitido y aun así
+    // tiene que rebotar.
+    for (const host of [
+      'evil.r2.cloudflarestorage.com',
+      'r2.cloudflarestorage.com',
+      'cloudflarestorage.com',
+      // La cuenta de OTRO (mismo bucket, hexadecimal distinto).
+      'kapso-ai-prod.00000000000000000000000000000000.r2.cloudflarestorage.com',
+      // Nuestro host entero, colgado de un dominio ajeno: el caso `endsWith` al revés.
+      `${R2_HOST}.evil.com`,
+    ]) {
+      expect(checkMediaUrl(`https://${host}/objeto`), host).toEqual({
+        ok: false,
+        reason: 'host_not_allowed',
+        hostname: host,
+      });
+    }
+  });
+
+  it('un solo carácter distinto en el host de R2 y se acabó', () => {
+    // La cadena tiene 71 caracteres, 32 de ellos un hexadecimal que nadie va a
+    // revisar a ojo. Es exactamente donde un typo pasa desapercibido, así que se
+    // muta cada tramo por separado.
+    const mutaciones = [
+      // hexadecimal: un dígito cambiado
+      R2_HOST.replace('d77f', 'd77e'),
+      // bucket: una letra cambiada
+      R2_HOST.replace('kapso-ai-prod', 'kapso-ai-prod2'),
+      // un carácter de más
+      `${R2_HOST}x`,
+      // un carácter de menos
+      R2_HOST.slice(0, -1),
+      // guion por punto: cambia la frontera del dominio sin cambiar la longitud
+      R2_HOST.replace('kapso-ai-prod.', 'kapso-ai-prod-'),
+    ];
+    for (const host of mutaciones) {
+      expect(host, 'la mutación debe diferir del real').not.toBe(R2_HOST);
+      expect(checkMediaUrl(`https://${host}/objeto`), host).toMatchObject({
+        ok: false,
+        reason: 'host_not_allowed',
+      });
+    }
+  });
+
+  it('el host de R2 no se salta las demás reglas por estar permitido', () => {
+    // Estar en la lista blanca abre UNA puerta, no todas: el resto de la
+    // política sigue aplicándose igual que a `app.kapso.ai`.
+    expect(checkMediaUrl(`http://${R2_HOST}/objeto`)).toEqual({
+      ok: false,
+      reason: 'not_https',
+      hostname: R2_HOST,
+    });
+    expect(checkMediaUrl(`https://user:pass@${R2_HOST}/objeto`)).toMatchObject({
+      ok: false,
+      reason: 'malformed',
+    });
+    expect(checkMediaUrl(`https://${R2_HOST}:8443/objeto`)).toMatchObject({
+      ok: false,
+      reason: 'malformed',
+    });
+    // El truco de las credenciales: el host REAL es el de después de la arroba.
+    expect(checkMediaUrl(`https://${R2_HOST}:x@evil.example.com/objeto`)).toMatchObject({
+      ok: false,
+    });
+  });
+
   it('credenciales embebidas: confusión de parseadores, fuera', () => {
     expect(checkMediaUrl('https://app.kapso.ai:x@evil.example.com/f.jpg').ok).toBe(false);
     expect(checkMediaUrl('https://user:pass@app.kapso.ai/media/x')).toMatchObject({
@@ -157,5 +244,12 @@ describe('media-url-policy — la clave solo va a Kapso', () => {
     expect(shouldSendKapsoKey('APP.KAPSO.AI')).toBe(true);
     expect(shouldSendKapsoKey('lookaside.fbsbx.com')).toBe(false);
     expect(shouldSendKapsoKey('evil-app.kapso.ai')).toBe(false);
+  });
+
+  it('al bucket de R2 tampoco, aunque sea el propio de Kapso', () => {
+    // Es un host de Cloudflare, no de Kapso, y la URL ya viene firmada: la
+    // cabecera sobraría y podría invalidar la firma. Que esté en la lista blanca
+    // no lo convierte en destinatario de nuestra credencial.
+    expect(shouldSendKapsoKey(R2_HOST)).toBe(false);
   });
 });

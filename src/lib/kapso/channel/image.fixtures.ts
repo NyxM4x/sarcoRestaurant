@@ -48,6 +48,20 @@ export const IMAGE_CAPTION_TEXT = 'Que hamburguesa es esta?';
 export const KAPSO_MEDIA_URL = 'https://app.kapso.ai/media/sanitized-token';
 export const META_LOOKASIDE_URL = 'https://lookaside.fbsbx.com/whatsapp/sanitized';
 
+/**
+ * Destino del 302 de `app.kapso.ai` (observado el 27-08-2026).
+ *
+ * Kapso sirve los adjuntos por ActiveStorage: la URL de arriba NO devuelve el
+ * archivo, devuelve un redirect a su bucket. Este es el host que de verdad
+ * entrega los bytes, y por eso está en la lista blanca.
+ *
+ * La ruta va sanitizada porque lleva la firma del presigned URL. El host NO:
+ * cambiarlo probaría el rechazo en vez del camino real, que es justo el que
+ * estaba roto.
+ */
+export const KAPSO_R2_REDIRECT_URL =
+  'https://kapso-ai-prod.d77f1e59818b5ed2ec009d1a9116b255.r2.cloudflarestorage.com/sanitized-key';
+
 const CUSTOMER_PHONE = '59100000000';
 const CONVERSATION_ID = '00000000-0000-4000-8000-000000000002';
 const PHONE_NUMBER_ID = '000000000000000';

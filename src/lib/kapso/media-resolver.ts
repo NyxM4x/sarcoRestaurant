@@ -33,7 +33,11 @@ import {
  * `fetch` server-side hacia una URL que vino en un payload es la forma exacta de
  * un SSRF. Cada salto —el inicial y CADA redirect— pasa por `checkMediaUrl`:
  * HTTPS, sin credenciales embebidas, puerto 443 y hostname en una lista blanca
- * de dos entradas sacadas de payloads reales. Ver `media-url-policy.ts`.
+ * corta, sacada de payloads reales. Ver `media-url-policy.ts`.
+ *
+ * El redirect NO es un caso raro aquí: es el camino normal. `app.kapso.ai` sirve
+ * los adjuntos por ActiveStorage y devuelve un 302 a su bucket, así que la
+ * descarga que funciona son SIEMPRE dos saltos.
  *
  * Los redirects se siguen A MANO por eso mismo: `redirect: 'follow'` valida el
  * primer host y luego obedece a donde le manden, que es justo el agujero. Con

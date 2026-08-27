@@ -3,6 +3,7 @@ import { parseImage, type ImageAttachment } from './channel/image';
 import {
   imageNoCaptionEnvelope,
   KAPSO_MEDIA_URL,
+  KAPSO_R2_REDIRECT_URL,
   META_LOOKASIDE_URL,
 } from './channel/image.fixtures';
 import { MEDIA_MAX_BYTES } from '@/lib/agent/core/media';
@@ -22,10 +23,11 @@ vi.mock('@/lib/env/env', () => ({
   getServerEnv: () => ({ KAPSO_API_KEY: API_KEY }),
 }));
 
-// El logger escupe JSON por consola; aquí solo estorba.
-vi.mock('@/lib/log', () => ({
-  log: { info: () => {}, warn: () => {}, error: () => {} },
-}));
+// El logger escupe JSON por consola; aquí estorba, pero además interesa MIRARLO:
+// una URL de media es una credencial de acceso al archivo del cliente, y el sitio
+// donde se filtraría sin que nadie se diera cuenta es justamente un log de error.
+const logSpy = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('@/lib/log', () => ({ log: logSpy }));
 
 const { createKapsoMediaResolver } = await import('./media-resolver');
 
@@ -81,6 +83,9 @@ function stubFetch(guion: ReturnType<typeof fetchGuion>): void {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  logSpy.info.mockClear();
+  logSpy.warn.mockClear();
+  logSpy.error.mockClear();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -183,6 +188,82 @@ describe('media-resolver — SSRF: la puerta se cruza en cada salto', () => {
     expect(guion.llamadas[0].headers['X-API-Key']).toBe(API_KEY);
     // El segundo salto es de Meta: nuestra credencial no va ahí.
     expect(guion.llamadas[1].headers['X-API-Key']).toBeUndefined();
+  });
+
+  it('LA CADENA REAL: app.kapso.ai → 302 → su bucket de R2 → los bytes', async () => {
+    // Reproduce exactamente lo observado en Production el 27-08-2026. Antes de
+    // añadir el host de R2 esto moría en el salto 1 con `blocked_url`, y cada
+    // comprobante quedaba `failed` con el archivo inalcanzable.
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      respuesta({
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '66375' },
+      }),
+    );
+    stubFetch(guion);
+
+    const res = await createKapsoMediaResolver().resolveImage(soloKapso(), null);
+
+    expect(res).toMatchObject({ ok: true, source: 'transient_kapso', mimeType: 'image/jpeg' });
+    expect(guion.fn).toHaveBeenCalledTimes(2);
+    // La clave va al primer salto —Kapso la exige para emitir el 302— y NO al
+    // segundo: R2 es Cloudflare y la URL ya viene firmada.
+    expect(guion.llamadas[0].headers['X-API-Key']).toBe(API_KEY);
+    expect(guion.llamadas[1].headers['X-API-Key']).toBeUndefined();
+    // Y lo que sale no lleva ninguna de las dos referencias de acceso.
+    expect(res.ok && res.dataUrl).not.toContain('cloudflarestorage');
+    expect(res.ok && res.dataUrl).not.toContain('kapso.ai');
+  });
+
+  it('un redirect al bucket de OTRO en R2 no se sigue', async () => {
+    // El salto 1 es una URL elegida por el proveedor. Que el destino comparta
+    // sufijo con el permitido no lo convierte en permitido.
+    const guion = fetchGuion(
+      respuesta({
+        status: 302,
+        headers: { location: 'https://evil.r2.cloudflarestorage.com/objeto' },
+      }),
+      IMAGEN_OK,
+    );
+    stubFetch(guion);
+
+    expect(await createKapsoMediaResolver().resolveImage(soloKapso(), null)).toEqual({
+      ok: false,
+      error: 'blocked_url',
+    });
+    expect(guion.fn).toHaveBeenCalledTimes(1);
+    expect(guion.llamadas.some((l) => l.url.includes('evil.r2'))).toBe(false);
+  });
+
+  it('el bucket de R2 tampoco se salta el MIME ni el tope de tamaño', async () => {
+    // Estar en la lista blanca no exime del resto de la política: lo que llega
+    // por el salto final se juzga igual que por el primero.
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      respuesta({ status: 200, headers: { 'content-type': 'text/html' } }),
+    );
+    stubFetch(guion);
+    expect(await createKapsoMediaResolver().resolveImage(soloKapso(), null)).toEqual({
+      ok: false,
+      error: 'unsupported_mime',
+    });
+
+    const guion2 = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      respuesta({
+        status: 200,
+        headers: {
+          'content-type': 'image/jpeg',
+          'content-length': String(MEDIA_MAX_BYTES + 1),
+        },
+      }),
+    );
+    stubFetch(guion2);
+    expect(await createKapsoMediaResolver().resolveImage(soloKapso(), null)).toEqual({
+      ok: false,
+      error: 'too_large',
+    });
   });
 
   it('un redirect RELATIVO se resuelve contra el salto actual', async () => {
@@ -365,5 +446,86 @@ describe('media-resolver — topes y desenlaces', () => {
       error: 'unavailable',
     });
     expect(guion.fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('media-resolver — las URLs firmadas no salen por el log', () => {
+  /**
+   * Cada URL de aquí es una credencial: quien la tenga puede bajarse la foto del
+   * cliente mientras siga viva, y la de R2 lleva la firma en el query string. El
+   * contrato del módulo es que al log solo van el HOSTNAME y un motivo saneado.
+   *
+   * Se comprueba sobre el argumento entero serializado y no campo a campo: lo
+   * que hay que impedir es que la URL aparezca EN ALGÚN sitio del registro, no
+   * que un campo concreto esté limpio.
+   */
+  function registrado(): string {
+    return JSON.stringify([
+      ...logSpy.warn.mock.calls,
+      ...logSpy.error.mock.calls,
+      ...logSpy.info.mock.calls,
+    ]);
+  }
+
+  /** Ni la ruta, ni el token, ni la firma: nada de lo que hay tras el host. */
+  function noFiltra(texto: string): void {
+    expect(texto).not.toContain('sanitized-token');
+    expect(texto).not.toContain('sanitized-key');
+    expect(texto).not.toContain(KAPSO_MEDIA_URL);
+    expect(texto).not.toContain(KAPSO_R2_REDIRECT_URL);
+    expect(texto).not.toContain('https://');
+  }
+
+  it('un destino bloqueado registra el host y el motivo, nunca la URL', async () => {
+    const guion = fetchGuion(
+      respuesta({
+        status: 302,
+        headers: { location: 'https://evil.r2.cloudflarestorage.com/objeto?firma=SECRETA' },
+      }),
+    );
+    stubFetch(guion);
+
+    await createKapsoMediaResolver().resolveImage(soloKapso(), null);
+
+    expect(logSpy.warn).toHaveBeenCalledWith('agent_media_url_blocked', {
+      source: 'transient_kapso',
+      reason: 'host_not_allowed',
+      host: 'evil.r2.cloudflarestorage.com',
+      redirect_hop: 1,
+    });
+    const texto = registrado();
+    expect(texto).not.toContain('firma=SECRETA');
+    noFiltra(texto);
+  });
+
+  it('un fallo del bucket registra la familia del status, no el cuerpo ni la URL', async () => {
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      respuesta({ status: 403 }),
+    );
+    stubFetch(guion);
+
+    await createKapsoMediaResolver().resolveImage(soloKapso(), null);
+
+    expect(logSpy.warn).toHaveBeenCalledWith('agent_media_fetch_failed', {
+      source: 'transient_kapso',
+      host: 'kapso-ai-prod.d77f1e59818b5ed2ec009d1a9116b255.r2.cloudflarestorage.com',
+      // La familia, no el 403 exacto ni el cuerpo de la respuesta.
+      status_class: '4xx',
+    });
+    noFiltra(registrado());
+  });
+
+  it('la descarga que SÍ funciona no registra ninguna referencia', async () => {
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      respuesta({ status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    );
+    stubFetch(guion);
+
+    const res = await createKapsoMediaResolver().resolveImage(soloKapso(), null);
+
+    expect(res.ok).toBe(true);
+    noFiltra(registrado());
   });
 });

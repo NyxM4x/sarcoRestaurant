@@ -33,7 +33,24 @@
  */
 
 /** Hosts observados en payloads REALES. Ninguno más. */
-export const ALLOWED_MEDIA_HOSTS: readonly string[] = ['app.kapso.ai', 'lookaside.fbsbx.com'];
+export const ALLOWED_MEDIA_HOSTS: readonly string[] = [
+  'app.kapso.ai',
+  'lookaside.fbsbx.com',
+  // Destino del 302 de ActiveStorage, observado el 27-08-2026 en las tres
+  // imágenes reales que llegaron por el webhook. `app.kapso.ai` no sirve el
+  // archivo: redirige aquí, así que sin esta entrada la descarga moría en el
+  // salto 1 con `host_not_allowed` y el comprobante quedaba `failed` —
+  // exactamente lo que la cabecera de este módulo anticipaba como "fallo
+  // ruidoso y corregible".
+  //
+  // Cadena COMPLETA y a propósito: el subdominio es el bucket de Kapso y el
+  // laberinto hexadecimal su cuenta de Cloudflare. Un `endsWith` sobre
+  // `.r2.cloudflarestorage.com` convertiría en host permitido el bucket de
+  // CUALQUIERA con una cuenta R2, que es justo lo que la regla de coincidencia
+  // exacta existe para impedir. Si Kapso rota de bucket o de cuenta, esto
+  // vuelve a fallar en el log con el hostname nuevo delante.
+  'kapso-ai-prod.d77f1e59818b5ed2ec009d1a9116b255.r2.cloudflarestorage.com',
+];
 
 /** Puertos admitidos: solo el de HTTPS. Vacío = 443 implícito. */
 const ALLOWED_PORTS: readonly string[] = ['', '443'];
