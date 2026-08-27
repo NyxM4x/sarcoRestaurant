@@ -39,8 +39,12 @@ import {
 
 export interface KitchenPaymentPanelProps {
   payment: PaymentView | null;
-  /** Total a cobrar: es contra esto que se contrasta el comprobante. */
-  total: number;
+  /**
+   * Lo que el cliente debía transferir por QR. Es contra esto —y no contra el
+   * total— que se contrasta el comprobante: en delivery el envío se paga al
+   * recibir el pedido.
+   */
+  amountDueByQr: number;
   /** Refresca el tablero tras una decisión (o un conflicto). */
   onDecided: () => void;
 }
@@ -59,7 +63,11 @@ function formatBs(amount: number): string {
   return `Bs ${amount.toFixed(2).replace('.', ',')}`;
 }
 
-export function KitchenPaymentPanel({ payment, total, onDecided }: KitchenPaymentPanelProps) {
+export function KitchenPaymentPanel({
+  payment,
+  amountDueByQr,
+  onDecided,
+}: KitchenPaymentPanelProps) {
   // El intento vigente es el más reciente; `toPaymentView` ya los ordena así.
   const attempt = payment?.attempts[0] ?? null;
   const sueltos = payment?.unlinkedProofs ?? [];
@@ -67,9 +75,15 @@ export function KitchenPaymentPanel({ payment, total, onDecided }: KitchenPaymen
   return (
     <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Pago</p>
-        {/* El total, bien visible: es la cifra contra la que se compara. */}
-        <p className="text-lg font-extrabold tabular-nums text-zinc-900">{formatBs(total)}</p>
+        {/* El rótulo dice QUÉ es la cifra. "Pago: Bs 48" invita a compararla con
+            cualquier cosa; "A cobrar por QR" dice exactamente qué tiene que
+            decir el comprobante que se está mirando. */}
+        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+          A cobrar por QR
+        </p>
+        <p className="text-lg font-extrabold tabular-nums text-zinc-900">
+          {formatBs(amountDueByQr)}
+        </p>
       </div>
 
       {attempt === null ? (

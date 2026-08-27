@@ -6,16 +6,28 @@
  * direccion ni coordenadas. No es solo que la pantalla no los pinte: es que no
  * viajan en la respuesta.
  *
- * ── Por que el TOTAL si viaja ahora ─────────────────────────────────────────
+ * ── Por que viaja un IMPORTE, y por que solo uno ────────────────────────────
  *
- * Desde que cocina revisa los comprobantes, el total dejo de ser un dato
+ * Desde que cocina revisa los comprobantes, el monto dejo de ser un dato
  * administrativo y paso a ser una herramienta de trabajo: sin el, mirar un
  * comprobante no es validarlo. Se puede aceptar un pago de Bs 20 para un pedido
  * de Bs 64 y nadie lo nota hasta el cierre de caja.
  *
- * Viaja el TOTAL y nada mas. Ni subtotal, ni costo de envio, ni desglose: lo
- * unico que hace falta para contrastar el monto del comprobante. La lista sigue
- * siendo corta a proposito — se amplio por una razon concreta, no se abrio.
+ * Viaja UNA sola cifra: lo que el cliente debia transferir por QR. Ni total, ni
+ * subtotal, ni envio por separado. Dos cifras en un ticket que se mira a un
+ * metro y con prisa es una invitacion a comparar el comprobante contra la
+ * equivocada — que es justo el error que este dato viene a evitar.
+ *
+ * ── Y por que ese importe NO es el total ────────────────────────────────────
+ *
+ * En delivery, por QR se cobra solo la comida: el envio lo paga el cliente al
+ * recibir el pedido, y el mensaje del QR se lo advierte. Asi que el comprobante
+ * correcto vale el SUBTOTAL, y comparar contra el total haria rechazar pagos
+ * buenos — con el cliente esperando y la comida sin empezar.
+ *
+ * En recojo no hay envio que cobrar aparte, asi que se paga todo por QR y el
+ * importe a validar es el total. La cifra correcta depende del tipo de entrega,
+ * y por eso se calcula aqui una vez y no en cada pantalla que la use.
  */
 import type { OrderStatus, DeliveryType } from '@/types';
 import type { PaymentView } from '@/lib/dashboard/attempt-review';
@@ -34,12 +46,12 @@ export interface RawKitchenOrderRow {
   /** Ultimo cambio de estado: sirve como hora de completado en el historial. */
   updated_at: string;
   /**
-   * Total a cobrar. Lo necesita quien contrasta el comprobante.
-   *
-   * Opcional porque `numeric` puede no venir en una fila antigua o en un
-   * adaptador que no lo pida; ausente se trata como 0, nunca como `NaN`.
+   * Importes del pedido. Opcionales porque `numeric` puede no venir en una fila
+   * antigua o en un adaptador que no los pida; ausentes se tratan como 0, nunca
+   * como `NaN`.
    */
   total_amount?: number | string | null;
+  subtotal_amount?: number | string | null;
 }
 
 /** Fila cruda minima de `order_items`: producto y cantidad, nada de precios. */
@@ -72,8 +84,12 @@ export interface KitchenTicket {
   notes: string | null;
   /** Hora en que se marco listo (solo etapa `done`); alimenta el historial. */
   completedAt: string | null;
-  /** Total a cobrar, para contrastar el comprobante. */
-  total: number;
+  /**
+   * Lo que el cliente debia transferir por QR: la cifra contra la que se
+   * contrasta el comprobante. En delivery es la comida (el envio se paga al
+   * recibir); en recojo, el total.
+   */
+  amountDueByQr: number;
   /**
    * Pago del pedido: intentos y comprobantes, ya en forma de vista.
    *
@@ -91,6 +107,21 @@ export interface KitchenTicket {
  */
 export function enteredAtOf(row: RawKitchenOrderRow): string {
   return row.confirmed_at ?? row.created_at;
+}
+
+/**
+ * Importe que el cliente debia transferir por QR.
+ *
+ * `numeric` de Postgres puede llegar como cadena segun el driver, y un valor
+ * ilegible cae a 0 en vez de a `NaN`: la tarjeta muestra "Bs 0,00", que es
+ * visiblemente raro y hace mirar dos veces, en lugar de un "NaN" que parece un
+ * fallo de la pantalla y se ignora.
+ */
+export function amountDueByQrOf(row: RawKitchenOrderRow): number {
+  // Recojo: no hay envio que cobrar aparte, se paga todo por QR.
+  if (row.delivery_type === 'pickup') return Number(row.total_amount) || 0;
+  // Delivery: solo la comida. El envio lo paga al recibir el pedido.
+  return Number(row.subtotal_amount) || 0;
 }
 
 /** Agrupa las filas de items por `order_id` (una sola consulta las trae todas). */
@@ -131,10 +162,7 @@ export function toKitchenTickets(
       lines: lines[row.id] ?? [],
       notes: row.notes,
       completedAt: stage === 'done' ? row.updated_at : null,
-      // `numeric` de Postgres puede llegar como cadena segun el driver. Un total
-      // ilegible cae a 0 y no a NaN: la tarjeta muestra "Bs 0,00", que es
-      // visiblemente raro, en vez de un "NaN" que parece un fallo de la pantalla.
-      total: Number(row.total_amount) || 0,
+      amountDueByQr: amountDueByQrOf(row),
       payment: payments[row.id] ?? null,
     });
   }

@@ -20,16 +20,19 @@ import type {
  * coordenadas y metodo de pago NO se piden, asi que no pueden filtrarse a la
  * pantalla de la cocina aunque alguien intentara pintarlos.
  *
- * `total_amount` SI se pide desde que cocina revisa los comprobantes: sin el
- * monto esperado, mirar un comprobante no es validarlo. Es la unica cifra que
- * entra, y entra por esa razon concreta — ni subtotal, ni envio, ni desglose.
+ * Los importes SI se piden desde que cocina revisa los comprobantes: sin el
+ * monto esperado, mirar un comprobante no es validarlo. Se piden `total_amount`
+ * y `subtotal_amount` porque la cifra correcta depende del tipo de entrega —en
+ * delivery por QR se cobra solo la comida— pero al ticket sale UNA sola,
+ * calculada en `amountDueByQrOf`. Lo que no se pide sigue sin poder filtrarse.
  *
  * `draft` queda excluido por construccion: solo se leen los estados del tablero.
  * La unica escritura posible es `orders.status`, con guarda optimista. Nunca se
  * toca `order_notifications`.
  */
 const KITCHEN_ORDER_COLUMNS =
-  'id,order_number,status,delivery_type,notes,created_at,confirmed_at,updated_at,total_amount';
+  'id,order_number,status,delivery_type,notes,created_at,confirmed_at,updated_at,' +
+  'total_amount,subtotal_amount';
 
 /** Techo de seguridad: el tablero nunca descarga la tabla entera. */
 const MAX_BOARD_ROWS = 200;

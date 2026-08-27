@@ -389,7 +389,13 @@ async function processConfirmation(
       ? sender.sendImage(
           order.customer_phone,
           PAYMENT_QR_URL,
-          buildQrPaymentCaption(text),
+          // Por QR se cobra SOLO la comida cuando hay envío: el delivery se paga
+          // al recibir. En recojo no hay envío y `deliveryAmount` en 0 devuelve
+          // el texto simple de siempre.
+          buildQrPaymentCaption(text, {
+            dueByQr: order.subtotal_amount,
+            deliveryAmount: order.delivery_amount,
+          }),
           order.phone_number_id,
         )
       : sender.sendText(order.customer_phone, text, order.phone_number_id),

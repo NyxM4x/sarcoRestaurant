@@ -77,21 +77,44 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     }
   });
 
-  it('el TOTAL sí viaja, y es el único importe que lo hace', () => {
-    // Cambio deliberado del contrato: desde que cocina revisa los comprobantes,
-    // el total es una herramienta de trabajo. Sin él, mirar un comprobante no es
-    // validarlo — se aceptaría un pago de Bs 20 para un pedido de Bs 64.
-    const [ticket] = toKitchenTickets([{ ...row, total_amount: '64.00' }], []);
-    expect(ticket.total).toBe(64);
+  it('en DELIVERY se valida contra la comida, no contra el total', () => {
+    // Por QR se cobra solo la comida: el envío lo paga el cliente al recibir el
+    // pedido, y el mensaje del QR se lo advierte. Validar contra el total haría
+    // rechazar pagos correctos, con la comida sin empezar y el cliente esperando.
+    const [ticket] = toKitchenTickets(
+      [{ ...row, delivery_type: 'delivery', subtotal_amount: '48.00', total_amount: '64.00' }],
+      [],
+    );
+    expect(ticket.amountDueByQr).toBe(48);
   });
 
-  it('un total ilegible cae a 0, nunca a NaN', () => {
+  it('en RECOJO se valida contra el total: no hay envío que cobrar aparte', () => {
+    const [ticket] = toKitchenTickets(
+      [{ ...row, delivery_type: 'pickup', subtotal_amount: '48.00', total_amount: '48.00' }],
+      [],
+    );
+    expect(ticket.amountDueByQr).toBe(48);
+  });
+
+  it('viaja UNA sola cifra: dos invitarían a comparar contra la equivocada', () => {
+    const [ticket] = toKitchenTickets(
+      [{ ...row, delivery_type: 'delivery', subtotal_amount: '48.00', total_amount: '64.00' }],
+      [],
+    );
+    // El total del pedido NO llega al ticket, ni con su nombre ni con su valor.
+    expect(JSON.stringify(ticket)).not.toContain('64');
+  });
+
+  it('un importe ilegible cae a 0, nunca a NaN', () => {
     // `NaN` se pinta como "NaN" y parece un fallo de la pantalla; un 0 es
-    // visiblemente raro y no engaña a nadie.
-    const [ticket] = toKitchenTickets([{ ...row, total_amount: 'no-es-un-numero' }], []);
-    expect(ticket.total).toBe(0);
-    const [sinDato] = toKitchenTickets([{ ...row, total_amount: null }], []);
-    expect(sinDato.total).toBe(0);
+    // visiblemente raro, hace mirar dos veces y no engaña a nadie.
+    const [ticket] = toKitchenTickets(
+      [{ ...row, delivery_type: 'delivery', subtotal_amount: 'no-es-un-numero' }],
+      [],
+    );
+    expect(ticket.amountDueByQr).toBe(0);
+    const [sinDato] = toKitchenTickets([{ ...row, delivery_type: 'delivery' }], []);
+    expect(sinDato.amountDueByQr).toBe(0);
   });
 
   it('el ticket tampoco expone el UUID interno del pedido', () => {
@@ -100,6 +123,7 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     // La lista es cerrada A PROPÓSITO: si alguien añade un campo al ticket, este
     // test falla y obliga a justificarlo. Así se añadieron `total` y `payment`.
     expect(Object.keys(ticket).sort()).toEqual([
+      'amountDueByQr',
       'completedAt',
       'deliveryType',
       'enteredAt',
@@ -108,20 +132,21 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
       'orderNumber',
       'payment',
       'stage',
-      'total',
     ]);
   });
 
   it('la consulta ni siquiera PIDE esas columnas a la base', () => {
     const src = read('./data-source.ts');
     const columnas = /const KITCHEN_ORDER_COLUMNS =\s*([\s\S]*?);/.exec(src)?.[1] ?? '';
-    // `total_amount` salió de la lista de prohibidas: ahora se pide, y por una
-    // razón concreta. Todo lo demás sigue sin pedirse, que es lo que hace que
-    // no pueda filtrarse aunque alguien intentara pintarlo.
+    // Los importes salieron de la lista de prohibidas: se piden los dos porque
+    // la cifra correcta depende del tipo de entrega. Al ticket sale UNA sola.
+    // Todo lo demás sigue sin pedirse, que es lo que hace que no pueda filtrarse
+    // aunque alguien intentara pintarlo.
     expect(columnas).not.toMatch(
-      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|subtotal_amount|delivery_amount|payment_method|currency/,
+      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|delivery_amount|payment_method|currency/,
     );
     expect(columnas).toContain('total_amount');
+    expect(columnas).toContain('subtotal_amount');
     // Y solo se piden producto y cantidad de cada línea, nunca precios.
     expect(src).toContain("select('order_id,product_name_snapshot,quantity')");
     expect(src).not.toContain('unit_price_snapshot');

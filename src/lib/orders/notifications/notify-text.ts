@@ -147,9 +147,36 @@ export function buildDynamicDeliveryConfirmationText(
 /**
  * Caption de la confirmación cuando el pago es por QR (Fase 6D.1). Reutiliza el
  * texto de confirmación completo (que YA incluye el número de pedido, clave para
- * reconciliar) y añade una indicación simple para pagar escaneando el QR. La
- * imagen del QR viaja aparte (es el propio mensaje); esto solo es su pie.
+ * reconciliar) y añade la indicación de pago. La imagen del QR viaja aparte (es
+ * el propio mensaje); esto solo es su pie.
+ *
+ * ── Por QR se cobra la comida; el envío se paga al recibir ──────────────────
+ *
+ * El desglose ya se muestra arriba, y ahí conviven tres cifras. Decir solo
+ * "escanea para pagar tu pedido" junto a un "Total: Bs 64" es pedirle al cliente
+ * que transfiera 64 — y es lo que hacía. Por eso el importe a transferir se dice
+ * EXPLÍCITO y con su número, en vez de dejarlo deducir del desglose.
+ *
+ * Que quede escrito en el mismo mensaje que el QR no es un detalle de redacción:
+ * es lo que permite responder "se te avisó, y aquí está" cuando alguien discute
+ * el cobro del envío en la puerta. Un segundo mensaje aparte podría no llegar, y
+ * entonces el cliente tendría el QR y el total delante sin la advertencia.
+ *
+ * `deliveryAmount` en 0 —o un recojo— vuelve al texto simple: sin envío que
+ * cobrar aparte, el cliente paga todo por QR y no hay nada que explicar.
  */
-export function buildQrPaymentCaption(confirmationText: string): string {
-  return `${confirmationText}\n\n💳 Escanea este QR para pagar tu pedido.`;
+export function buildQrPaymentCaption(
+  confirmationText: string,
+  amounts?: { dueByQr: number; deliveryAmount: number },
+): string {
+  if (!amounts || amounts.deliveryAmount <= 0) {
+    return `${confirmationText}\n\n💳 Escanea este QR para pagar tu pedido.`;
+  }
+
+  return [
+    confirmationText,
+    '',
+    `💳 Escanea el QR y paga SOLO la comida: ${formatBs(amounts.dueByQr)}`,
+    `🛵 Los ${formatBs(amounts.deliveryAmount)} del delivery los pagas al recibir tu pedido.`,
+  ].join('\n');
 }

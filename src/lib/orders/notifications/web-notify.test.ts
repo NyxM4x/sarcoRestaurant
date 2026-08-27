@@ -862,7 +862,24 @@ describe('dispatch dinámico — quoted: confirmation sí, sin reenviar ubicaci�
     expect(caption).toContain('Comida: Bs. 90');
     expect(caption).toContain('Delivery: Bs. 16');
     expect(caption).toContain('Total: Bs. 106');
-    expect(caption).toContain('Escanea este QR');
+
+    // El desglose sigue, pero la instrucción dice CUÁL de las tres cifras se
+    // transfiere. Sin esto, un "Escanea este QR para pagar tu pedido" al lado de
+    // "Total: Bs. 106" hace que el cliente mande 106 — y el envío se cobra al
+    // entregar, así que pagaría dos veces el delivery.
+    expect(caption).toContain('SOLO la comida: Bs. 90');
+    expect(caption).toContain('Los Bs. 16 del delivery los pagas al recibir');
+  });
+
+  it('qr en RECOJO: sin envío que cobrar aparte, la indicación es la simple', async () => {
+    const h = harness({
+      loaded: dynamicQuoted({ payment_method: 'qr', delivery_type: 'pickup', delivery_amount: 0 }),
+    });
+    await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    const { caption } = h.sentImages[0];
+    expect(caption).toContain('Escanea este QR para pagar tu pedido');
+    expect(caption).not.toContain('SOLO la comida');
   });
 });
 

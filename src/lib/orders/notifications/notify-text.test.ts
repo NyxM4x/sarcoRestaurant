@@ -182,3 +182,41 @@ describe('buildQrPaymentCaption (6D.1)', () => {
     expect(caption).toContain('Escanea este QR para pagar');
   });
 });
+
+describe('por QR se cobra la comida; el envío se paga al recibir', () => {
+  /**
+   * El desglose del mensaje trae tres cifras, y la instrucción tenía que decir
+   * CUÁL se transfiere. Diciendo solo "paga tu pedido" junto a un "Total: Bs 64"
+   * el cliente transfiere 64, que es lo que pasaba.
+   *
+   * Que la advertencia viaje en el MISMO mensaje que el QR es lo que permite
+   * responder "se te avisó" cuando alguien discute el cobro del envío en la
+   * puerta. Un segundo mensaje podría no llegar.
+   */
+  const CONFIRMACION = '📦 Pedido ORD-000019\n\nComida: Bs. 48\nDelivery: Bs. 16\nTotal: Bs. 64';
+
+  it('dice el importe exacto a transferir, sin obligar a deducirlo del desglose', () => {
+    const caption = buildQrPaymentCaption(CONFIRMACION, { dueByQr: 48, deliveryAmount: 16 });
+
+    expect(caption).toContain('SOLO la comida');
+    expect(caption).toContain('Bs. 48');
+    expect(caption).toContain('Bs. 16');
+    expect(caption).toContain('al recibir tu pedido');
+    // Y el desglose de arriba se conserva intacto: el cliente sigue sabiendo
+    // cuánto le va a costar el pedido entero.
+    expect(caption.startsWith(CONFIRMACION)).toBe(true);
+    expect(caption).toContain('ORD-000019');
+  });
+
+  it('sin envío que cobrar aparte, el texto vuelve al simple de siempre', () => {
+    // Recojo, o un delivery con envío gratis: no hay nada que explicar, y una
+    // frase sobre pagar el delivery "al recibir" solo confundiría.
+    const caption = buildQrPaymentCaption(CONFIRMACION, { dueByQr: 48, deliveryAmount: 0 });
+    expect(caption).toContain('Escanea este QR para pagar tu pedido');
+    expect(caption).not.toContain('SOLO la comida');
+  });
+
+  it('sin montos se comporta como antes: los históricos no cambian', () => {
+    expect(buildQrPaymentCaption(CONFIRMACION)).toContain('Escanea este QR para pagar tu pedido');
+  });
+});

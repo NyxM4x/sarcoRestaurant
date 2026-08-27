@@ -20,7 +20,7 @@ function ticket(
     lines: lines.map(([name, quantity]) => ({ name, quantity, modifiers: [] })),
     notes: null,
     completedAt: stage === 'done' ? iso(minutes + 10) : null,
-    total: 0,
+    amountDueByQr: 0,
     payment: null,
   };
 }

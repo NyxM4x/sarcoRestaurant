@@ -101,7 +101,7 @@ export function KitchenTicketCard({
             pago y avanzar el pedido son dimensiones separadas. */}
         <KitchenPaymentPanel
           payment={ticket.payment}
-          total={ticket.total}
+          amountDueByQr={ticket.amountDueByQr}
           onDecided={onPaymentDecided ?? (() => {})}
         />
 
