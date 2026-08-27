@@ -72,6 +72,23 @@ const CAPTIONABLE: ReadonlySet<ProvenanceContentType> = new Set([
   'document',
 ]);
 
+/**
+ * Media que el cliente manda como ARCHIVO y este canal todavía no sabe parsear.
+ *
+ * Existe para que un archivo sin parser no se evapore: es lo que llega cuando
+ * alguien manda su comprobante en PDF —lo habitual si lo descargó de la app del
+ * banco en vez de hacer una captura— o cuando explica el pago en un audio.
+ *
+ * `sticker` queda FUERA a propósito: nadie paga con un sticker, y admitirlo solo
+ * añadiría ruido al panel. La lista es de cosas que plausiblemente son un pago,
+ * no de todo lo que no sabemos leer.
+ */
+export const INCAPTURABLE_MEDIA: ReadonlySet<ProvenanceContentType> = new Set([
+  'document',
+  'audio',
+  'video',
+]);
+
 /** Datos del mensaje ya normalizados, listos para persistir en `agent_messages`. */
 export interface ProvenanceMessage {
   /** wamid (`message.id`). Sin él no hay idempotencia semántica posible. */
@@ -99,6 +116,15 @@ export interface ProvenanceMessage {
    * exactamente el tiempo durante el que esas URLs sirven.
    */
   image?: ImageAttachment | null;
+  /**
+   * Tipo que el proveedor DECLARA para la media adjunta, sin descargar nada.
+   *
+   * Es lo único que se puede contar de un archivo que no sabemos parsear, y sirve
+   * para que el panel diga «llegó un PDF» en vez de un «no disponible» mudo. Es
+   * una afirmación del proveedor, NO un hecho verificado: cuando el archivo se
+   * descarga manda siempre el tipo deducido de los bytes.
+   */
+  declaredMediaMimeType?: string | null;
 }
 
 export type KapsoProvenance =
@@ -187,6 +213,22 @@ function extractMetadata(
   return null;
 }
 
+/**
+ * Tipo declarado de la media, leído de `kapso.media_data.content_type`.
+ *
+ * Ese bloque es el descriptor genérico de adjunto de Kapso —trae `filename`,
+ * `byte_size` y `content_type`— y es el único sitio observado en un payload REAL
+ * (18-08-2026 y 27-08-2026, ambos de imagen) donde el tipo viaja de forma
+ * uniforme.
+ *
+ * Si para un documento Kapso lo pusiera en otro campo, esto devuelve `null` y el
+ * panel muestra el archivo sin decir de qué tipo era. Se degrada, no se rompe:
+ * adivinar la ruta del dato sería inventar un contrato que no hemos visto.
+ */
+function declaredMediaMime(kapso: Record<string, unknown> | undefined): string | null {
+  return str(rec(kapso?.media_data)?.content_type);
+}
+
 /** Instante del proveedor en ISO, o `null`. Nunca cae a "ahora" en silencio. */
 function extractTimestamp(message: Record<string, unknown>, root: Record<string, unknown>): string | null {
   const ms = parseKapsoTimestamp(message.timestamp ?? root.timestamp ?? message.created_at);
@@ -268,6 +310,7 @@ function buildMessage(
     // Solo en entrantes con imagen. Las URLs de `transient` no se persisten:
     // `imageMetadata` decide qué se guarda, y ahí no entra ninguna.
     image: esImagen && inbound ? parseImage(message) : null,
+    declaredMediaMimeType: declaredMediaMime(kapso),
   };
 }
 

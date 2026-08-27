@@ -19,7 +19,7 @@ import {
   WEBHOOK_LEASE_SECONDS,
   type WebhookEventStatus,
 } from './inbox';
-import { parseKapsoProvenance } from '@/lib/kapso/channel/provenance';
+import { INCAPTURABLE_MEDIA, parseKapsoProvenance } from '@/lib/kapso/channel/provenance';
 import type { ProvenanceMessage } from '@/lib/kapso/channel/provenance';
 import type { AgentChannelPort, HumanTakeoverResult } from '@/lib/agent/core/types';
 import type { ConfirmOrderInput, ConfirmOrderResult } from '@/lib/orders/confirm';
@@ -251,7 +251,10 @@ export interface HandleKapsoWebhookParams {
 export type PaymentProofIntake = (input: {
   sourceMessageId: string;
   customerPhone: string;
-  attachment: ImageAttachment;
+  /** `null` cuando llegó media que el canal aún no sabe parsear. */
+  attachment: ImageAttachment | null;
+  /** Tipo declarado por el proveedor; solo se usa cuando no hay adjunto. */
+  declaredMimeType?: string | null;
   providerPhoneNumberId: string | null;
   receivedAtMs: number;
 }) => Promise<{ result: string }>;
@@ -1123,7 +1126,15 @@ async function capturePaymentProofs(
 
     const { message } = provenance;
     const attachment = message.image;
-    if (!attachment) continue;
+
+    // Media que este canal todavia no sabe leer —un PDF, un audio, un video—.
+    // NO se descarta: hasta ahora un `continue` mudo la hacia desaparecer sin
+    // fila, sin log y sin respuesta, asi que un cliente podia mandar su
+    // comprobante en PDF y no enterarse nadie. Se manda al motor sin adjunto, y
+    // alli se decide si merece registro (solo si habia un pedido esperando
+    // cobro) o si es ruido.
+    const mediaSinLeer = attachment === null && INCAPTURABLE_MEDIA.has(message.contentType);
+    if (!attachment && !mediaSinLeer) continue;
     if (!message.providerMessageId || !message.customerPhone) continue;
 
     try {
@@ -1131,6 +1142,7 @@ async function capturePaymentProofs(
         sourceMessageId: message.providerMessageId,
         customerPhone: message.customerPhone,
         attachment,
+        declaredMimeType: attachment ? null : message.declaredMediaMimeType,
         providerPhoneNumberId: message.providerPhoneNumberId,
         receivedAtMs: Date.now(),
       });

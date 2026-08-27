@@ -4,6 +4,7 @@ import { getServerEnv } from '@/lib/env/env';
 import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
 import type { ImageAttachment } from '@/lib/kapso/channel/image';
 import { capturePaymentProof, type IntakeOutcome } from './capture';
+import { decideAssociation } from './association';
 import { createSupabaseIntakeDataSource, newClaimToken } from './intake-data-source';
 import { isProofStorageConfigured, putProofObject } from './storage';
 
@@ -58,8 +59,21 @@ export interface ProofIntakeInput {
   sourceMessageId: string;
   /** Teléfono normalizado del cliente. */
   customerPhone: string;
-  /** Adjunto ya parseado por el canal. */
-  attachment: ImageAttachment;
+  /**
+   * Adjunto ya parseado por el canal, o `null` si llegó media que este canal
+   * todavía no sabe leer (un audio, un vídeo, y hasta la fase 2 también un PDF).
+   *
+   * `null` NO significa "ignóralo": significa que hay un archivo del cliente que
+   * no vamos a poder traernos. Se registra igual —ver `intakePaymentProof`— para
+   * que el operador lo vea en el panel en vez de que desaparezca en silencio.
+   */
+  attachment: ImageAttachment | null;
+  /**
+   * Tipo declarado por el proveedor cuando no hay adjunto parseado. Es lo único
+   * que se puede contar del archivo sin descargarlo, y sirve para que el panel
+   * diga QUÉ llegó en vez de un "no disponible" mudo.
+   */
+  declaredMimeType?: string | null;
   providerPhoneNumberId: string | null;
   receivedAtMs: number;
 }
@@ -87,10 +101,33 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
   try {
     const candidates = await source.candidatesForPhone(input.customerPhone);
 
+    // ── Media que no sabemos leer: se registra, pero NO siempre ──────────────
+    //
+    // Un archivo que no podemos descargar solo merece una fila si de verdad
+    // parecía un pago. Se pregunta al MISMO motor de enrutado que decide el
+    // resto —no a una condición escrita aquí— y solo se sigue si señaló un
+    // pedido esperando cobro.
+    //
+    // Sin este filtro, cada audio de "¿ya salió mi pedido?" abriría un
+    // comprobante fallido, y un panel lleno de ruido es un panel que se deja de
+    // mirar: la alerta dejaría de significar nada justo cuando importa.
+    if (input.attachment === null) {
+      const enrutado = decideAssociation({
+        replyToOrderId: null,
+        candidates,
+        duplicateOfProofId: null,
+        nowMs: input.receivedAtMs,
+      });
+      if (!enrutado.attemptEligible) {
+        return { result: 'failed', reason: 'unsupported_media_ignored' };
+      }
+    }
+
     return await capturePaymentProof(
       {
         sourceMessageId: input.sourceMessageId,
-        declaredMimeType: input.attachment.facts.mimeType,
+        declaredMimeType:
+          input.attachment?.facts.mimeType ?? input.declaredMimeType ?? null,
         receivedAtMs: input.receivedAtMs,
         association: {
           // El payload observado de Kapso NO trae contexto de respuesta, así
@@ -114,6 +151,13 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
         newClaimToken,
 
         async downloadBytes() {
+          // Sin adjunto parseado no hay de dónde descargar. Devolver `null` no
+          // es una excepción al flujo: es el mismo camino que sigue una descarga
+          // que falla, así que el motor marca la fila `failed` y el panel la
+          // muestra como archivo no disponible. Una sola semántica para
+          // "llegó algo y no lo tenemos", en vez de dos.
+          if (input.attachment === null) return null;
+
           const res = await resolver.resolveImage(input.attachment, input.providerPhoneNumberId);
           if (!res.ok) return null;
           return bytesFromDataUrl(res.dataUrl);

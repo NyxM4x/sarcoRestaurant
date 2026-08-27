@@ -181,3 +181,54 @@ describe('la vista no filtra datos internos', () => {
     expect(json).not.toContain('source_message_id');
   });
 });
+
+describe('qué llegó cuando el archivo no está', () => {
+  /**
+   * Un "Archivo no disponible" a secas no distingue dos problemas distintos: un
+   * PDF que este canal todavía no sabe leer, y una imagen cuya descarga se cayó.
+   * El primero se resuelve pidiéndole al cliente una captura; el segundo,
+   * mirando por qué falló la descarga. El operador necesita saber cuál tiene
+   * delante.
+   */
+  const noDisponible = { capture_status: 'failed' as const, verified_mime_type: null };
+
+  it('traduce el tipo declarado a algo que se lee de un vistazo', () => {
+    const casos: Array<[string, string]> = [
+      ['application/pdf', 'PDF'],
+      ['image/jpeg', 'Imagen'],
+      ['audio/ogg', 'Audio'],
+      ['video/mp4', 'Video'],
+      ['application/zip', 'Archivo'],
+    ];
+    for (const [mime, esperado] of casos) {
+      const v = toPaymentView(
+        [],
+        [proof('p', { ...noDisponible, declared_mime_type: mime, attempt_id: null })],
+      );
+      expect(v.unlinkedProofs[0].declaredLabel, mime).toBe(esperado);
+    }
+  });
+
+  it('sin tipo declarado no se inventa una etiqueta', () => {
+    const v = toPaymentView(
+      [],
+      [proof('p', { ...noDisponible, declared_mime_type: null, attempt_id: null })],
+    );
+    expect(v.unlinkedProofs[0].declaredLabel).toBeNull();
+  });
+
+  it('con el archivo disponible la etiqueta sobra: ya se ve', () => {
+    const v = toPaymentView([attempt('a1')], [proof('p', { declared_mime_type: 'application/pdf' })]);
+    expect(v.attempts[0].proofs[0].declaredLabel).toBeNull();
+  });
+
+  it('el tipo DECLARADO nunca decide cómo se pinta el archivo', () => {
+    // Lo que manda para presentar es el MIME verificado sobre los bytes. Un
+    // archivo que dice ser imagen y es un PDF se pinta como documento.
+    const v = toPaymentView(
+      [attempt('a1')],
+      [proof('p', { declared_mime_type: 'image/jpeg', verified_mime_type: 'application/pdf' })],
+    );
+    expect(v.attempts[0].proofs[0].isImage).toBe(false);
+  });
+});

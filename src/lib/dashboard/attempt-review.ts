@@ -35,6 +35,34 @@ export interface ProofView {
   isAvailable: boolean;
   mimeType: string | null;
   filename: string | null;
+  /**
+   * Qué DIJO el proveedor que era, para los archivos que nunca llegaron a
+   * descargarse. Sin esto, un comprobante fallido es un "no disponible" mudo y
+   * el operador no puede distinguir un PDF que aún no sabemos leer de una imagen
+   * cuya descarga se cayó — que son dos problemas distintos con dos respuestas
+   * distintas.
+   *
+   * NUNCA se usa para decidir cómo se pinta el archivo ni qué se sirve: eso lo
+   * decide `mimeType`, que sale de los bytes. Este es solo una afirmación de un
+   * tercero, y aquí vale únicamente para contárselo a una persona.
+   */
+  declaredLabel: string | null;
+}
+
+/**
+ * Nombre corto y humano del tipo declarado. `null` si no lo sabemos o si no
+ * aporta nada.
+ */
+function declaredLabelOf(row: ProofUiRow): string | null {
+  // Con el archivo disponible, la etiqueta sobra: ya se ve.
+  if (row.capture_status === 'stored') return null;
+  const declarado = row.declared_mime_type;
+  if (!declarado) return null;
+  if (declarado === 'application/pdf') return 'PDF';
+  if (declarado.startsWith('image/')) return 'Imagen';
+  if (declarado.startsWith('audio/')) return 'Audio';
+  if (declarado.startsWith('video/')) return 'Video';
+  return 'Archivo';
 }
 
 /** Un episodio de revision con todos sus comprobantes. */
@@ -71,6 +99,7 @@ function toProofView(row: ProofUiRow): ProofView {
     isAvailable: row.capture_status === 'stored',
     mimeType: row.verified_mime_type,
     filename: row.safe_filename,
+    declaredLabel: declaredLabelOf(row),
   };
 }
 

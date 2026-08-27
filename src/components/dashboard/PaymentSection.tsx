@@ -69,6 +69,14 @@ function ProofCard({ proof }: { proof: ProofView }) {
                 Archivo no disponible
               </span>
             )}
+            {/* Qué llegó, cuando no se pudo traer. Un "no disponible" a secas no
+                distingue un PDF que aún no sabemos leer de una descarga caída, y
+                son dos problemas con dos respuestas distintas. */}
+            {!proof.isAvailable && proof.declaredLabel && (
+              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
+                {proof.declaredLabel}
+              </span>
+            )}
           </div>
         </div>
 

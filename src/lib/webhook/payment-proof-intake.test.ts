@@ -58,7 +58,7 @@ describe('frontera del webhook → motor de comprobantes', () => {
         vistos.push({
           wamid: input.sourceMessageId,
           phone: input.customerPhone,
-          mime: input.attachment.facts.mimeType,
+          mime: input.attachment?.facts.mimeType ?? null,
         });
         return { result: 'captured' };
       }),
@@ -160,6 +160,117 @@ describe('regresión: lo que NO es un comprobante', () => {
       params(async (i) => {
         vistos.push(i.sourceMessageId);
         return { result: 'captured' };
+      }),
+    );
+    expect(vistos).toEqual([]);
+  });
+});
+
+describe('media que el canal no sabe parsear', () => {
+  /**
+   * Un archivo sin parser NO puede evaporarse.
+   *
+   * Hasta ahora `capturePaymentProofs` hacía `continue` en cuanto no había
+   * `message.image`: sin fila, sin log y —porque el agente descarta ese
+   * contenido— sin respuesta al cliente. Un comprobante en PDF, que es lo normal
+   * si se descarga de la app del banco, desaparecía sin que se enterara nadie.
+   *
+   * Se prueba con AUDIO a propósito, no con documento: el contrato del adjunto
+   * de documento todavía no se ha observado en un payload real, y un test
+   * escrito contra una forma inventada probaría la invención. El audio recorre
+   * exactamente el mismo camino y no depende de nada por confirmar.
+   */
+  function mediaEnvelope(tipo: string, contentType: string | null): Record<string, unknown> {
+    return {
+      message: {
+        id: `wamid.MEDIA_${tipo.toUpperCase()}`,
+        type: tipo,
+        from: '59100000000',
+        timestamp: 1_760_000_000,
+        kapso: {
+          direction: 'inbound',
+          origin: 'business_app',
+          has_media: true,
+          ...(contentType === null ? {} : { media_data: { content_type: contentType } }),
+        },
+      },
+      conversation: {
+        id: '00000000-0000-4000-8000-000000000002',
+        phone_number: '59100000000',
+      },
+      phone_number_id: '000000000000000',
+    };
+  }
+
+  it('un audio del cliente llega al motor SIN adjunto y con su tipo declarado', async () => {
+    const vistos: Array<{ wamid: string; tieneAdjunto: boolean; mime: string | null }> = [];
+
+    const res = await processClaimedEvent(
+      row(mediaEnvelope('audio', 'audio/ogg')),
+      params(async (input) => {
+        vistos.push({
+          wamid: input.sourceMessageId,
+          tieneAdjunto: input.attachment !== null,
+          mime: input.declaredMimeType ?? null,
+        });
+        return { result: 'failed' };
+      }),
+    );
+
+    expect(res.outcome).toBe('processed');
+    expect(vistos).toHaveLength(1);
+    // Sin adjunto: no hay nada que descargar, y el motor lo sabe.
+    expect(vistos[0].tieneAdjunto).toBe(false);
+    // Pero sí se sabe QUÉ llegó, sin haber tocado la red.
+    expect(vistos[0].mime).toBe('audio/ogg');
+  });
+
+  it('sin `media_data` el tipo queda en null y aun así se registra', async () => {
+    // Si Kapso pusiera el tipo en otro campo, se degrada: se pierde la etiqueta,
+    // nunca el hecho de que llegó un archivo.
+    const vistos: Array<string | null> = [];
+    await processClaimedEvent(
+      row(mediaEnvelope('video', null)),
+      params(async (input) => {
+        vistos.push(input.declaredMimeType ?? null);
+        return { result: 'failed' };
+      }),
+    );
+    expect(vistos).toEqual([null]);
+  });
+
+  it('un sticker NO abre un comprobante: nadie paga con un sticker', async () => {
+    // La lista es de cosas que plausiblemente son un pago, no de todo lo que no
+    // sabemos leer. Admitir stickers solo llenaría el panel de ruido.
+    const vistos: string[] = [];
+    await processClaimedEvent(
+      row(mediaEnvelope('sticker', 'image/webp')),
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'failed' };
+      }),
+    );
+    expect(vistos).toEqual([]);
+  });
+
+  it('un texto suelto sigue sin llamar al motor', async () => {
+    // La red de seguridad es para ARCHIVOS. Un mensaje de texto no es un
+    // comprobante fallido por mucho que diga "ya pagué".
+    const vistos: string[] = [];
+    await processClaimedEvent(
+      row({
+        message: {
+          id: 'wamid.TEXTO',
+          type: 'text',
+          text: { body: 'ya pagué' },
+          from: '59100000000',
+          kapso: { direction: 'inbound', origin: 'business_app' },
+        },
+        conversation: { id: '00000000-0000-4000-8000-000000000002', phone_number: '59100000000' },
+      }),
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'failed' };
       }),
     );
     expect(vistos).toEqual([]);
