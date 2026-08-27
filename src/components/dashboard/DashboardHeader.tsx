@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useTransition } from 'react';
+import { setRainSurchargeAction } from '@/app/dashboard/actions';
 import { formatLongDate, formatTime } from '@/lib/dashboard/format';
 
 export function DashboardHeader({
@@ -9,6 +11,7 @@ export function DashboardHeader({
   onRefresh,
   soundOn,
   onToggleSound,
+  rainSurcharge = false,
 }: {
   nowMs: number | null;
   lastUpdated: number | null;
@@ -16,6 +19,8 @@ export function DashboardHeader({
   onRefresh: () => void;
   soundOn: boolean;
   onToggleSound: () => void;
+  /** Estado inicial del recargo por lluvia, leído en servidor. */
+  rainSurcharge?: boolean;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-1.5 sm:mb-6">
@@ -26,6 +31,7 @@ export function DashboardHeader({
         </p>
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
+        <RainSurchargeToggle initial={rainSurcharge} />
         <span className="flex items-center gap-1.5 text-xs text-zinc-400">
           <span className={`h-1.5 w-1.5 rounded-full ${refreshing ? 'animate-pulse bg-blue-500' : 'bg-green-500'}`} aria-hidden />
           {lastUpdated ? `Actualizado ${formatTime(new Date(lastUpdated).toISOString())}` : 'Sin actualizar'}
@@ -54,5 +60,66 @@ export function DashboardHeader({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Interruptor de la tarifa de lluvia (+3 Bs).
+ *
+ * Estado optimista: el botón cambia al instante y se revierte si el servidor lo
+ * rechaza. Quien lo pulsa está mirando por la ventana y necesita que la tarifa
+ * cambie ya, no dentro de un ciclo de refresco.
+ *
+ * Afecta solo a las cotizaciones NUEVAS. Los pedidos ya cotizados conservan su
+ * precio: el cliente vio una cifra y esa es la que vale.
+ */
+function RainSurchargeToggle({ initial }: { initial: boolean }) {
+  const [active, setActive] = useState(initial);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState(false);
+
+  const toggle = () => {
+    const siguiente = !active;
+    setActive(siguiente);
+    setError(false);
+    startTransition(async () => {
+      const res = await setRainSurchargeAction(siguiente);
+      if (!res.ok) {
+        // Se revierte: dejar el botón encendido cuando el servidor no lo aceptó
+        // haría cobrar de menos creyendo que se cobra de más.
+        setActive(!siguiente);
+        setError(true);
+      }
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={pending}
+      aria-pressed={active}
+      aria-label={
+        active ? 'Desactivar tarifa de lluvia (+3 Bs)' : 'Activar tarifa de lluvia (+3 Bs)'
+      }
+      title={
+        error
+          ? 'No se pudo cambiar la tarifa'
+          : active
+            ? 'Tarifa lluvia ACTIVA: +3 Bs en cada envío nuevo'
+            : 'Tarifa lluvia apagada'
+      }
+      className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+        error
+          ? 'border-red-500/50 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+          : active
+            ? 'border-blue-500/40 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-300'
+            : 'border-black/10 text-zinc-700 hover:bg-black/[0.04] dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/[0.06]'
+      }`}
+    >
+      {/* El icono nunca comunica solo: va con el texto, igual que el resto del
+          panel. Un paraguas a secas no dice si está activo o apagado. */}
+      🌧 {active ? 'Lluvia +3' : 'Lluvia'}
+    </button>
   );
 }

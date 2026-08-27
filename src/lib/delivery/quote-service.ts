@@ -165,8 +165,42 @@ export function createQuoteOrchestratorDeps(
       // así que el cambio de momento no puede provocar un aviso repetido.
     },
 
+    isRainSurchargeActive: () => readRainSurcharge(supabase),
+
     alert: buildAlert(),
   };
+}
+
+/**
+ * Lee el interruptor de la tarifa de lluvia.
+ *
+ * Fail-safe hacia ABAJO: si la fila no está o la consulta falla, se devuelve
+ * `false` y se cobra la tarifa normal. Cobrar 3 Bs de más por un fallo nuestro
+ * es un problema con el cliente delante; cobrarlos de menos es una pérdida
+ * nuestra y se arregla sola en la siguiente cotización.
+ */
+export async function readRainSurcharge(
+  supabase: SupabaseClient = getSupabaseAdmin(),
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('delivery_settings')
+    .select('rain_surcharge_active')
+    .eq('id', 1)
+    .maybeSingle();
+  if (error || !data) return false;
+  return data.rain_surcharge_active === true;
+}
+
+/** Enciende o apaga la tarifa de lluvia. `false` si no se pudo escribir. */
+export async function setRainSurcharge(
+  active: boolean,
+  supabase: SupabaseClient = getSupabaseAdmin(),
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('delivery_settings')
+    .update({ rain_surcharge_active: active, updated_at: new Date().toISOString() })
+    .eq('id', 1);
+  return !error;
 }
 
 /** Cotiza un delivery dinámico ya con GPS (server-only). Nunca lanza. */

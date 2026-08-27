@@ -12,10 +12,12 @@ import {
   isDashboardAuthConfigured,
 } from '@/lib/dashboard/auth';
 import {
+  canAccessAdmin,
   canReviewPayments,
   landingPathForRole,
   LOGIN_PATH,
 } from '@/lib/dashboard/session-role';
+import { setRainSurcharge } from '@/lib/delivery/quote-service';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
@@ -114,4 +116,30 @@ export async function reviewPaymentAttemptAction(
   const result = await decidePaymentAttempt(attemptId, decision);
   if (result.ok) revalidatePath('/dashboard');
   return result;
+}
+
+/**
+ * Enciende o apaga la tarifa de lluvia (+3 Bs).
+ *
+ * Solo el encargado: es una decisión comercial que cambia lo que paga cada
+ * cliente, y quien cocina no tiene por qué poder tocar precios. Por eso usa
+ * `canAccessAdmin` y no `canReviewPayments` — dos permisos distintos para dos
+ * cosas distintas.
+ *
+ * Afecta ÚNICAMENTE a las cotizaciones nuevas. Un pedido ya cotizado conserva su
+ * precio: el cliente vio una cifra y esa es la que vale, llueva o escampe
+ * después.
+ */
+export async function setRainSurchargeAction(
+  active: boolean,
+): Promise<{ ok: true; active: boolean } | { ok: false; reason: 'unauthorized' | 'error' }> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessAdmin(role)) return { ok: false, reason: 'unauthorized' };
+  if (typeof active !== 'boolean') return { ok: false, reason: 'error' };
+
+  const written = await setRainSurcharge(active);
+  if (!written) return { ok: false, reason: 'error' };
+
+  revalidatePath('/dashboard');
+  return { ok: true, active };
 }

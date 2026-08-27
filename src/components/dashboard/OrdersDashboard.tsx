@@ -40,7 +40,16 @@ function getAudioCtor(): typeof AudioContext | null {
   return w.webkitAudioContext ?? null;
 }
 
-export function OrdersDashboard({ initial, serverNow }: { initial: OrdersListResult; serverNow: number }) {
+export function OrdersDashboard({
+  initial,
+  serverNow,
+  rainSurcharge = false,
+}: {
+  initial: OrdersListResult;
+  serverNow: number;
+  /** Estado del recargo por lluvia, leido en servidor. */
+  rainSurcharge?: boolean;
+}) {
   const [data, setData] = useState<OrdersListResult>(initial);
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [loading, setLoading] = useState(false);
@@ -291,6 +300,7 @@ export function OrdersDashboard({ initial, serverNow }: { initial: OrdersListRes
         onRefresh={() => refresh(false)}
         soundOn={soundOn}
         onToggleSound={toggleSound}
+        rainSurcharge={rainSurcharge}
       />
 
       <div className="mb-6">

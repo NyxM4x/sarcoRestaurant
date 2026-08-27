@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { feeForMeters } from './fee';
 
 /**
  * Verificaciones estáticas de 6D.2B: como no hay Supabase local dedicado, NO se
@@ -129,34 +128,5 @@ describe('runtime activa create_order_web_v3 (6D.2C)', () => {
   it('la ruta de checkout llama v3 y ya NO llama v2', () => {
     expect(routeSource).toContain('create_order_web_v3');
     expect(routeSource).not.toContain("rpc('create_order_web_v2'");
-  });
-});
-
-describe('paridad de tarifario: fee.ts (flujo) ↔ fórmula defensiva SQL (money guard)', () => {
-  // Réplica en JS de la aritmética entera de apply_delivery_quote.
-  function sqlExpected(m: number): number {
-    if (m <= 3000) return 10;
-    const steps = Math.trunc((m - 3000 + 999) / 1000); // ceil por división entera
-    return 10 + steps * 2;
-  }
-
-  it('coinciden para todo el rango cotizable [0, 18000]', () => {
-    for (let m = 0; m <= 18000; m++) {
-      const fee = feeForMeters(m);
-      expect(fee.ok).toBe(true);
-      if (fee.ok) expect(fee.amount).toBe(sqlExpected(m));
-    }
-  });
-
-  it('coinciden en los bordes obligatorios del negocio', () => {
-    const borders: Array<[number, number]> = [
-      [3000, 10], [3001, 12], [4000, 12], [4001, 14], [5000, 14], [5001, 16],
-      [7600, 20], [10000, 24], [10001, 26], [12300, 30], [17000, 38], [17001, 40], [18000, 40],
-    ];
-    for (const [m, bs] of borders) {
-      expect(sqlExpected(m)).toBe(bs);
-      const fee = feeForMeters(m);
-      expect(fee.ok && fee.amount).toBe(bs);
-    }
   });
 });

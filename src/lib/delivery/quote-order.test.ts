@@ -90,12 +90,12 @@ const ok = (m: number): MapboxDistanceResult => ({ ok: true, distanceMeters: m }
 
 describe('quoteDynamicOrder — cotización exitosa', () => {
   it('cotiza, aplica y dispara la confirmación', async () => {
-    // 5027 m → escalón (5027-3000)=2027 → 3 pasos → 10 + 6 = Bs 16.
+    // 5027 m cae en el tramo 5.1–6 km del tarifario → Bs 17.
     const { deps, rec } = harness({ distances: [ok(5027)], apply: { result: 'applied' } });
     const res = await quoteDynamicOrder(deps, ORDER_ID);
 
-    expect(res).toEqual({ result: 'quoted', distanceMeters: 5027, amount: 16, apply: 'applied' });
-    expect(rec.applies).toEqual([{ orderId: ORDER_ID, distanceMeters: 5027, deliveryAmount: 16 }]);
+    expect(res).toEqual({ result: 'quoted', distanceMeters: 5027, amount: 17, apply: 'applied' });
+    expect(rec.applies).toEqual([{ orderId: ORDER_ID, distanceMeters: 5027, deliveryAmount: 17 }]);
     expect(rec.confirmationDispatched).toBe(1);
     expect(rec.marks).toEqual([]); // nunca marca failed/out_of_coverage en éxito
   });
@@ -123,7 +123,7 @@ describe('quoteDynamicOrder — retry de Mapbox (máx 1 reintento, solo transito
     });
     const res = await quoteDynamicOrder(deps, ORDER_ID);
     expect(rec.distances).toHaveLength(2);
-    expect(res).toMatchObject({ result: 'quoted', amount: 18 }); // 6169 → Bs 18
+    expect(res).toMatchObject({ result: 'quoted', amount: 19 }); // 6169 m → tramo 6.1–7 km
   });
 
   it('network_error y luego éxito: reintenta una vez', async () => {
@@ -133,7 +133,7 @@ describe('quoteDynamicOrder — retry de Mapbox (máx 1 reintento, solo transito
     });
     const res = await quoteDynamicOrder(deps, ORDER_ID);
     expect(rec.distances).toHaveLength(2);
-    expect(res).toMatchObject({ result: 'quoted', amount: 26 }); // 10638 → Bs 26
+    expect(res).toMatchObject({ result: 'quoted', amount: 27 }); // 10638 m → tramo 9.1–11 km
   });
 
   it('http_5xx dos veces: marca failed (no confirma)', async () => {
@@ -263,7 +263,7 @@ describe('quoteDynamicOrder — estados que NO se cotizan (idempotencia por esta
       apply: { result: 'applied' },
     });
     const res = await quoteDynamicOrder(deps, ORDER_ID);
-    expect(res).toMatchObject({ result: 'quoted', amount: 16 });
+    expect(res).toMatchObject({ result: 'quoted', amount: 17 });
     expect(rec.distances).toHaveLength(1);
   });
 
@@ -323,5 +323,62 @@ describe('quoteDynamicOrder — defensa', () => {
       result: 'error',
       reason: 'unknown',
     });
+  });
+});
+
+describe('tarifa de lluvia — se consulta al cotizar', () => {
+  /**
+   * El recargo se decide en el momento de fijar el precio, no al recibir el
+   * pedido: lo que queda escrito es el importe final. Un pedido ya cotizado
+   * conserva su precio aunque el encargado apague el recargo un minuto después.
+   */
+  it('con lluvia activa suma 3 Bs al tramo', async () => {
+    const { deps, rec } = harness({ distances: [ok(5027)], apply: { result: 'applied' } });
+    const res = await quoteDynamicOrder(
+      { ...deps, isRainSurchargeActive: async () => true },
+      ORDER_ID,
+    );
+    // 5027 m → tramo 5.1–6 km = 17, más 3 de lluvia.
+    expect(res).toMatchObject({ result: 'quoted', amount: 20 });
+    expect(rec.applies[0].deliveryAmount).toBe(20);
+  });
+
+  it('sin lluvia cobra el tramo pelado', async () => {
+    const { deps } = harness({ distances: [ok(5027)], apply: { result: 'applied' } });
+    const res = await quoteDynamicOrder(
+      { ...deps, isRainSurchargeActive: async () => false },
+      ORDER_ID,
+    );
+    expect(res).toMatchObject({ result: 'quoted', amount: 17 });
+  });
+
+  it('si la consulta falla se cobra SIN recargo', async () => {
+    // Perder 3 Bs es nuestro problema y se arregla en la siguiente cotización.
+    // Cobrárselos a alguien por un fallo técnico que no puede ver, no.
+    const { deps } = harness({ distances: [ok(5027)], apply: { result: 'applied' } });
+    const res = await quoteDynamicOrder(
+      {
+        ...deps,
+        isRainSurchargeActive: async () => {
+          throw new Error('base caída');
+        },
+      },
+      ORDER_ID,
+    );
+    expect(res).toMatchObject({ result: 'quoted', amount: 17 });
+  });
+
+  it('sin el puerto inyectado no hay recargo: comportamiento de antes', async () => {
+    const { deps } = harness({ distances: [ok(5027)], apply: { result: 'applied' } });
+    expect(await quoteDynamicOrder(deps, ORDER_ID)).toMatchObject({ amount: 17 });
+  });
+
+  it('la lluvia NO amplía la cobertura', async () => {
+    const { deps } = harness({ distances: [ok(18_500)] });
+    const res = await quoteDynamicOrder(
+      { ...deps, isRainSurchargeActive: async () => true },
+      ORDER_ID,
+    );
+    expect(res).toMatchObject({ result: 'out_of_coverage' });
   });
 });

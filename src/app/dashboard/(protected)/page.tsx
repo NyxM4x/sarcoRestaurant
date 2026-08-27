@@ -2,6 +2,7 @@ import { createOrdersRepository, type OrdersListResult } from '@/lib/dashboard/o
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { normalizeFilters } from '@/lib/dashboard/filters';
 import { OrdersDashboard } from '@/components/dashboard/OrdersDashboard';
+import { readRainSurcharge } from '@/lib/delivery/quote-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,15 @@ export default async function OrdersPage() {
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
+  // El interruptor de lluvia se lee aqui, en servidor. Si falla se asume
+  // apagado: cobrar de menos por un fallo nuestro es preferible a cobrar de mas.
+  let rainSurcharge = false;
+  try {
+    rainSurcharge = await readRainSurcharge();
+  } catch {
+    rainSurcharge = false;
+  }
+
   let initial = EMPTY;
   try {
     const repo = createOrdersRepository(createSupabaseOrdersDataSource());
@@ -32,5 +42,5 @@ export default async function OrdersPage() {
     initial = EMPTY;
   }
 
-  return <OrdersDashboard initial={initial} serverNow={now} />;
+  return <OrdersDashboard initial={initial} serverNow={now} rainSurcharge={rainSurcharge} />;
 }

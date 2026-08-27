@@ -63,6 +63,19 @@ export interface QuoteOrchestratorDeps {
   dispatchConfirmation(orderId: string): Promise<void>;
   /** Alerta interna best-effort (opcional): fuera de cobertura y fallos de auth. */
   alert?(text: string): Promise<void>;
+  /**
+   * ¿Está activa la tarifa de lluvia? La enciende el encargado desde el panel.
+   *
+   * Se consulta AQUÍ, en el momento de cotizar, y no se guarda en el pedido: lo
+   * que queda escrito es el importe final. Un pedido ya cotizado conserva su
+   * precio aunque el encargado apague el recargo un minuto después — el cliente
+   * vio una cifra y esa es la que vale.
+   *
+   * Opcional: sin este puerto no hay recargo, que es el comportamiento de antes.
+   * Si la consulta falla, se cobra SIN recargo: es mejor cobrar 3 Bs de menos que
+   * cobrar de más por un fallo técnico que el cliente no puede ni ver.
+   */
+  isRainSurchargeActive?(): Promise<boolean>;
 }
 
 export type QuoteOutcome =
@@ -172,7 +185,21 @@ export async function quoteDynamicOrder(
     }
 
     // 2. Tarifa / cobertura (fee.ts es la autoridad de negocio).
-    const fee = feeForMeters(distance.distanceMeters);
+    //
+    // El recargo por lluvia se consulta ahora, no al recibir el pedido: cuenta
+    // el momento en que se fija el precio. Si la consulta falla se cobra sin
+    // recargo — perder 3 Bs es preferible a cobrárselos a alguien por un fallo
+    // técnico que no puede ver ni discutir.
+    let rain = false;
+    if (deps.isRainSurchargeActive) {
+      try {
+        rain = await deps.isRainSurchargeActive();
+      } catch {
+        rain = false;
+      }
+    }
+
+    const fee = feeForMeters(distance.distanceMeters, { rain });
     if (!fee.ok) {
       if (fee.reason === 'out_of_coverage') {
         const mark = await deps.markQuoteResult(
