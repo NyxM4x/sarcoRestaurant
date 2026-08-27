@@ -6,7 +6,6 @@ import { getKapsoClient } from '@/lib/kapso/client';
 import { log } from '@/lib/log';
 import { OUT_OF_COVERAGE_TEXT } from '@/lib/kapso/messages';
 import { createTelegramAlertSender } from '@/lib/alerts/telegram';
-import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
 import {
   createKapsoNotificationSender,
   createSupabaseNotificationStore,
@@ -154,10 +153,16 @@ export function createQuoteOrchestratorDeps(
       // descubre la confirmación dinámica una vez el pedido queda 'quoted'.
       await dispatchSingleNotification(store, sender, orderId, 'confirmation');
 
-      // Aviso al grupo de reparto. Va DESPUÉS de la confirmación al cliente y
-      // nunca lanza: si Telegram falla, el cliente ya recibió lo suyo. Su
-      // propia marca de claim evita que `select_due` lo repita.
-      await notifyDeliveryGroup(orderId, supabase);
+      // El aviso al grupo de reparto YA NO sale aquí.
+      //
+      // Aquí solo se ha cotizado y se ha mandado el QR: el cliente todavía no ha
+      // pagado. Avisar en este punto ponía el pedido delante del reparto antes
+      // de cobrarlo, y si el cliente no llegaba a pagar, alguien podía salir a
+      // llevar algo que nadie había pagado.
+      //
+      // Ahora sale cuando el pago se acepta, en `decidePaymentAttempt`. La marca
+      // `delivery_notice_sent_at` (0019) sigue siendo la que impide duplicados,
+      // así que el cambio de momento no puede provocar un aviso repetido.
     },
 
     alert: buildAlert(),

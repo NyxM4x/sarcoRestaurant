@@ -56,11 +56,22 @@ export type CheckoutFormResult =
   | { ok: true; value: NormalizedCheckout }
   | { ok: false; errors: CheckoutFormErrors };
 
-/** Campos vacíos para inicializar el formulario. */
+/**
+ * Campos vacíos para inicializar el formulario.
+ *
+ * `payment_method` nace en `'qr'` y no en `null`: todo pedido por WhatsApp se
+ * paga por QR, también los de recojo. Ya no es una pregunta al cliente, así que
+ * tampoco puede quedar sin responder.
+ *
+ * El campo se conserva en el tipo y se sigue enviando a la RPC —el pedido guarda
+ * cómo se pagó, y los históricos en `cash` deben seguir leyéndose— pero el
+ * formulario no lo pide. Quitarlo del modelo obligaría a tocar la tabla, la RPC
+ * y la lectura de pedidos antiguos para no ganar nada.
+ */
 export const EMPTY_FORM_FIELDS: CheckoutFormFields = {
   customer_name: '',
   delivery_type: null,
-  payment_method: null,
+  payment_method: 'qr',
   notes: '',
 };
 

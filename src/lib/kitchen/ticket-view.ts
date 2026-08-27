@@ -29,7 +29,7 @@
  * importe a validar es el total. La cifra correcta depende del tipo de entrega,
  * y por eso se calcula aqui una vez y no en cada pantalla que la use.
  */
-import type { OrderStatus, DeliveryType } from '@/types';
+import type { OrderStatus, DeliveryType, PaymentMethod } from '@/types';
 import type { PaymentView } from '@/lib/dashboard/attempt-review';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
 
@@ -52,6 +52,12 @@ export interface RawKitchenOrderRow {
    */
   total_amount?: number | string | null;
   subtotal_amount?: number | string | null;
+  /**
+   * Como se paga el pedido. NO viaja al ticket: solo decide si el pedido entra
+   * al tablero, porque un pedido por QR espera comprobante y uno historico en
+   * efectivo no tiene ninguno que esperar.
+   */
+  payment_method?: PaymentMethod | null;
 }
 
 /** Fila cruda minima de `order_items`: producto y cantidad, nada de precios. */
@@ -109,6 +115,47 @@ export function enteredAtOf(row: RawKitchenOrderRow): string {
   return row.confirmed_at ?? row.created_at;
 }
 
+/** ¿Llego algun comprobante para este pedido, aunque no se pudiera guardar? */
+function hayComprobante(payment: PaymentView | null): boolean {
+  if (payment === null) return false;
+  // Cuenta cualquier fila registrada, incluida una `failed`: significa que el
+  // cliente mando algo. Que no hayamos podido traer el archivo es justamente lo
+  // que cocina tiene que ver, no un motivo para ocultar el pedido.
+  if (payment.unlinkedProofs.length > 0) return true;
+  return payment.attempts.some((a) => a.proofs.length > 0);
+}
+
+/**
+ * ¿Este pedido todavia no debe verse en cocina?
+ *
+ * Un pedido entra al tablero cuando llega el comprobante, no cuando se le manda
+ * el QR. Antes entraba al cotizar: la comanda aparecia vacia, sin nada que
+ * revisar, y quien cocinaba tenia delante un pedido que nadie habia pagado.
+ *
+ * ── Solo frena la ENTRADA, nunca saca un pedido ya empezado ─────────────────
+ *
+ * La condicion incluye `stage === 'new'` a proposito. Una vez alguien pulso
+ * INICIAR, el ticket se queda pase lo que pase con el pago: si se rechaza el
+ * comprobante despues, la hamburguesa ya esta en la plancha y hacerla
+ * desaparecer de la pantalla no la devuelve al refrigerador — solo deja a quien
+ * cocina sin saber que estaba haciendo.
+ *
+ * ── Y solo aplica a los pedidos que esperan un comprobante ──────────────────
+ *
+ * Hoy todo se paga por QR, tambien los recojos. Pero los pedidos historicos en
+ * efectivo —o con el metodo sin registrar— no tienen comprobante que esperar, y
+ * exigirles uno los dejaria invisibles para siempre. Esos entran como antes.
+ */
+function esperandoComprobante(
+  row: RawKitchenOrderRow,
+  stage: KdsStage,
+  payment: PaymentView | null,
+): boolean {
+  if (stage !== 'new') return false;
+  if (row.payment_method !== 'qr') return false;
+  return !hayComprobante(payment);
+}
+
 /**
  * Importe que el cliente debia transferir por QR.
  *
@@ -154,6 +201,10 @@ export function toKitchenTickets(
   for (const row of rows) {
     const stage = stageFromOrderStatus(row.status);
     if (stage === null) continue;
+
+    const payment = payments[row.id] ?? null;
+    if (esperandoComprobante(row, stage, payment)) continue;
+
     tickets.push({
       orderNumber: row.order_number,
       enteredAt: enteredAtOf(row),
@@ -163,7 +214,7 @@ export function toKitchenTickets(
       notes: row.notes,
       completedAt: stage === 'done' ? row.updated_at : null,
       amountDueByQr: amountDueByQrOf(row),
-      payment: payments[row.id] ?? null,
+      payment,
     });
   }
   return sortByAge(tickets);

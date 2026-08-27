@@ -1,5 +1,6 @@
 import 'server-only';
 import { getKapsoClient } from '@/lib/kapso/client';
+import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
 import {
   createSupabaseProofsDataSource,
   type ProofsDataSource,
@@ -43,6 +44,12 @@ export interface DecideDeps {
   source: ProofsDataSource;
   /** Envía el texto al cliente. Inyectable para poder probar sin red. */
   sendText(phone: string, text: string): Promise<{ ok: boolean }>;
+  /**
+   * Avisa al grupo de reparto. Opcional: sin él la decisión funciona igual y no
+   * se manda nada, que es lo que necesitan los tests para no tocar Telegram.
+   * Nunca lanza y su resultado no altera la decisión.
+   */
+  notifyDeliveryGroup?(orderId: string): Promise<void>;
 }
 
 function defaultDeps(): DecideDeps {
@@ -57,6 +64,7 @@ function defaultDeps(): DecideDeps {
         return { ok: false };
       }
     },
+    notifyDeliveryGroup,
   };
 }
 
@@ -88,8 +96,8 @@ export async function decidePaymentAttempt(
 
   // Ganamos: toca avisar exactamente una vez.
   let notification: 'sent' | 'failed' = 'failed';
+  const orderId = row.order_id ?? null;
   try {
-    const orderId = row.order_id ?? null;
     const phone = orderId ? await deps.source.getCustomerPhone(orderId) : null;
     if (phone) {
       const res = await deps.sendText(phone, paymentDecisionText(decision));
@@ -98,6 +106,27 @@ export async function decidePaymentAttempt(
   } catch {
     // La decisión ya está persistida; esto solo cambia si avisamos o no.
     notification = 'failed';
+  }
+
+  // ── El reparto se entera cuando el pago está COBRADO ──────────────────────
+  //
+  // Antes salía al cotizar, junto con el QR: el grupo veía el pedido antes de
+  // que el cliente hubiera pagado, y si no pagaba nunca, alguien podía salir a
+  // repartir algo que no se cobró.
+  //
+  // Solo en `accept`: un rechazo no despacha nada.
+  //
+  // Va DESPUÉS del aviso al cliente y no puede alterar el resultado: la decisión
+  // ya está firme en la base. Si Telegram falla, su propia marca de claim deja
+  // el aviso sin enviar y el pedido sigue estando en el panel y en cocina —
+  // perder el aviso es recuperable, perder la decisión no.
+  if (decision === 'accept' && orderId && deps.notifyDeliveryGroup) {
+    try {
+      await deps.notifyDeliveryGroup(orderId);
+    } catch {
+      // `notifyDeliveryGroup` ya es best-effort y no lanza; este catch es la
+      // garantía de que ni siquiera un fallo inesperado toque la decisión.
+    }
   }
 
   return toReviewResult(row, notification);

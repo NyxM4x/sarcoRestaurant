@@ -143,10 +143,14 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     // Todo lo demás sigue sin pedirse, que es lo que hace que no pueda filtrarse
     // aunque alguien intentara pintarlo.
     expect(columnas).not.toMatch(
-      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|delivery_amount|payment_method|currency/,
+      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|delivery_amount|currency/,
     );
     expect(columnas).toContain('total_amount');
     expect(columnas).toContain('subtotal_amount');
+    // `payment_method` se PIDE pero no VIAJA: solo decide si el pedido entra al
+    // tablero —uno por QR espera comprobante, uno histórico en efectivo no— y el
+    // test de las claves del ticket comprueba que no acaba en la respuesta.
+    expect(columnas).toContain('payment_method');
     // Y solo se piden producto y cantidad de cada línea, nunca precios.
     expect(src).toContain("select('order_id,product_name_snapshot,quantity')");
     expect(src).not.toContain('unit_price_snapshot');

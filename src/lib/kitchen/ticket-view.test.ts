@@ -132,3 +132,83 @@ describe('ticket — qué entra y qué no', () => {
     expect(ticket.notes).toBe('Tocar el timbre');
   });
 });
+
+describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
+  /**
+   * Antes entraba al cotizar, que es cuando se le manda el QR al cliente. La
+   * comanda aparecía vacía —sin nada que revisar— y quien cocinaba tenía delante
+   * un pedido que nadie había pagado todavía. El aviso al reparto salía en ese
+   * mismo momento, así que alguien podía salir a llevar algo sin cobrar.
+   */
+  function pedido(over: Partial<RawKitchenOrderRow> = {}): RawKitchenOrderRow {
+    return {
+      id: 'order-1',
+      order_number: 'ORD-000100',
+      status: 'confirmed',
+      delivery_type: 'delivery',
+      notes: null,
+      created_at: '2026-08-27T20:00:00.000Z',
+      confirmed_at: '2026-08-27T20:01:00.000Z',
+      updated_at: '2026-08-27T20:01:00.000Z',
+      payment_method: 'qr',
+      subtotal_amount: 48,
+      total_amount: 64,
+      ...over,
+    };
+  }
+
+  /** Vista de pago con un comprobante ya asociado a un intento. */
+  const CON_COMPROBANTE = {
+    attempts: [
+      {
+        id: 'a1',
+        status: 'pending_review' as const,
+        statusLabel: 'Pendiente de revisión',
+        tone: 'amber' as const,
+        openedAt: '2026-08-27T20:05:00.000Z',
+        reviewedAt: null,
+        proofCount: 1,
+        proofs: [{ id: 'p1' }],
+        canDecide: true,
+      },
+    ],
+    unlinkedProofs: [],
+    hasPendingReview: true,
+  } as never;
+
+  it('sin comprobante NO aparece: el QR enviado no es un pago', () => {
+    expect(toKitchenTickets([pedido()], [])).toEqual([]);
+  });
+
+  it('con comprobante aparece, y ya trae qué revisar', () => {
+    const tickets = toKitchenTickets([pedido()], [], { 'order-1': CON_COMPROBANTE });
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0].payment).not.toBeNull();
+  });
+
+  it('un comprobante que no se pudo guardar TAMBIÉN lo hace entrar', () => {
+    // Llegó algo y no pudimos traerlo: eso es justo lo que cocina tiene que ver,
+    // no un motivo para ocultarle el pedido.
+    const sinArchivo = {
+      attempts: [],
+      unlinkedProofs: [{ id: 'p1', isAvailable: false }],
+      hasPendingReview: false,
+    } as never;
+    expect(toKitchenTickets([pedido()], [], { 'order-1': sinArchivo })).toHaveLength(1);
+  });
+
+  it('ya empezado, se queda aunque el pago se rechace después', () => {
+    // La regla frena la ENTRADA, no saca de la pantalla lo que ya está en la
+    // plancha: hacerlo desaparecer no devuelve la hamburguesa al refrigerador.
+    for (const status of ['preparing', 'ready'] as const) {
+      const tickets = toKitchenTickets([pedido({ status })], []);
+      expect(tickets, status).toHaveLength(1);
+    }
+  });
+
+  it('los históricos en efectivo entran como siempre', () => {
+    // No tienen comprobante que esperar; exigirles uno los dejaría invisibles.
+    expect(toKitchenTickets([pedido({ payment_method: 'cash' })], [])).toHaveLength(1);
+    expect(toKitchenTickets([pedido({ payment_method: null })], [])).toHaveLength(1);
+  });
+});

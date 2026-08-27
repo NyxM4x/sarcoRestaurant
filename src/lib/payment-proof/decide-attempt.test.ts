@@ -12,6 +12,7 @@ interface FakeOptions {
   phoneThrows?: boolean;
   sendOk?: boolean;
   sendThrows?: boolean;
+  noticeThrows?: boolean;
 }
 
 function fake(opts: FakeOptions = {}) {
@@ -37,6 +38,8 @@ function fake(opts: FakeOptions = {}) {
     },
   } as unknown as ProofsDataSource;
 
+  const avisosReparto: string[] = [];
+
   const deps: DecideDeps = {
     source,
     async sendText(phone, text) {
@@ -44,8 +47,12 @@ function fake(opts: FakeOptions = {}) {
       enviados.push({ phone, text });
       return { ok: opts.sendOk ?? true };
     },
+    async notifyDeliveryGroup(orderId) {
+      if (opts.noticeThrows) throw new Error('boom');
+      avisosReparto.push(orderId);
+    },
   };
-  return { deps, enviados, decisiones };
+  return { deps, enviados, decisiones, avisosReparto };
 }
 
 describe('decisión ganadora — avisa exactamente una vez', () => {
@@ -175,5 +182,76 @@ describe('el teléfono nunca llega desde fuera', () => {
     const res = await decidePaymentAttempt('a1', 'accept', deps);
     expect(JSON.stringify(res)).not.toContain('59171234567');
     expect(JSON.stringify(res)).not.toContain('order-1');
+  });
+});
+
+describe('el reparto se entera cuando el pago está COBRADO', () => {
+  /**
+   * El aviso al grupo de Telegram salía al cotizar, junto con el QR: el reparto
+   * veía el pedido antes de que el cliente hubiera pagado. Si no llegaba a
+   * pagar, alguien podía salir a llevar algo que no se cobró.
+   */
+  it('aceptar avisa al grupo de reparto', async () => {
+    const { deps, avisosReparto } = fake();
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(avisosReparto).toEqual(['order-1']);
+  });
+
+  it('rechazar NO avisa: un rechazo no despacha nada', async () => {
+    const { deps, avisosReparto } = fake();
+    await decidePaymentAttempt('a1', 'reject', deps);
+    expect(avisosReparto).toEqual([]);
+  });
+
+  it('una decisión repetida no vuelve a avisar', async () => {
+    // `repeated` ya avisó en su momento; repetirlo pondría el mismo pedido dos
+    // veces en el grupo, y dos personas podrían salir a llevar lo mismo.
+    const { deps, avisosReparto } = fake({
+      row: {
+        outcome: 'repeated',
+        order_id: 'order-1',
+        review_status: 'accepted',
+        reviewed_at: REVIEWED_AT,
+      } as RpcDecisionRow,
+    });
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(avisosReparto).toEqual([]);
+  });
+
+  it('un conflicto tampoco: ganó otra decisión', async () => {
+    const { deps, avisosReparto } = fake({
+      row: {
+        outcome: 'conflict',
+        order_id: 'order-1',
+        review_status: 'rejected',
+        reviewed_at: REVIEWED_AT,
+      } as RpcDecisionRow,
+    });
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(avisosReparto).toEqual([]);
+  });
+
+  it('si el aviso al reparto falla, la decisión sigue firme', async () => {
+    // Perder el aviso es recuperable —el pedido está en el panel y en cocina—;
+    // perder la decisión no. El fallo no puede propagarse hasta el operador.
+    const { deps } = fake({ noticeThrows: true });
+    const res = await decidePaymentAttempt('a1', 'accept', deps);
+    expect(res).toMatchObject({ ok: true, reviewStatus: 'accepted' });
+  });
+
+  it('el aviso va DESPUÉS del mensaje al cliente', async () => {
+    // El cliente es lo primero: si algo se cae por el camino, que sea el aviso
+    // interno y no la confirmación que la persona está esperando.
+    const { deps, enviados, avisosReparto } = fake();
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(enviados).toHaveLength(1);
+    expect(avisosReparto).toHaveLength(1);
+  });
+
+  it('sin el puerto inyectado la decisión funciona igual', async () => {
+    const { deps } = fake();
+    const sinAviso: DecideDeps = { source: deps.source, sendText: deps.sendText };
+    const res = await decidePaymentAttempt('a1', 'accept', sinAviso);
+    expect(res).toMatchObject({ ok: true });
   });
 });

@@ -32,7 +32,7 @@ import type {
  */
 const KITCHEN_ORDER_COLUMNS =
   'id,order_number,status,delivery_type,notes,created_at,confirmed_at,updated_at,' +
-  'total_amount,subtotal_amount';
+  'total_amount,subtotal_amount,payment_method';
 
 /** Techo de seguridad: el tablero nunca descarga la tabla entera. */
 const MAX_BOARD_ROWS = 200;
