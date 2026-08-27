@@ -9,6 +9,7 @@ import {
   readyTickets,
   summarizeProducts,
 } from '@/lib/kitchen/summary';
+import { useKitchenChime } from '@/lib/kitchen/use-kitchen-chime';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import type { KitchenBoard } from '@/lib/kitchen/tickets-repository';
 import { kitchenStageAction, kitchenLogoutAction } from '@/app/cocina/actions';
@@ -73,6 +74,10 @@ export function KitchenBoardScreen({
   const summary = useMemo(() => summarizeProducts(tickets), [tickets]);
   const grid = useMemo(() => gridTickets(tickets), [tickets]);
   const ready = useMemo(() => readyTickets(tickets), [tickets]);
+
+  // Campana al entrar un pedido nuevo: en cocina se mira la plancha, no la
+  // pantalla, y un ticket que aparece en silencio se queda esperando.
+  const { soundOn, toggleSound, soundBlocked } = useKitchenChime(tickets);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -224,6 +229,9 @@ export function KitchenBoardScreen({
         offline={offline}
         onOpenReady={() => setReadyOpen(true)}
         onLogout={logout}
+        soundOn={soundOn}
+        onToggleSound={toggleSound}
+        soundBlocked={soundBlocked}
       />
 
       <div className="flex min-h-0 flex-1">
