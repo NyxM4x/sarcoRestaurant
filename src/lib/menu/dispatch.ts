@@ -209,7 +209,18 @@ export async function dispatchMenu(
 
   if (!sent.ok) {
     const status = classifyKapsoSendFailure(sent.error, sent.status);
-    const errorCode = `send.${sent.error}`;
+    // El STATUS HTTP viaja en el código, no se tira.
+    //
+    // `send.http_error` a secas no distingue una credencial rechazada (401) de
+    // un payload que Meta no acepta (400) ni de un límite de tarifa (429), que
+    // son tres problemas con tres respuestas distintas. Sin este dato, el único
+    // camino para diagnosticar un fallo de envío es sondear la API a mano
+    // reproduciendo la llamada — y eso ya nos costó una sesión entera.
+    //
+    // Cabe de sobra en el CHECK de formato (`[A-Za-z0-9._:-]{1,64}`) y no
+    // arrastra nada del cliente: es un número de tres cifras.
+    const errorCode =
+      sent.status === undefined ? `send.${sent.error}` : `send.${sent.error}.${sent.status}`;
     await deps.deliveries.finish({ deliveryId, status, completedAt: now(), errorCode });
     return status === 'failed'
       ? { result: 'failed', deliveryId, error: errorCode }

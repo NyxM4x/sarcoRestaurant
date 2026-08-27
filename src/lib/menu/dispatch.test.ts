@@ -263,7 +263,10 @@ describe('dispatch — desenlace del proveedor', () => {
       ledger = new FakeLedger();
       const result = await dispatchMenu(input(), deps({ send: fakeSend(send).port }));
 
-      expect(result, send.error).toMatchObject({ result: 'failed', error: `send.${send.error}` });
+      // El status, cuando lo hay, forma parte del código.
+      const esperado =
+        send.status === undefined ? `send.${send.error}` : `send.${send.error}.${send.status}`;
+      expect(result, send.error).toMatchObject({ result: 'failed', error: esperado });
       expect(ledger.rows[0].status, send.error).toBe('failed');
       expect(ledger.rows[0].providerMessageId, send.error).toBeNull();
     }
@@ -504,9 +507,45 @@ describe('dispatch — el token y la URL no salen de aquí', () => {
       deps({ send: fakeSend({ ok: false, error: 'http_error', status: 503 }).port }),
     );
 
-    expect(result).toMatchObject({ error: 'send.http_error' });
+    // El STATUS forma parte del código: `send.http_error` a secas no distingue
+    // una credencial rechazada de un payload inválido o de un límite de tarifa,
+    // y sin ese número la única vía de diagnóstico es reproducir la llamada a
+    // mano contra la API del proveedor.
+    expect(result).toMatchObject({ error: 'send.http_error.503' });
     // Mismo formato que agent_runs.error_code: cabe en un log.
     expect(ledger.rows[0].errorCode).toMatch(/^[A-Za-z0-9._:-]{1,64}$/);
+  });
+
+  it('cada status HTTP queda distinguible en el ledger', async () => {
+    // Los tres que de verdad se confunden hoy bajo una sola etiqueta.
+    for (const status of [400, 401, 429]) {
+      ledger.rows.length = 0;
+      await dispatchMenu(
+        input(),
+        deps({ send: fakeSend({ ok: false, error: 'http_error', status }).port }),
+      );
+      expect(ledger.rows[0].errorCode, `status ${status}`).toBe(`send.http_error.${status}`);
+    }
+  });
+
+  it('sin status el código queda como antes, sin un sufijo inventado', async () => {
+    // `timeout` y `network_error` no llegan a tener respuesta: no hay número que
+    // añadir, y poner un `0` o un `unknown` sería fabricar un dato.
+    await dispatchMenu(
+      input(),
+      deps({ send: fakeSend({ ok: false, error: 'timeout' }).port }),
+    );
+    expect(ledger.rows[0].errorCode).toBe('send.timeout');
+  });
+
+  it('el código nunca arrastra nada del cliente', async () => {
+    await dispatchMenu(
+      input(),
+      deps({ send: fakeSend({ ok: false, error: 'http_error', status: 400 }).port }),
+    );
+    const code = ledger.rows[0].errorCode ?? '';
+    expect(code).not.toContain('59100000000');
+    expect(code.length).toBeLessThanOrEqual(64);
   });
 });
 
