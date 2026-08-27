@@ -111,6 +111,33 @@ export function KitchenBoardScreen({
     return () => controller.stop();
   }, [refresh]);
 
+  /**
+   * Al volver a mirar la pantalla, refresca YA.
+   *
+   * El polling se pausa con la pestana oculta —correcto: no tiene sentido
+   * consultar la base contra una pantalla que nadie mira— pero al volver
+   * reprograma el siguiente ciclo en vez de recuperar el tiempo perdido. El
+   * efecto era que la tablet ensenaba el estado de cuando se dejo de mirar, y
+   * habia que recargar a mano para ver un comprobante que ya habia llegado.
+   *
+   * En cocina esa espera se nota mas que en cualquier otro sitio: la pantalla se
+   * apaga, se atiende otra cosa, y al volver lo primero que se hace es decidir
+   * con lo que hay delante. Si lo que hay delante esta caducado, se decide mal.
+   */
+  useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    document.addEventListener('visibilitychange', alVolver);
+    // `focus` cubre el caso de volver desde otra ventana sin que la pestana
+    // llegara a ocultarse (dos navegadores lado a lado, o alt-tab).
+    window.addEventListener('focus', alVolver);
+    return () => {
+      document.removeEventListener('visibilitychange', alVolver);
+      window.removeEventListener('focus', alVolver);
+    };
+  }, [refresh]);
+
   // Reloj compartido: un solo interval para TODOS los temporizadores.
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), CLOCK_MS);

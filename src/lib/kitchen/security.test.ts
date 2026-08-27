@@ -271,3 +271,17 @@ describe('seguridad — revisar pagos se autoriza por ROL, no por tener sesión'
     expect(columnas).not.toContain('storage_namespace');
   });
 });
+
+describe('pantalla de cocina — al volver a mirarla, muestra lo que hay AHORA', () => {
+  it('refresca al recuperar visibilidad y foco, no solo cada tick', () => {
+    // El polling se pausa con la pestaña oculta y al volver reprograma el
+    // siguiente ciclo en vez de recuperar el tiempo perdido. Sin esto, la tablet
+    // enseñaba el estado de cuando se dejó de mirar y había que recargar a mano
+    // para ver un comprobante que ya había llegado.
+    const screen = componentSrc('KitchenBoardScreen.tsx');
+    expect(screen).toContain('visibilitychange');
+    expect(screen).toContain("visibilityState === 'visible'");
+    // Y se limpian los listeners: la pantalla vive encendida toda la noche.
+    expect(screen).toContain('removeEventListener');
+  });
+});
