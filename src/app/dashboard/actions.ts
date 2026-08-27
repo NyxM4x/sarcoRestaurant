@@ -17,7 +17,7 @@ import {
   landingPathForRole,
   LOGIN_PATH,
 } from '@/lib/dashboard/session-role';
-import { setRainSurcharge } from '@/lib/delivery/quote-service';
+import { setRainSurcharge } from '@/lib/delivery/settings';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';

@@ -2,7 +2,7 @@ import { createOrdersRepository, type OrdersListResult } from '@/lib/dashboard/o
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { normalizeFilters } from '@/lib/dashboard/filters';
 import { OrdersDashboard } from '@/components/dashboard/OrdersDashboard';
-import { readRainSurcharge } from '@/lib/delivery/quote-service';
+import { readRainSurcharge } from '@/lib/delivery/settings';
 
 export const dynamic = 'force-dynamic';
 
