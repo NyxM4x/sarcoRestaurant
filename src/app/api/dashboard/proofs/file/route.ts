@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
-import { hasValidSession } from '@/lib/dashboard/auth';
+import { currentSessionRole } from '@/lib/dashboard/auth';
+import { canReviewPayments } from '@/lib/dashboard/session-role';
 import { createSupabaseProofsDataSource } from '@/lib/dashboard/proofs-data-source';
 import { getProofObject } from '@/lib/payment-proof/storage';
 import { isProofMimeType } from '@/lib/payment-proof/mime';
@@ -32,8 +33,13 @@ function fail(status: number): Response {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  // 1. Sesión primero: sin ella no se consulta nada.
-  if (!(await hasValidSession())) return fail(401);
+  // 1. Sesión y PERMISO primero: sin ellos no se consulta nada.
+  //
+  // Se comprueba el rol, no solo que haya sesión. Tener una sesión válida del
+  // panel no es lo mismo que poder abrir el comprobante bancario de un cliente,
+  // y hasta ahora ambas cosas se confundían en la misma llamada.
+  const role = await currentSessionRole();
+  if (role === null || !canReviewPayments(role)) return fail(401);
 
   // 2. Identificador validado antes de tocar la base.
   const id = new URL(request.url).searchParams.get('id') ?? '';

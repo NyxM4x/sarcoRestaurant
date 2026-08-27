@@ -4,6 +4,7 @@ import {
   KITCHEN_HOME,
   canAccessAdmin,
   canAccessKitchen,
+  canReviewPayments,
   landingPathForRole,
 } from './session-role';
 import {
@@ -89,5 +90,35 @@ describe('rol — retrocompatibilidad de las sesiones antiguas', () => {
     const token = createSessionToken(SECRET, NOW, 1_000, 'kitchen');
     expect(readSessionRole(token, SECRET, NOW + 500)).toBe('kitchen');
     expect(readSessionRole(token, SECRET, NOW + 2_000)).toBeNull();
+  });
+});
+
+describe('quién puede revisar pagos', () => {
+  /**
+   * Este permiso existe porque antes NO existía.
+   *
+   * La acción de revisión y el endpoint del archivo se protegían con
+   * `hasValidSession()`, que devuelve `true` para cualquier rol. En la práctica
+   * cocina ya podía decidir pagos y abrir comprobantes; lo único que se lo
+   * impedía era que la interfaz no le entregara los UUID — y un identificador
+   * que no se enseña no es un control de acceso.
+   *
+   * Ahora el permiso se concede a propósito y se lee en un solo sitio.
+   */
+  it('el encargado puede', () => {
+    expect(canReviewPayments('admin')).toBe(true);
+  });
+
+  it('cocina también: es quien tiene el ticket delante cuando hay que decidir', () => {
+    // No se empieza a cocinar un pedido sin pagar, y esperar a que el encargado
+    // lo mire desde otra pantalla es lo que frenaba la plancha.
+    expect(canReviewPayments('kitchen')).toBe(true);
+  });
+
+  it('es un permiso APARTE de entrar al panel de administración', () => {
+    // Que cocina pueda revisar un pago no la convierte en encargada: sigue sin
+    // poder entrar a `/dashboard`, ver el resto de pedidos ni cambiar precios.
+    expect(canAccessAdmin('kitchen')).toBe(false);
+    expect(canReviewPayments('kitchen')).toBe(true);
   });
 });

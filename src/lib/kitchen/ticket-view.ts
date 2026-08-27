@@ -3,10 +3,22 @@
  *
  * El cocinero ve lo justo para cocinar: numero de pedido, cuando entro a
  * cocina, etapa, tipo de entrega, los platos y las notas. NUNCA telefono,
- * direccion, coordenadas, precios, totales ni metodo de pago. No es solo que la
- * pantalla no los pinte: es que no viajan en la respuesta.
+ * direccion ni coordenadas. No es solo que la pantalla no los pinte: es que no
+ * viajan en la respuesta.
+ *
+ * ── Por que el TOTAL si viaja ahora ─────────────────────────────────────────
+ *
+ * Desde que cocina revisa los comprobantes, el total dejo de ser un dato
+ * administrativo y paso a ser una herramienta de trabajo: sin el, mirar un
+ * comprobante no es validarlo. Se puede aceptar un pago de Bs 20 para un pedido
+ * de Bs 64 y nadie lo nota hasta el cierre de caja.
+ *
+ * Viaja el TOTAL y nada mas. Ni subtotal, ni costo de envio, ni desglose: lo
+ * unico que hace falta para contrastar el monto del comprobante. La lista sigue
+ * siendo corta a proposito — se amplio por una razon concreta, no se abrio.
  */
 import type { OrderStatus, DeliveryType } from '@/types';
+import type { PaymentView } from '@/lib/dashboard/attempt-review';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
 
 /** Fila cruda minima de `orders` (mas `id`, solo para unir los items server-side). */
@@ -21,6 +33,13 @@ export interface RawKitchenOrderRow {
   confirmed_at: string | null;
   /** Ultimo cambio de estado: sirve como hora de completado en el historial. */
   updated_at: string;
+  /**
+   * Total a cobrar. Lo necesita quien contrasta el comprobante.
+   *
+   * Opcional porque `numeric` puede no venir en una fila antigua o en un
+   * adaptador que no lo pida; ausente se trata como 0, nunca como `NaN`.
+   */
+  total_amount?: number | string | null;
 }
 
 /** Fila cruda minima de `order_items`: producto y cantidad, nada de precios. */
@@ -53,6 +72,17 @@ export interface KitchenTicket {
   notes: string | null;
   /** Hora en que se marco listo (solo etapa `done`); alimenta el historial. */
   completedAt: string | null;
+  /** Total a cobrar, para contrastar el comprobante. */
+  total: number;
+  /**
+   * Pago del pedido: intentos y comprobantes, ya en forma de vista.
+   *
+   * `null` cuando no hay nada que revisar. Es la MISMA estructura que usa el
+   * panel del encargado —`toPaymentView`— y no una version reducida: dos vistas
+   * distintas del mismo pago acabarian discrepando, y quien decide desde cocina
+   * tiene que ver exactamente lo que veria desde el panel.
+   */
+  payment: PaymentView | null;
 }
 
 /**
@@ -85,6 +115,8 @@ export function groupItemsByOrder(
 export function toKitchenTickets(
   rows: RawKitchenOrderRow[],
   items: RawKitchenItemRow[],
+  /** Pago por `order_id`. Ausente = el tablero se pinta sin seccion de pago. */
+  payments: Record<string, PaymentView> = {},
 ): KitchenTicket[] {
   const lines = groupItemsByOrder(items);
   const tickets: KitchenTicket[] = [];
@@ -99,6 +131,11 @@ export function toKitchenTickets(
       lines: lines[row.id] ?? [],
       notes: row.notes,
       completedAt: stage === 'done' ? row.updated_at : null,
+      // `numeric` de Postgres puede llegar como cadena segun el driver. Un total
+      // ilegible cae a 0 y no a NaN: la tarjeta muestra "Bs 0,00", que es
+      // visiblemente raro, en vez de un "NaN" que parece un fallo de la pantalla.
+      total: Number(row.total_amount) || 0,
+      payment: payments[row.id] ?? null,
     });
   }
   return sortByAge(tickets);

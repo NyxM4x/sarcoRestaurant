@@ -8,9 +8,14 @@ import {
   establishSession,
   clearSession,
   hasValidSession,
+  currentSessionRole,
   isDashboardAuthConfigured,
 } from '@/lib/dashboard/auth';
-import { landingPathForRole, LOGIN_PATH } from '@/lib/dashboard/session-role';
+import {
+  canReviewPayments,
+  landingPathForRole,
+  LOGIN_PATH,
+} from '@/lib/dashboard/session-role';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
@@ -97,7 +102,10 @@ export async function reviewPaymentAttemptAction(
   attemptId: string,
   decision: string,
 ): Promise<ReviewResult> {
-  if (!(await hasValidSession())) return { ok: false, reason: 'unauthorized' };
+  // Rol, no solo sesión: decidir un pago dispara un WhatsApp al cliente y cierra
+  // el episodio de revisión. Quién puede hacerlo se lee en `canReviewPayments`.
+  const role = await currentSessionRole();
+  if (role === null || !canReviewPayments(role)) return { ok: false, reason: 'unauthorized' };
   if (!isReviewDecision(decision)) return { ok: false, reason: 'invalid_decision' };
   if (typeof attemptId !== 'string' || !UUID_RE.test(attemptId)) {
     return { ok: false, reason: 'not_found' };

@@ -6,8 +6,10 @@
  * traduce consultas. La cocina LEE pedidos y escribe `orders.status`; nunca
  * toca `order_notifications`, Telegram, Kapso ni WhatsApp.
  */
-import type { OrderStatus } from '@/types';
+import type { OrderStatus, PaymentAttempt } from '@/types';
 import { dateBounds } from '@/lib/dashboard/filters';
+import { toPaymentView, type PaymentView } from '@/lib/dashboard/attempt-review';
+import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
 import {
   DISPATCHED_STATUSES,
   isKdsAction,
@@ -32,9 +34,21 @@ export interface KitchenBoardRows {
   items: RawKitchenItemRow[];
 }
 
+/** Intentos y comprobantes de TODOS los pedidos del tablero, en dos consultas. */
+export interface KitchenPaymentRows {
+  attempts: PaymentAttempt[];
+  proofs: ProofUiRow[];
+}
+
 /** Adaptador de datos. La implementacion real (Supabase) es server-only. */
 export interface KitchenDataSource {
   listBoard(since: string | null, until: string | null): Promise<KitchenBoardRows>;
+  /**
+   * Pagos de los pedidos del tablero. Opcional a proposito: sin este metodo el
+   * KDS se comporta EXACTAMENTE como antes y no pinta seccion de pago, asi que
+   * un adaptador antiguo —o un test que no lo necesite— sigue funcionando.
+   */
+  listPayments?(orderIds: string[]): Promise<KitchenPaymentRows>;
   getStatus(orderNumber: string): Promise<OrderStatus | null>;
   updateStatus(orderNumber: string, from: OrderStatus, to: OrderStatus): Promise<KitchenUpdateResult>;
 }
@@ -61,12 +75,55 @@ export interface KitchenRepository {
 /** Formato del numero de pedido aceptado (misma whitelist que el dashboard). */
 const ORDER_NUMBER_RE = /^[A-Za-z0-9-]{1,40}$/;
 
+/**
+ * Reparte las filas del lote por pedido y arma la vista de cada uno.
+ *
+ * El mapeo lo hace `toPaymentView`, el MISMO que usa el panel del encargado. No
+ * se reimplementa: una segunda version del mismo calculo acabaria mostrando el
+ * pago de una forma en el KDS y de otra en el panel, y quien decide tiene que
+ * ver lo mismo este donde este.
+ */
+function agruparPagos(rows: KitchenPaymentRows): Record<string, PaymentView> {
+  const attemptsPorPedido = new Map<string, PaymentAttempt[]>();
+  const proofsPorPedido = new Map<string, ProofUiRow[]>();
+
+  for (const a of rows.attempts) {
+    (attemptsPorPedido.get(a.order_id) ?? attemptsPorPedido.set(a.order_id, []).get(a.order_id)!).push(a);
+  }
+  for (const p of rows.proofs) {
+    if (p.order_id === null) continue;
+    (proofsPorPedido.get(p.order_id) ?? proofsPorPedido.set(p.order_id, []).get(p.order_id)!).push(p);
+  }
+
+  const out: Record<string, PaymentView> = {};
+  for (const orderId of new Set([...attemptsPorPedido.keys(), ...proofsPorPedido.keys()])) {
+    out[orderId] = toPaymentView(
+      attemptsPorPedido.get(orderId) ?? [],
+      proofsPorPedido.get(orderId) ?? [],
+    );
+  }
+  return out;
+}
+
 export function createKitchenRepository(source: KitchenDataSource): KitchenRepository {
   return {
     async getBoard(nowMs) {
       const { since, until } = dateBounds('today', nowMs);
       const { rows, items } = await source.listBoard(since, until);
-      return { tickets: toKitchenTickets(rows, items), serverNow: nowMs };
+
+      // El pago NO puede tumbar el tablero. Si la consulta falla, la cocina
+      // sigue viendo sus tickets y puede cocinar: perder la seccion de pago es
+      // molesto, quedarse sin comandas en plena noche no es recuperable.
+      let payments: Record<string, PaymentView> = {};
+      if (source.listPayments) {
+        try {
+          payments = agruparPagos(await source.listPayments(rows.map((r) => r.id)));
+        } catch {
+          payments = {};
+        }
+      }
+
+      return { tickets: toKitchenTickets(rows, items, payments), serverNow: nowMs };
     },
 
     async applyAction(orderNumber, action) {

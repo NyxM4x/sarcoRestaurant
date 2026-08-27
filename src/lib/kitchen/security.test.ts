@@ -53,7 +53,7 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     updated_at: '2026-08-22T12:05:00.000Z',
   };
 
-  it('el ticket serializado no lleva teléfono, dirección, importes ni método de pago', () => {
+  it('el ticket serializado no lleva teléfono, dirección ni desglose de importes', () => {
     const [ticket] = toKitchenTickets(
       [row],
       [{ order_id: 'uuid-interno', product_name_snapshot: 'Trancapecho', quantity: 2 }],
@@ -66,20 +66,39 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
       'delivery_address',
       'latitude',
       'longitude',
-      'total',
+      // El desglose sigue fuera: solo viaja el TOTAL, que es lo único con lo que
+      // se contrasta un comprobante. Ni subtotal, ni costo de envío.
       'subtotal',
-      'amount',
       'price',
       'currency',
-      'payment',
+      'payment_method',
     ]) {
       expect(json.toLowerCase(), prohibido).not.toContain(prohibido);
     }
   });
 
+  it('el TOTAL sí viaja, y es el único importe que lo hace', () => {
+    // Cambio deliberado del contrato: desde que cocina revisa los comprobantes,
+    // el total es una herramienta de trabajo. Sin él, mirar un comprobante no es
+    // validarlo — se aceptaría un pago de Bs 20 para un pedido de Bs 64.
+    const [ticket] = toKitchenTickets([{ ...row, total_amount: '64.00' }], []);
+    expect(ticket.total).toBe(64);
+  });
+
+  it('un total ilegible cae a 0, nunca a NaN', () => {
+    // `NaN` se pinta como "NaN" y parece un fallo de la pantalla; un 0 es
+    // visiblemente raro y no engaña a nadie.
+    const [ticket] = toKitchenTickets([{ ...row, total_amount: 'no-es-un-numero' }], []);
+    expect(ticket.total).toBe(0);
+    const [sinDato] = toKitchenTickets([{ ...row, total_amount: null }], []);
+    expect(sinDato.total).toBe(0);
+  });
+
   it('el ticket tampoco expone el UUID interno del pedido', () => {
     const [ticket] = toKitchenTickets([row], []);
     expect(JSON.stringify(ticket)).not.toContain('uuid-interno');
+    // La lista es cerrada A PROPÓSITO: si alguien añade un campo al ticket, este
+    // test falla y obliga a justificarlo. Así se añadieron `total` y `payment`.
     expect(Object.keys(ticket).sort()).toEqual([
       'completedAt',
       'deliveryType',
@@ -87,16 +106,22 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
       'lines',
       'notes',
       'orderNumber',
+      'payment',
       'stage',
+      'total',
     ]);
   });
 
   it('la consulta ni siquiera PIDE esas columnas a la base', () => {
     const src = read('./data-source.ts');
     const columnas = /const KITCHEN_ORDER_COLUMNS =\s*([\s\S]*?);/.exec(src)?.[1] ?? '';
+    // `total_amount` salió de la lista de prohibidas: ahora se pide, y por una
+    // razón concreta. Todo lo demás sigue sin pedirse, que es lo que hace que
+    // no pueda filtrarse aunque alguien intentara pintarlo.
     expect(columnas).not.toMatch(
-      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|total_amount|subtotal_amount|delivery_amount|payment_method|currency/,
+      /customer_phone|delivery_address|delivery_latitude|delivery_longitude|subtotal_amount|delivery_amount|payment_method|currency/,
     );
+    expect(columnas).toContain('total_amount');
     // Y solo se piden producto y cantidad de cada línea, nunca precios.
     expect(src).toContain("select('order_id,product_name_snapshot,quantity')");
     expect(src).not.toContain('unit_price_snapshot');
@@ -165,5 +190,59 @@ describe('pantalla de cocina — accesibilidad y toque', () => {
     const card = componentSrc('KitchenTicketCard.tsx');
     expect(card).toContain('max-h-full');
     expect((card.match(/overflow-y-auto/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('seguridad — revisar pagos se autoriza por ROL, no por tener sesión', () => {
+  /**
+   * Estos tests leen el código fuente porque lo que hay que garantizar no es un
+   * resultado sino una FORMA: que estas dos superficies no vuelvan a protegerse
+   * con `hasValidSession()`.
+   *
+   * Esa función devuelve `true` para cualquier rol. Mientras la usaron, cocina ya
+   * podía decidir pagos y abrir comprobantes de clientes; lo único que se lo
+   * impedía era que la interfaz no le entregara los UUID. Un identificador que no
+   * se enseña no es un control de acceso: basta conocerlo para saltárselo.
+   *
+   * Hoy cocina PUEDE hacer ambas cosas —se decidió así— pero porque
+   * `canReviewPayments` lo concede, no porque nadie mire el rol. La diferencia
+   * importa el día que se decida lo contrario: entonces bastará cambiar una
+   * línea, en vez de descubrir que la puerta llevaba meses abierta.
+   */
+  const proofEndpoint = read('../../app/api/dashboard/proofs/file/route.ts');
+  const dashboardActions = read('../../app/dashboard/actions.ts');
+
+  it('el endpoint del comprobante comprueba el rol', () => {
+    expect(proofEndpoint).toContain('canReviewPayments');
+    expect(proofEndpoint).toContain('currentSessionRole');
+    // Y ya no se apoya en "hay sesión, luego pasa".
+    expect(proofEndpoint).not.toContain('hasValidSession');
+  });
+
+  it('la acción de revisión comprueba el rol', () => {
+    expect(dashboardActions).toContain('canReviewPayments');
+    // El bloque de la acción de pagos no puede volver a `hasValidSession`.
+    const bloque =
+      /export async function reviewPaymentAttemptAction[\s\S]*?\n}/.exec(dashboardActions)?.[0] ?? '';
+    expect(bloque).toContain('canReviewPayments');
+    expect(bloque).not.toContain('hasValidSession');
+  });
+
+  it('el permiso se comprueba en SERVIDOR, no en el componente', () => {
+    // La tarjeta pinta los botones; quien autoriza es la Server Action. Si el
+    // permiso viviera en el cliente, bastaría abrir las herramientas del
+    // navegador para concedérselo uno mismo.
+    for (const f of componentFiles) {
+      expect(componentSrc(f), f).not.toContain('canReviewPayments');
+    }
+  });
+
+  it('el KDS nunca recibe la ruta del archivo, solo su id', () => {
+    // El comprobante se pide por el endpoint autenticado con el id del proof.
+    // `storage_key` no sale de la base de datos hacia el navegador.
+    const src = read('./data-source.ts');
+    const columnas = /const KITCHEN_PROOF_COLUMNS =\s*([\s\S]*?);/.exec(src)?.[1] ?? '';
+    expect(columnas).not.toContain('storage_key');
+    expect(columnas).not.toContain('storage_namespace');
   });
 });

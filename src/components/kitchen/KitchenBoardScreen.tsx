@@ -222,6 +222,10 @@ export function KitchenBoardScreen({
                   nowMs={nowMs}
                   busy={busyOrder !== null}
                   onAction={handleAction}
+                  // Tras decidir un pago se recarga el tablero: el estado real
+                  // lo tiene el servidor, y puede que el encargado haya decidido
+                  // desde su panel un segundo antes.
+                  onPaymentDecided={refresh}
                 />
               ))}
             </div>

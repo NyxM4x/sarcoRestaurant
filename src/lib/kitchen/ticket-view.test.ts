@@ -71,8 +71,8 @@ describe('ticket — orden y contenido', () => {
 
   it('las fechas ilegibles se van al final sin romper el orden', () => {
     const tickets = sortByAge([
-      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null },
-      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null },
+      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, total: 0, payment: null },
+      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, total: 0, payment: null },
     ]);
     expect(tickets.map((t) => t.orderNumber)).toEqual(['ok', 'roto']);
   });

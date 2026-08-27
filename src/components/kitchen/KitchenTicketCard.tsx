@@ -3,6 +3,7 @@
 import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
 import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
+import { KitchenPaymentPanel } from './KitchenPaymentPanel';
 
 /**
  * Ticket del KDS. No tiene temporizador propio: recibe `nowMs` del reloj
@@ -16,6 +17,11 @@ export interface KitchenTicketCardProps {
   nowMs: number;
   busy: boolean;
   onAction: (orderNumber: string, action: KdsAction) => void;
+  /**
+   * Recarga el tablero tras decidir un pago. Opcional: sin él la tarjeta se
+   * comporta igual, solo que el estado del pago espera al siguiente refresco.
+   */
+  onPaymentDecided?: () => void;
 }
 
 const DELIVERY_LABELS = {
@@ -23,7 +29,13 @@ const DELIVERY_LABELS = {
   pickup: 'Recojo en local',
 } as const;
 
-export function KitchenTicketCard({ ticket, nowMs, busy, onAction }: KitchenTicketCardProps) {
+export function KitchenTicketCard({
+  ticket,
+  nowMs,
+  busy,
+  onAction,
+  onPaymentDecided,
+}: KitchenTicketCardProps) {
   // La alerta de atraso solo tiene sentido mientras el plato esta en la plancha.
   const late = ticket.stage === 'in_progress' && isLate(ticket.enteredAt, nowMs);
   const headerTone =
@@ -84,6 +96,15 @@ export function KitchenTicketCard({ ticket, nowMs, busy, onAction }: KitchenTick
       </div>
 
       <footer className="shrink-0 px-4 pb-4">
+        {/* El pago va ANTES de las notas y de los botones: es lo que hay que
+            mirar para decidir si se empieza. Nunca bloquea INICIAR — revisar un
+            pago y avanzar el pedido son dimensiones separadas. */}
+        <KitchenPaymentPanel
+          payment={ticket.payment}
+          total={ticket.total}
+          onDecided={onPaymentDecided ?? (() => {})}
+        />
+
         {ticket.notes && (
           <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Notas</p>
