@@ -276,3 +276,103 @@ describe('media que el canal no sabe parsear', () => {
     expect(vistos).toEqual([]);
   });
 });
+
+describe('un PDF es un comprobante de pleno derecho', () => {
+  /**
+   * Payload REAL de documento (27-08-2026), con las referencias sanitizadas.
+   * Un comprobante bancario descargado de la app del banco llega así, no como
+   * captura de pantalla.
+   */
+  function pdfEnvelope(): Record<string, unknown> {
+    return {
+      message: {
+        id: 'wamid.PDF_REAL',
+        from: '59100000000',
+        type: 'document',
+        timestamp: '1787844142',
+        context: null,
+        document: {
+          id: '2267829863993481',
+          url: 'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=SANITIZADO',
+          link: 'https://app.kapso.ai/rails/active_storage/blobs/redirect/SANITIZADO/c.pdf',
+          sha256: 'bEhGt7Hn3JFXKMeZ2PJ2GlXyAOhX9BvS+tjb8RyGNYw=',
+          filename: 'comprobante.pdf',
+          mime_type: 'application/pdf',
+        },
+        kapso: {
+          direction: 'inbound',
+          origin: 'cloud_api',
+          has_media: true,
+          media_url: 'https://app.kapso.ai/rails/active_storage/blobs/redirect/SANITIZADO/c.pdf',
+          media_data: {
+            filename: 'comprobante.pdf',
+            byte_size: 792233,
+            content_type: 'application/pdf',
+          },
+          message_type_data: { caption: '', has_media: true },
+        },
+      },
+      conversation: {
+        id: '00000000-0000-4000-8000-000000000002',
+        phone_number: '59100000000',
+      },
+      phone_number_id: '000000000000000',
+    };
+  }
+
+  it('llega al motor CON adjunto: ya no es "media que no sabemos leer"', async () => {
+    const vistos: Array<{ tieneAdjunto: boolean; mime: string | null; media: string | null }> = [];
+
+    const res = await processClaimedEvent(
+      row(pdfEnvelope()),
+      params(async (input) => {
+        vistos.push({
+          tieneAdjunto: input.attachment !== null,
+          mime: input.attachment?.facts.mimeType ?? null,
+          media: input.attachment?.facts.mediaId ?? null,
+        });
+        return { result: 'captured' };
+      }),
+    );
+
+    expect(res.outcome).toBe('processed');
+    expect(vistos).toHaveLength(1);
+    // La diferencia con la red de seguridad: aquí SÍ hay de dónde descargar.
+    expect(vistos[0].tieneAdjunto).toBe(true);
+    expect(vistos[0].mime).toBe('application/pdf');
+    expect(vistos[0].media).toBe('2267829863993481');
+  });
+
+  it('el resultado viaja en el cuerpo sin filtrar nada del cliente', async () => {
+    const res = await processClaimedEvent(
+      row(pdfEnvelope()),
+      params(async () => ({ result: 'captured' })),
+    );
+    expect(res.body).toMatchObject({ payment_proofs: ['captured'] });
+    const cuerpo = JSON.stringify(res.body);
+    expect(cuerpo).not.toContain('app.kapso.ai');
+    expect(cuerpo).not.toContain('lookaside');
+    expect(cuerpo).not.toContain('59100000000');
+  });
+
+  it('un PDF SALIENTE nuestro no es un comprobante', async () => {
+    // El que enviamos nosotros no lo manda el cliente, y no puede abrir un pago.
+    // Viaja en `whatsapp.message.sent`, que es una vía distinta: la captura solo
+    // cuelga de `received`. Se prueba con el evento REAL y no forzando
+    // `direction` dentro de un `received` — un received saliente no existe, y un
+    // test contra un payload imposible no prueba nada.
+    const saliente = pdfEnvelope();
+    const msg = saliente.message as Record<string, unknown>;
+    (msg.kapso as Record<string, unknown>).direction = 'outbound';
+
+    const vistos: string[] = [];
+    await processClaimedEvent(
+      { ...row(saliente), eventName: 'whatsapp.message.sent' } as WebhookEventRow,
+      params(async (i) => {
+        vistos.push(i.sourceMessageId);
+        return { result: 'captured' };
+      }),
+    );
+    expect(vistos).toEqual([]);
+  });
+});

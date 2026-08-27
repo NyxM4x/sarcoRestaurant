@@ -2,6 +2,7 @@ import 'server-only';
 import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
 import { isSupportedImageMime, type ImageAttachment } from './channel/image';
+import { isSupportedDocumentMime } from './channel/document';
 import { checkMediaUrl, shouldSendKapsoKey } from './media-url-policy';
 import {
   imageIsProcessable,
@@ -87,6 +88,17 @@ async function descargar(
   apiKey: string | null,
   mimeDeclarado: string | null,
   timeoutMs: number,
+  /**
+   * Qué tipos acepta ESTA descarga.
+   *
+   * Es un parámetro y no una constante del módulo porque las dos vías que pasan
+   * por aquí tienen permisos distintos y esa diferencia es el límite de
+   * seguridad: lo que se descarga para el agente acaba en la entrada de Vision
+   * de OpenAI, y un PDF no puede llegar ahí. Un único predicado compartido
+   * —relajado para admitir documentos— habría abierto esa puerta sin que nadie
+   * lo notara.
+   */
+  mimeAceptado: (mime: string) => boolean,
 ): Promise<ResolveImageResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -148,7 +160,7 @@ async function descargar(
       // al modelo. Si el servidor dice otra cosa, se comprueba otra vez.
       const mimeReal = res.headers.get('content-type');
       const mimeType = (mimeReal ?? mimeDeclarado ?? '').split(';')[0].trim().toLowerCase();
-      if (!isSupportedImageMime(mimeType)) return { ok: false, error: 'unsupported_mime' };
+      if (!mimeAceptado(mimeType)) return { ok: false, error: 'unsupported_mime' };
 
       // Corte por cabecera antes de leer el cuerpo, cuando el servidor la manda.
       const declarado = Number(res.headers.get('content-length') ?? '');
@@ -223,6 +235,9 @@ export function createKapsoMediaResolver(): MediaResolverPort {
           apiKey,
           attachment.facts.mimeType,
           timeoutMs,
+          // La puerta de Vision: SOLO imágenes. No se relaja para admitir
+          // documentos — eso es lo que hace `resolveProofFile`, aparte.
+          isSupportedImageMime,
         );
         if (ultimo.ok) return ultimo;
         // Estos tres no mejoran cambiando de URL: el archivo es el mismo y el
@@ -238,4 +253,67 @@ export function createKapsoMediaResolver(): MediaResolverPort {
       return ultimo;
     },
   };
+}
+
+/**
+ * Descarga un COMPROBANTE: imagen o PDF.
+ *
+ * ── Por qué es una función aparte y no una opción de `resolveImage` ─────────
+ *
+ * Porque el destino de los bytes es distinto, y ahí está todo el argumento. Lo
+ * que devuelve `resolveImage` acaba en `input_image` de OpenAI; lo que devuelve
+ * esto acaba en un bucket privado que solo mira un operador con sesión. Añadir un
+ * `allowPdf: true` al resolutor del agente habría dejado a un solo booleano mal
+ * puesto separando un PDF de la entrada de Vision, y esa clase de error no avisa:
+ * simplemente un día un documento llega al modelo.
+ *
+ * Con dos funciones, la vía del agente no tiene forma de aceptar un PDF aunque
+ * alguien se equivoque aquí dentro.
+ *
+ * ── Lo que NO cambia respecto del agente ───────────────────────────────────
+ *
+ * Toda la política anti-SSRF es la misma y no se duplica: misma `descargar`,
+ * misma lista blanca de hosts revalidada salto a salto, mismos topes, misma
+ * decisión de a quién se le manda la clave de Kapso. Solo cambia qué tipos se
+ * aceptan al final.
+ *
+ * El tipo que devuelve NO es la última palabra: `validateProofBytes` vuelve a
+ * mirar la firma real de los bytes antes de guardar nada, así que un archivo
+ * renombrado se cae ahí aunque el servidor jure otra cosa en su `content-type`.
+ */
+export async function resolveProofFile(
+  attachment: ImageAttachment,
+  timeoutMs: number = MEDIA_TIMEOUT_MS,
+): Promise<ResolveImageResult> {
+  const env = getServerEnv();
+  const apiKey = env.KAPSO_API_KEY ?? null;
+
+  const candidatos = transientCandidates(attachment);
+  if (candidatos.length === 0) return { ok: false, error: 'unavailable' };
+  if (timeoutMs <= 0) return { ok: false, error: 'timeout' };
+
+  // Imagen o PDF. `imageIsProcessable` NO se usa aquí: juzga con los criterios
+  // de Vision —incluido su tope de bytes— y rechazaría un PDF por serlo.
+  const aceptado = (mime: string) => isSupportedImageMime(mime) || isSupportedDocumentMime(mime);
+
+  let ultimo: ResolveImageResult = { ok: false, error: 'unavailable' };
+  for (const candidato of candidatos) {
+    ultimo = await descargar(
+      candidato.url,
+      candidato.source,
+      apiKey,
+      attachment.facts.mimeType,
+      timeoutMs,
+      aceptado,
+    );
+    if (ultimo.ok) return ultimo;
+    if (
+      ultimo.error === 'unsupported_mime' ||
+      ultimo.error === 'too_large' ||
+      ultimo.error === 'timeout'
+    ) {
+      return ultimo;
+    }
+  }
+  return ultimo;
 }

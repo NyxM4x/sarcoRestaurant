@@ -1,10 +1,11 @@
 import 'server-only';
 import { log } from '@/lib/log';
 import { getServerEnv } from '@/lib/env/env';
-import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
+import { resolveProofFile } from '@/lib/kapso/media-resolver';
 import type { ImageAttachment } from '@/lib/kapso/channel/image';
 import { capturePaymentProof, type IntakeOutcome } from './capture';
 import { decideAssociation } from './association';
+import type { ProofAssociationMethod } from '@/types';
 import { createSupabaseIntakeDataSource, newClaimToken } from './intake-data-source';
 import { isProofStorageConfigured, putProofObject } from './storage';
 
@@ -41,6 +42,19 @@ export function isProofCaptureEnabled(): boolean {
     // Sin entorno valido no se captura nada (fail-closed).
     return false;
   }
+}
+
+/**
+ * ¿El enrutado dice que había un pedido esperando cobro?
+ *
+ * Los tres métodos que se admiten significan "hay pedidos vivos": uno señalado
+ * por el cliente, uno solo por descarte, o varios sin poder elegir. `unresolved`
+ * es el único que significa de verdad que NINGÚN pedido admite un pago ahora
+ * —no hay ninguno, o el único que hay está vencido, cerrado o ya pagado—, y ahí
+ * un archivo ilegible es ruido y no una alerta.
+ */
+function parecíaUnPago(method: ProofAssociationMethod): boolean {
+  return method === 'single_open_qr_order' || method === 'ambiguous' || method === 'reply_to_qr';
 }
 
 /** Convierte `data:<mime>;base64,<...>` en bytes. `null` si no es utilizable. */
@@ -96,7 +110,6 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
   }
 
   const source = createSupabaseIntakeDataSource();
-  const resolver = createKapsoMediaResolver();
 
   try {
     const candidates = await source.candidatesForPhone(input.customerPhone);
@@ -105,12 +118,24 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
     //
     // Un archivo que no podemos descargar solo merece una fila si de verdad
     // parecía un pago. Se pregunta al MISMO motor de enrutado que decide el
-    // resto —no a una condición escrita aquí— y solo se sigue si señaló un
-    // pedido esperando cobro.
+    // resto —no a una condición escrita aquí— y se sigue si había algún pedido
+    // esperando cobro.
     //
     // Sin este filtro, cada audio de "¿ya salió mi pedido?" abriría un
     // comprobante fallido, y un panel lleno de ruido es un panel que se deja de
     // mirar: la alerta dejaría de significar nada justo cuando importa.
+    //
+    // ── Por qué AMBIGUOUS también se registra ────────────────────────────────
+    //
+    // La primera versión exigía `attemptEligible`, y eso dejaba fuera el caso
+    // ambiguo con el argumento de que "no informa de nada". Es falso, y una
+    // prueba real lo demostró en el primer intento: ambiguo significa que hay
+    // VARIOS pedidos esperando cobro, no que no haya ninguno. El operador
+    // desambigua mirando el monto; nosotros no podemos, pero él sí.
+    //
+    // Y el escenario no es raro: sale solo del flujo normal —se rechaza un pago,
+    // el cliente pide otra vez, y quedan dos pedidos vivos a la vez—. Era
+    // exactamente el caso en el que perder el archivo más duele.
     if (input.attachment === null) {
       const enrutado = decideAssociation({
         replyToOrderId: null,
@@ -118,7 +143,7 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
         duplicateOfProofId: null,
         nowMs: input.receivedAtMs,
       });
-      if (!enrutado.attemptEligible) {
+      if (!parecíaUnPago(enrutado.method)) {
         return { result: 'failed', reason: 'unsupported_media_ignored' };
       }
     }
@@ -158,7 +183,12 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
           // "llegó algo y no lo tenemos", en vez de dos.
           if (input.attachment === null) return null;
 
-          const res = await resolver.resolveImage(input.attachment, input.providerPhoneNumberId);
+          // `resolveProofFile`, NO `resolveImage`: un comprobante puede ser un
+          // PDF, y el resolutor del agente rechaza cualquier cosa que no sea
+          // imagen porque lo que devuelve acaba en la entrada de Vision.
+          // Comparten toda la política anti-SSRF; solo difieren en qué tipos
+          // aceptan.
+          const res = await resolveProofFile(input.attachment);
           if (!res.ok) return null;
           return bytesFromDataUrl(res.dataUrl);
         },

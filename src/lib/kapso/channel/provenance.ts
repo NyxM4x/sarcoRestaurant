@@ -2,6 +2,7 @@ import { normalizePhone } from '@/lib/phone';
 import { parseKapsoTimestamp } from '@/lib/kapso/message-history';
 import { isReactionMessage, reactionMetadata } from './reaction';
 import { isImageMessage, imageMetadata, parseImage, type ImageAttachment } from './image';
+import { parseDocument } from './document';
 
 /**
  * Clasificación de PROCEDENCIA de un evento de Kapso — módulo PURO (Fase 6D.2F.2B).
@@ -116,6 +117,17 @@ export interface ProvenanceMessage {
    * exactamente el tiempo durante el que esas URLs sirven.
    */
   image?: ImageAttachment | null;
+  /**
+   * Adjunto de DOCUMENTO del evento actual (hoy solo PDF), con sus referencias
+   * transitorias de acceso.
+   *
+   * Viaja aparte de `image` a propósito, aunque comparta forma: el destino de
+   * los bytes es distinto. Una imagen puede acabar en la entrada de Vision del
+   * agente; un documento NO, y solo se captura como comprobante. Mezclarlos en
+   * un campo obligaría a distinguirlos otra vez en cada consumidor, y bastaría
+   * olvidarlo una sola vez para mandarle un PDF al modelo.
+   */
+  document?: ImageAttachment | null;
   /**
    * Tipo que el proveedor DECLARA para la media adjunta, sin descargar nada.
    *
@@ -310,6 +322,8 @@ function buildMessage(
     // Solo en entrantes con imagen. Las URLs de `transient` no se persisten:
     // `imageMetadata` decide qué se guarda, y ahí no entra ninguna.
     image: esImagen && inbound ? parseImage(message) : null,
+    // Solo en entrantes: el PDF que mandamos NOSOTROS no es un comprobante.
+    document: inbound ? parseDocument(message) : null,
     declaredMediaMimeType: declaredMediaMime(kapso),
   };
 }

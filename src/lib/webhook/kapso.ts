@@ -1125,14 +1125,20 @@ async function capturePaymentProofs(
     if (provenance.kind !== 'customer_inbound') continue;
 
     const { message } = provenance;
-    const attachment = message.image;
 
-    // Media que este canal todavia no sabe leer —un PDF, un audio, un video—.
-    // NO se descarta: hasta ahora un `continue` mudo la hacia desaparecer sin
-    // fila, sin log y sin respuesta, asi que un cliente podia mandar su
-    // comprobante en PDF y no enterarse nadie. Se manda al motor sin adjunto, y
-    // alli se decide si merece registro (solo si habia un pedido esperando
-    // cobro) o si es ruido.
+    // Imagen o DOCUMENTO: los dos son comprobantes validos y recorren el mismo
+    // motor. Un comprobante bancario descargado de la app del banco llega como
+    // PDF, y hasta ahora ese camino no existia.
+    //
+    // La imagen tiene prioridad solo por orden de aparicion: un mensaje trae uno
+    // u otro, nunca los dos.
+    const attachment = message.image ?? message.document ?? null;
+
+    // Media que este canal todavia no sabe leer —hoy audio y video—. NO se
+    // descarta: hasta ahora un `continue` mudo la hacia desaparecer sin fila,
+    // sin log y sin respuesta. Se manda al motor sin adjunto, y alli se decide
+    // si merece registro (solo si habia un pedido esperando cobro) o si es
+    // ruido.
     const mediaSinLeer = attachment === null && INCAPTURABLE_MEDIA.has(message.contentType);
     if (!attachment && !mediaSinLeer) continue;
     if (!message.providerMessageId || !message.customerPhone) continue;

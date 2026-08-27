@@ -114,6 +114,23 @@ describe('archivo sin parsear — cuándo SÍ deja rastro', () => {
     expect(INSERTADAS).toHaveLength(1);
     expect(INSERTADAS[0].declaredMimeType).toBeNull();
   });
+
+  it('con DOS pedidos abiertos TAMBIÉN: ambiguo es "varios", no "ninguno"', async () => {
+    // Este caso llegó en la PRIMERA prueba real y la primera versión lo perdía.
+    // El razonamiento equivocado era "sin saber a cuál iba, la fila no informa
+    // de nada". Informa: hay dos pedidos esperando cobro y un archivo que no
+    // pudimos leer. Quien mira el panel desambigua por el monto; nosotros no
+    // podemos, pero él sí.
+    //
+    // Y sale del flujo normal: se rechaza un pago, el cliente vuelve a pedir, y
+    // quedan dos pedidos vivos a la vez.
+    CANDIDATOS = [pedidoAbierto('order-1'), pedidoAbierto('order-2')];
+
+    await llegaArchivoSinParsear('application/pdf');
+
+    expect(INSERTADAS).toHaveLength(1);
+    expect(INSERTADAS[0].declaredMimeType).toBe('application/pdf');
+  });
 });
 
 describe('archivo sin parsear — cuándo NO se registra', () => {
@@ -124,16 +141,6 @@ describe('archivo sin parsear — cuándo NO se registra', () => {
 
     expect(INSERTADAS).toEqual([]);
     expect(res).toMatchObject({ result: 'failed', reason: 'unsupported_media_ignored' });
-  });
-
-  it('con DOS pedidos abiertos tampoco: ambiguo no es "parecía un pago"', async () => {
-    // Sin poder decir a cuál de los dos iba, una fila fallida no informa de
-    // nada; solo ocupa sitio en el panel.
-    CANDIDATOS = [pedidoAbierto('order-1'), pedidoAbierto('order-2')];
-
-    await llegaArchivoSinParsear('application/pdf');
-
-    expect(INSERTADAS).toEqual([]);
   });
 
   it('con el pedido fuera de plazo tampoco', async () => {

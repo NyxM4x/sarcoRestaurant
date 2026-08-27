@@ -29,7 +29,7 @@ vi.mock('@/lib/env/env', () => ({
 const logSpy = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('@/lib/log', () => ({ log: logSpy }));
 
-const { createKapsoMediaResolver } = await import('./media-resolver');
+const { createKapsoMediaResolver, resolveProofFile } = await import('./media-resolver');
 
 /** Adjunto real, con sus dos referencias transitorias. */
 function adjunto(over: Partial<ImageAttachment['facts']> = {}): ImageAttachment {
@@ -527,5 +527,115 @@ describe('media-resolver — las URLs firmadas no salen por el log', () => {
 
     expect(res.ok).toBe(true);
     noFiltra(registrado());
+  });
+});
+
+describe('media-resolver — comprobantes y Vision son puertas DISTINTAS', () => {
+  /**
+   * El invariante que sostiene todo el diseño de dos funciones.
+   *
+   * Lo que devuelve `resolveImage` acaba en `input_image` de OpenAI; lo que
+   * devuelve `resolveProofFile` acaba en un bucket privado. Si una sola de las
+   * dos puertas aceptara lo que no le toca, un PDF de un cliente —con su nombre,
+   * su cuenta y su monto— viajaría a un tercero sin que nadie lo notara.
+   *
+   * Por eso NO es un booleano `allowPdf` en una función compartida: un flag mal
+   * puesto no avisa, dos funciones sí.
+   */
+  const PDF_OK = respuesta({ status: 200, headers: { 'content-type': 'application/pdf' } });
+
+  /** Adjunto de PDF con una sola referencia, para que el orden no estorbe. */
+  function soloPdf(): ImageAttachment {
+    return {
+      ...adjunto({ mimeType: 'application/pdf' }),
+      transient: { kapsoMediaUrl: KAPSO_MEDIA_URL, link: null, metaUrl: null },
+    };
+  }
+
+  it('resolveImage RECHAZA un PDF: es la entrada de Vision', async () => {
+    const guion = fetchGuion(PDF_OK);
+    stubFetch(guion);
+
+    const res = await createKapsoMediaResolver().resolveImage(soloPdf(), null);
+
+    expect(res.ok).toBe(false);
+  });
+
+  it('resolveImage rechaza un PDF aunque el servidor lo sirva como imagen', async () => {
+    // El `content-type` lo elige quien sirve el archivo. Que mienta no puede
+    // convertir la puerta de Vision en una puerta de documentos… y al revés,
+    // los bytes se vuelven a mirar en `validateProofBytes` antes de guardar.
+    const guion = fetchGuion(PDF_OK);
+    stubFetch(guion);
+    const res = await createKapsoMediaResolver().resolveImage(soloPdf(), null);
+    expect(res).toMatchObject({ ok: false });
+  });
+
+  it('resolveProofFile SÍ acepta un PDF', async () => {
+    const guion = fetchGuion(PDF_OK);
+    stubFetch(guion);
+
+    const res = await resolveProofFile(soloPdf());
+
+    expect(res).toMatchObject({ ok: true, mimeType: 'application/pdf' });
+  });
+
+  it('resolveProofFile sigue aceptando imágenes: no es "solo documentos"', async () => {
+    const guion = fetchGuion(IMAGEN_OK);
+    stubFetch(guion);
+    expect(await resolveProofFile(soloKapso())).toMatchObject({
+      ok: true,
+      mimeType: 'image/jpeg',
+    });
+  });
+
+  it('resolveProofFile NO es una puerta abierta: lo que no es PDF ni imagen se cae', async () => {
+    for (const mime of ['application/zip', 'text/html', 'application/octet-stream']) {
+      const guion = fetchGuion(respuesta({ status: 200, headers: { 'content-type': mime } }));
+      stubFetch(guion);
+      expect(await resolveProofFile(soloPdf()), mime).toEqual({
+        ok: false,
+        error: 'unsupported_mime',
+      });
+    }
+  });
+
+  it('resolveProofFile hereda la política anti-SSRF entera', async () => {
+    // Misma `descargar`, misma lista blanca revalidada salto a salto. No se
+    // duplicó la defensa: admitir PDF no podía significar bajar la guardia.
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: 'https://evil.example.com/x.pdf' } }),
+      PDF_OK,
+    );
+    stubFetch(guion);
+
+    expect(await resolveProofFile(soloPdf())).toEqual({ ok: false, error: 'blocked_url' });
+    expect(guion.fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolveProofFile respeta el tope de tamaño', async () => {
+    const guion = fetchGuion(
+      respuesta({
+        status: 200,
+        headers: { 'content-type': 'application/pdf', 'content-length': String(MEDIA_MAX_BYTES + 1) },
+      }),
+    );
+    stubFetch(guion);
+    expect(await resolveProofFile(soloPdf())).toEqual({ ok: false, error: 'too_large' });
+  });
+
+  it('y sigue el 302 real de Kapso hacia su bucket, igual que la imagen', async () => {
+    const guion = fetchGuion(
+      respuesta({ status: 302, headers: { location: KAPSO_R2_REDIRECT_URL } }),
+      PDF_OK,
+    );
+    stubFetch(guion);
+
+    const res = await resolveProofFile(soloPdf());
+
+    expect(res).toMatchObject({ ok: true, mimeType: 'application/pdf' });
+    expect(guion.llamadas[0].headers['X-API-Key']).toBe(API_KEY);
+    // Al bucket no se le manda nuestra credencial.
+    expect(guion.llamadas[1].headers['X-API-Key']).toBeUndefined();
   });
 });
