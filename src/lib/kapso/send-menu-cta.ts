@@ -1,5 +1,6 @@
 import 'server-only';
 import { getKapsoClient } from './client';
+import { menuCtaBodyText } from './messages';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { createMenuSessionWithUrl } from '@/lib/menu/session-service';
 import { createMenuDeliveryStore } from '@/lib/menu/delivery-repository';
@@ -53,8 +54,14 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
     send: {
       // El phone_number_id resuelto es el mismo que se persistió en
       // `menu_sessions`: se envía por el número por el que llegó.
-      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from }) =>
-        getKapsoClient().sendMenuCtaUrl(customerPhone, { phoneNumberId: from, menuUrl }),
+      // El copy se resuelve AQUÍ, en el borde: `dispatchMenu` decide que hay que
+      // mandar el menú y por qué; qué palabras acompañan al botón es del canal.
+      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason }) =>
+        getKapsoClient().sendMenuCtaUrl(customerPhone, {
+          phoneNumberId: from,
+          menuUrl,
+          bodyText: menuCtaBodyText(reason),
+        }),
     },
 
     memory: createMenuAutomationMemory(),

@@ -1,6 +1,7 @@
 import 'server-only';
 import { getKapsoClient } from '@/lib/kapso/client';
 import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
+import { pauseAgentAfterPaymentReview as pauseAgentAfterReview } from '@/lib/agent/service';
 import {
   createSupabaseProofsDataSource,
   type ProofsDataSource,
@@ -50,6 +51,11 @@ export interface DecideDeps {
    * Nunca lanza y su resultado no altera la decisión.
    */
   notifyDeliveryGroup?(orderId: string): Promise<void>;
+  /**
+   * Calla al agente tras la decisión. Mismas reglas que el aviso al reparto:
+   * opcional —los tests no tocan Supabase—, nunca lanza y no altera nada.
+   */
+  pauseAgentAfterReview?(customerPhone: string): Promise<void>;
 }
 
 function defaultDeps(): DecideDeps {
@@ -65,6 +71,7 @@ function defaultDeps(): DecideDeps {
       }
     },
     notifyDeliveryGroup,
+    pauseAgentAfterReview,
   };
 }
 
@@ -97,15 +104,39 @@ export async function decidePaymentAttempt(
   // Ganamos: toca avisar exactamente una vez.
   let notification: 'sent' | 'failed' = 'failed';
   const orderId = row.order_id ?? null;
+  let customerPhone: string | null = null;
   try {
-    const phone = orderId ? await deps.source.getCustomerPhone(orderId) : null;
-    if (phone) {
-      const res = await deps.sendText(phone, paymentDecisionText(decision));
+    customerPhone = orderId ? await deps.source.getCustomerPhone(orderId) : null;
+    if (customerPhone) {
+      const res = await deps.sendText(customerPhone, paymentDecisionText(decision));
       notification = res.ok ? 'sent' : 'failed';
     }
   } catch {
     // La decisión ya está persistida; esto solo cambia si avisamos o no.
     notification = 'failed';
+  }
+
+  // ── El agente se calla a partir de aquí ───────────────────────────────────
+  //
+  // El aviso que acaba de salir abre una conversación sobre el pago, y en un
+  // rechazo el cliente va a querer discutirla. Un agente contestando en medio
+  // "atendemos de seis de la tarde a cuatro" le hace creer que su pedido se
+  // pasó por alto — que es exactamente lo que este silencio viene a evitar.
+  //
+  // En ACEPTAR y en RECHAZAR: los dos abren esa conversación. En `repeated` y
+  // `conflict` no se llega hasta aquí, por la misma razón por la que tampoco se
+  // avisa.
+  //
+  // Va DESPUÉS del aviso y no puede alterar el resultado: la decisión ya está
+  // firme en la base, y el teléfono es el que ya se resolvió en servidor —nunca
+  // uno que venga del navegador.
+  if (customerPhone && deps.pauseAgentAfterReview) {
+    try {
+      await deps.pauseAgentAfterReview(customerPhone);
+    } catch {
+      // `pauseAgentAfterReview` ya es best-effort; este catch garantiza que ni
+      // un fallo inesperado toque la decisión.
+    }
   }
 
   // ── El reparto se entera cuando el pago está COBRADO ──────────────────────

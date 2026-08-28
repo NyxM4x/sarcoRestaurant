@@ -24,6 +24,33 @@ import type {
 export const PAUSE_REASON_HUMAN_BUSINESS_APP = 'human_whatsapp_business_app';
 
 /**
+ * Motivos canónicos de las pausas que pone el SISTEMA, no una persona.
+ *
+ * Mismo formato `[A-Za-z0-9._:-]{1,64}` que exige 0014. Se distinguen entre sí
+ * a propósito: en el historial de control tiene que poder leerse POR QUÉ calló
+ * el agente, y "una queja del cliente" y "acabamos de decidirle el pago" piden
+ * cosas distintas de quien lo lea.
+ */
+
+/** El propio agente derivó la conversación a una persona del equipo. */
+export const PAUSE_REASON_HANDOFF_REQUESTED = 'handoff_requested';
+
+/**
+ * El cliente recibió el menú varias veces y no llegó a pedir. No es una queja:
+ * es alguien atascado, que es peor porque no se queja — se va.
+ */
+export const PAUSE_REASON_HANDOFF_MENU_LOOP = 'handoff_menu_loop';
+
+/**
+ * Se acaba de aceptar o rechazar su comprobante.
+ *
+ * Ese aviso abre una conversación sobre el pago, y un agente contestando en
+ * medio "atendemos de seis de la tarde a cuatro" le hace creer al cliente que
+ * su pedido se pasó por alto. El silencio aquí vale más que cualquier respuesta.
+ */
+export const PAUSE_REASON_PAYMENT_REVIEWED = 'payment_reviewed';
+
+/**
  * Motivo canónico del resume manual por la API interna. Respeta el formato que
  * exige `agent_control_events_reason_format` en 0014: `[A-Za-z0-9._:-]{1,64}`.
  */

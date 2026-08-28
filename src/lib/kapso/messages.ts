@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { businessHoursClock } from '@/lib/agent/business/facts';
+import type { MenuSendReason } from '@/lib/menu/dispatch';
 
 /**
  * Construcción de mensajes salientes de Kapso — módulo puro.
@@ -152,7 +153,54 @@ export function buildImagePayload(toDigits: string, imageUrl: string, caption: s
  */
 export const MENU_CTA_BODY_TEXT =
   `Hola, soy Don Zarco 👋 Atendemos todos los días de ${businessHoursClock()}. ` +
-  'Toca el botón para ver el menú y armar tu pedido.';
+  'Toca el botón para ver el menú, elegir lo que quieras y mandar tu pedido desde ahí mismo.';
+
+/**
+ * El cuerpo del CTA, según POR QUÉ se manda el menú.
+ *
+ * ── Por qué el copy vive aquí y no en el prompt ─────────────────────────────
+ *
+ * Un `send_menu` confirmado cierra el turno EN SILENCIO: el modelo no escribe
+ * ni una frase después de mandar el botón. Así que todo lo que hay que decirle
+ * al cliente para que entienda el cambio tiene que caber en este mensaje — no
+ * hay ningún otro momento en el que decirlo.
+ *
+ * Y está bien que sea así. Escrito aquí, el texto llega siempre igual de bien
+ * redactado, el modelo no puede estropearlo ni inventarse una variante, no
+ * cuesta un solo token, y lo ve TAMBIÉN quien llega por la ruta determinística
+ * —que ni pasa por el agente—.
+ *
+ * ── Qué distingue a cada variante ───────────────────────────────────────────
+ *
+ * El motivo lo decide el backend leyendo el mensaje real del cliente, nunca el
+ * modelo. Y el criterio de redacción es el mismo en todas: la ventaja es del
+ * CLIENTE. "Hemos actualizado nuestro sistema" habla del negocio y a nadie le
+ * importa; "así entra completo y no se pierde nada" habla de su pedido.
+ *
+ * El horario aparece SOLO en la variante de saludo: quien escribe "menu" en
+ * frío suele ser un primer contacto. Repetirlo en las demás gasta líneas de un
+ * mensaje que se lee de un vistazo.
+ */
+export function menuCtaBodyText(reason: MenuSendReason): string {
+  switch (reason) {
+    // "No me llegó", "mandámelo de nuevo": el problema fue técnico, no de
+    // comprensión. Explicarle otra vez cómo se pide sería tratarlo de torpe.
+    case 'explicit_resend':
+      return (
+        'Te lo mando de nuevo 👇 Tocá el botón y ahí elegís lo que quieras, ' +
+        'ves el total y confirmás tu pedido.'
+      );
+    // Nadie pidió el menú: lo mandamos porque preguntó qué hay o qué venden.
+    case 'agent_suggestion':
+      return (
+        'Todo lo que tenemos está acá 👇 Tocá el botón, mirá los precios y armá ' +
+        'tu pedido en un minuto.'
+      );
+    // Pidió el menú por su nombre, o es la prueba interna: el saludo completo.
+    default:
+      return MENU_CTA_BODY_TEXT;
+  }
+}
 
 /** Etiqueta del botón (WhatsApp la limita a 20 caracteres). */
 export const MENU_CTA_BUTTON_TEXT = 'Ver menú';
@@ -186,6 +234,11 @@ export function buildMenuCtaPayload(
   toDigits: string,
   url: string = MENU_URL,
   coverImageUrl: string = MENU_COVER_URL,
+  /**
+   * Cuerpo del mensaje. Por defecto el de saludo, para que un llamador que aún
+   * no distinga el motivo se comporte exactamente como antes.
+   */
+  bodyText: string = MENU_CTA_BODY_TEXT,
 ) {
   return {
     messaging_product: 'whatsapp',
@@ -201,7 +254,7 @@ export function buildMenuCtaPayload(
         },
       },
       body: {
-        text: MENU_CTA_BODY_TEXT,
+        text: bodyText,
       },
       action: {
         name: 'cta_url',

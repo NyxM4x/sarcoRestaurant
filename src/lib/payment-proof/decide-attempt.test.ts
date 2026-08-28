@@ -13,6 +13,7 @@ interface FakeOptions {
   sendOk?: boolean;
   sendThrows?: boolean;
   noticeThrows?: boolean;
+  pauseThrows?: boolean;
 }
 
 function fake(opts: FakeOptions = {}) {
@@ -39,6 +40,7 @@ function fake(opts: FakeOptions = {}) {
   } as unknown as ProofsDataSource;
 
   const avisosReparto: string[] = [];
+  const pausados: string[] = [];
 
   const deps: DecideDeps = {
     source,
@@ -51,8 +53,12 @@ function fake(opts: FakeOptions = {}) {
       if (opts.noticeThrows) throw new Error('boom');
       avisosReparto.push(orderId);
     },
+    async pauseAgentAfterReview(phone) {
+      if (opts.pauseThrows) throw new Error('boom');
+      pausados.push(phone);
+    },
   };
-  return { deps, enviados, decisiones, avisosReparto };
+  return { deps, enviados, decisiones, avisosReparto, pausados };
 }
 
 describe('decisión ganadora — avisa exactamente una vez', () => {
@@ -253,5 +259,63 @@ describe('el reparto se entera cuando el pago está COBRADO', () => {
     const sinAviso: DecideDeps = { source: deps.source, sendText: deps.sendText };
     const res = await decidePaymentAttempt('a1', 'accept', sinAviso);
     expect(res).toMatchObject({ ok: true });
+  });
+});
+
+describe('tras decidir, el agente se calla', () => {
+  /**
+   * El aviso que sale al cliente abre una conversación sobre el pago. Un agente
+   * contestando en medio —"atendemos de seis de la tarde a cuatro"— le hace
+   * creer que su pedido se pasó por alto.
+   */
+  it('aceptar pausa al agente para ese cliente', async () => {
+    const { deps, pausados } = fake();
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(pausados).toEqual(['59170000000']);
+  });
+
+  it('RECHAZAR también, y es el caso que más importa', async () => {
+    // Un rechazo el cliente lo va a querer discutir. Ahí es donde el agente
+    // estorba de verdad.
+    const { deps, pausados } = fake();
+    await decidePaymentAttempt('a1', 'reject', deps);
+    expect(pausados).toEqual(['59170000000']);
+  });
+
+  it('una decisión repetida NO vuelve a pausar', async () => {
+    // Mismo criterio que el aviso: `repeated` ya avisó en su momento.
+    const { deps, pausados } = fake({
+      row: { outcome: 'repeated', order_id: 'order-1', review_status: 'accepted', reviewed_at: REVIEWED_AT },
+    });
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(pausados).toEqual([]);
+  });
+
+  it('sin teléfono no se pausa nada', async () => {
+    const { deps, pausados } = fake({ phone: null });
+    await decidePaymentAttempt('a1', 'accept', deps);
+    expect(pausados).toEqual([]);
+  });
+
+  it('si la pausa falla, la DECISIÓN sigue firme y el aviso cuenta como enviado', async () => {
+    // La decisión ya está persistida cuando esto corre. Callar al agente es
+    // contabilidad nuestra; perder la decisión no se recupera.
+    const { deps } = fake({ pauseThrows: true });
+    const res = await decidePaymentAttempt('a1', 'accept', deps);
+    expect(res).toEqual({
+      ok: true,
+      reviewStatus: 'accepted',
+      reviewedAt: REVIEWED_AT,
+      notification: 'sent',
+    });
+  });
+
+  it('sin la dependencia cableada, la decisión funciona igual', async () => {
+    // Es el interruptor de apagado, y lo que permite que los tests no toquen
+    // Supabase.
+    const { deps } = fake();
+    const sinPausa: DecideDeps = { source: deps.source, sendText: deps.sendText };
+    const res = await decidePaymentAttempt('a1', 'accept', sinPausa);
+    expect(res.ok).toBe(true);
   });
 });

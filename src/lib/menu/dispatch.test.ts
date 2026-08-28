@@ -322,8 +322,21 @@ describe('dispatch — memoria del automatismo', () => {
         providerMessageId: WAMID_CTA,
         phoneNumberId: 'pnid-1',
         sentAt: NOW,
+        // El motivo viaja también a la memoria: es lo que decidió el texto que
+        // vio el cliente, y sin él el historial guardaría siempre el de saludo.
+        reason: 'explicit_request',
       },
     ]);
+  });
+
+  it('el MOTIVO llega al puerto de envío: es lo que elige el texto del botón', async () => {
+    // `dispatchMenu` no conoce ni una letra del copy —y no debe—, pero sí decide
+    // POR QUÉ se manda. Ese dato tiene que cruzar la frontera, o el canal no
+    // puede elegir entre saludar, explicar o reenviar.
+    const send = fakeSend();
+    await dispatchMenu({ ...input(), reason: 'agent_suggestion' }, deps({ send: send.port }));
+
+    expect(send.calls[0]).toMatchObject({ reason: 'agent_suggestion' });
   });
 
   it('8 · si la memoria falla, el CTA ya salió: NO se reenvía', async () => {

@@ -182,9 +182,12 @@ describe('createKapsoTransport.sendMenuCtaUrl (Fase 5.2A)', () => {
   });
 
   it('los textos son EXACTAMENTE los pedidos', () => {
+    // El de saludo lleva el horario y dice DÓNDE se termina el pedido: suele ser
+    // el primer mensaje que recibe un cliente nuevo, y es la única ocasión de
+    // explicárselo — un `send_menu` confirmado no redacta nada después.
     expect(MENU_CTA_BODY_TEXT).toBe(
       'Hola, soy Don Zarco 👋 Atendemos todos los días de 18:00 a 04:00. ' +
-        'Toca el botón para ver el menú y armar tu pedido.',
+        'Toca el botón para ver el menú, elegir lo que quieras y mandar tu pedido desde ahí mismo.',
     );
     expect(MENU_CTA_BUTTON_TEXT).toBe('Ver menú');
     expect(MENU_URL).toBe('https://sarco-restaurant.vercel.app/menu');

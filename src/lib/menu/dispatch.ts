@@ -124,6 +124,15 @@ export interface MenuSendPort {
     customerPhone: string;
     menuUrl: string;
     phoneNumberId: string;
+    /**
+     * Por qué se manda. Decide QUÉ TEXTO acompaña al botón — no a quién ni con
+     * qué enlace.
+     *
+     * Viaja hasta aquí porque este módulo no conoce ni una letra del copy, y no
+     * debe: el texto es del canal, la decisión de mandarlo es de aquí. Lo que
+     * cruza la frontera es el motivo, que ya se calculaba para el ledger.
+     */
+    reason: MenuSendReason;
   }): Promise<MenuSendResult>;
 }
 
@@ -137,6 +146,12 @@ export interface MenuAutomationMemoryPort {
     providerMessageId: string;
     phoneNumberId: string;
     sentAt: string;
+    /**
+     * El mismo motivo que decidió el texto enviado. La memoria tiene que poder
+     * guardar el mensaje REAL que vio el cliente; con varias variantes, sin
+     * esto guardaría siempre la de saludo y el historial mentiría.
+     */
+    reason: MenuSendReason;
   }): Promise<void>;
 }
 
@@ -205,6 +220,7 @@ export async function dispatchMenu(
     customerPhone: input.customerPhone,
     menuUrl: sessionUrl,
     phoneNumberId: effectivePhoneNumberId,
+    reason: input.reason,
   });
 
   if (!sent.ok) {
@@ -245,6 +261,7 @@ export async function dispatchMenu(
         providerMessageId: sent.wamid,
         phoneNumberId: effectivePhoneNumberId,
         sentAt,
+        reason: input.reason,
       });
     } catch {
       // El CTA ya está en el teléfono del cliente. Que no hayamos podido

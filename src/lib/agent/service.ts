@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import { getServerEnv } from '@/lib/env/env';
 import { getKapsoClient } from '@/lib/kapso/client';
-import { MENU_CTA_BODY_TEXT } from '@/lib/kapso/messages';
+import { menuCtaBodyText } from '@/lib/kapso/messages';
 import { createMenuDispatchDeps } from '@/lib/kapso/send-menu-cta';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { categoryLabel, productDescription } from '@/lib/menu/catalog';
@@ -18,6 +18,8 @@ import { resumeAgentConversation } from './control/resume';
 import { persistCustomerInbound } from './memory/persist-inbound';
 import { runAgentTurn } from './core/run';
 import { pickTurnModel, turnHasImage } from './core/model-choice';
+import { pauseAgentForHandoff } from './control/handoff-pause';
+import { PAUSE_REASON_PAYMENT_REVIEWED } from './core/types';
 import { createOpenAiModel, OPENAI_DEFAULT_MODEL } from './openai/adapter';
 import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
 import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './business/prompt';
@@ -158,6 +160,48 @@ function createAgentActions(): AgentTool[] {
   ];
 }
 
+/**
+ * Minutos que calla el agente tras decidirse un comprobante.
+ *
+ * Cubre con holgura preparación y reparto de un pedido. No es indefinida a
+ * propósito: hoy el panel no tiene ninguna pantalla para reanudar, y un cliente
+ * que vuelve la semana siguiente no puede encontrarse la conversación muerta.
+ */
+export const PAYMENT_REVIEW_PAUSE_MINUTES = 180;
+
+/**
+ * Calla al agente después de que un operador acepte o rechace un comprobante.
+ *
+ * Ese aviso abre una conversación sobre el pago —sobre todo un rechazo, que el
+ * cliente va a querer discutir—, y un agente contestando en medio "atendemos de
+ * seis de la tarde a cuatro" le hace creer que su pedido se pasó por alto.
+ *
+ * Best-effort y server-only: nunca lanza. La decisión del pago ya está firme
+ * cuando esto corre, y una pausa que falle no puede tocarla.
+ */
+export async function pauseAgentAfterPaymentReview(customerPhone: string): Promise<void> {
+  try {
+    await pauseAgentForHandoff(
+      {
+        customerPhone,
+        reason: PAUSE_REASON_PAYMENT_REVIEWED,
+        // `dashboard`: la decisión la tomó una persona desde el panel, aunque
+        // la pausa la escriba el sistema. El historial debe poder decir de
+        // dónde vino.
+        source: 'dashboard',
+        // No nace de un mensaje del cliente: no hay WAMID que usar como clave.
+        sourceMessageId: null,
+        minutes: PAYMENT_REVIEW_PAUSE_MINUTES,
+        trigger: 'payment_review',
+      },
+      createAgentStore(getSupabaseAdmin()),
+    );
+  } catch {
+    // Sin `error.message`: puede traer detalle técnico de Supabase.
+    log.warn('agent.payment_review_pause_failed');
+  }
+}
+
 /** Configuración del agente leída del entorno. Nunca se registra ni se expone. */
 function readAgentEnv(): {
   enabled: boolean;
@@ -233,7 +277,7 @@ export function createMenuAutomationMemory(): MenuAutomationMemoryPort {
   const store = createAgentStore(getSupabaseAdmin());
 
   return {
-    async recordMenuSent({ customerPhone, providerMessageId, phoneNumberId, sentAt }) {
+    async recordMenuSent({ customerPhone, providerMessageId, phoneNumberId, sentAt, reason }) {
       const conversation = await store.upsertConversation({
         customerPhone,
         providerConversationId: null,
@@ -247,7 +291,10 @@ export function createMenuAutomationMemory(): MenuAutomationMemoryPort {
         direction: 'outbound',
         role: 'assistant',
         actor: 'automation',
-        content: MENU_CTA_BODY_TEXT,
+        // El texto REAL que vio el cliente, no la variante de saludo. Desde que
+        // el copy cambia según el motivo, guardar siempre la constante haría
+        // que el historial contara una conversación que nunca ocurrió.
+        content: menuCtaBodyText(reason),
         contentType: 'interactive',
         metadata: { action: 'send_menu', resource_type: 'menu' },
         messageTimestamp: sentAt,

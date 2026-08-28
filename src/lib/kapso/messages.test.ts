@@ -2,11 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   buildImagePayload,
   buildLocationRequestPayload,
+  buildMenuCtaPayload,
   buildTextPayload,
   buildWebLocationRequestBodyText,
   LOCATION_REQUEST_BODY_TEXT,
+  MENU_CTA_BODY_TEXT,
+  menuCtaBodyText,
   PAYMENT_QR_URL,
 } from './messages';
+import { businessHoursClock } from '@/lib/agent/business/facts';
 
 const WEB_LOCATION_REQUEST_BODY_TEXT = buildWebLocationRequestBodyText('ORD-000042');
 
@@ -136,5 +140,71 @@ describe('buildImagePayload (6D.1)', () => {
 
   it('PAYMENT_QR_URL es la URL pública https del QR fijo', () => {
     expect(PAYMENT_QR_URL).toBe('https://sarco-restaurant.vercel.app/payment/qr.png');
+  });
+});
+
+describe('el cuerpo del botón según POR QUÉ se manda el menú', () => {
+  /**
+   * Un `send_menu` confirmado cierra el turno en silencio, así que este mensaje
+   * es la ÚNICA ocasión de explicarle el cambio al cliente. Por eso el copy vive
+   * aquí y no en el prompt: llega siempre igual de bien escrito, el modelo no
+   * puede estropearlo y no cuesta un token.
+   */
+  const MOTIVOS = ['explicit_request', 'explicit_resend', 'agent_suggestion', 'qa_trigger'] as const;
+
+  it('cada motivo tiene su texto, y ninguno viene vacío', () => {
+    for (const motivo of MOTIVOS) {
+      expect(menuCtaBodyText(motivo).trim(), motivo).not.toBe('');
+    }
+  });
+
+  it('quien PIDE el menú recibe el saludo con el horario', () => {
+    // Escribir "menu" en frío es el primer contacto típico: es cuando el horario
+    // vale de algo.
+    const texto = menuCtaBodyText('explicit_request');
+    expect(texto).toBe(MENU_CTA_BODY_TEXT);
+    expect(texto).toContain(businessHoursClock());
+  });
+
+  it('a quien NO lo pidió no se le repite el horario', () => {
+    // Ya está en conversación: repetirlo gasta líneas de un mensaje que se lee
+    // de un vistazo.
+    for (const motivo of ['agent_suggestion', 'explicit_resend'] as const) {
+      expect(menuCtaBodyText(motivo), motivo).not.toContain(businessHoursClock());
+    }
+  });
+
+  it('el reenvío no vuelve a explicar cómo se pide', () => {
+    // "No me llegó" es un problema técnico, no de comprensión. Explicárselo otra
+    // vez sería tratarlo de torpe.
+    expect(menuCtaBodyText('explicit_resend')).toContain('de nuevo');
+  });
+
+  it('la prueba interna usa el texto de siempre', () => {
+    expect(menuCtaBodyText('qa_trigger')).toBe(MENU_CTA_BODY_TEXT);
+  });
+
+  it('todos caben de sobra en el límite de WhatsApp', () => {
+    // El body de un interactivo admite 1024 caracteres.
+    for (const motivo of MOTIVOS) {
+      expect(menuCtaBodyText(motivo).length, motivo).toBeLessThanOrEqual(1024);
+    }
+  });
+
+  it('ninguno usa markdown ni amontona emojis', () => {
+    // WhatsApp no renderiza markdown, y el exceso de emoji abarata el mensaje.
+    for (const motivo of MOTIVOS) {
+      const texto = menuCtaBodyText(motivo);
+      expect(texto, motivo).not.toMatch(/[*_`#]/);
+      expect([...texto].filter((c) => /\p{Extended_Pictographic}/u.test(c)).length, motivo)
+        .toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('el payload lleva el cuerpo que se le pase, no la constante', () => {
+    const payload = buildMenuCtaPayload('59170000001', undefined, undefined, 'texto elegido');
+    expect(payload.interactive.body.text).toBe('texto elegido');
+    // Y sin él, el de siempre: un llamador antiguo se comporta igual que antes.
+    expect(buildMenuCtaPayload('59170000001').interactive.body.text).toBe(MENU_CTA_BODY_TEXT);
   });
 });
