@@ -45,6 +45,15 @@ const serverEnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: optionalString,
   TELEGRAM_CHAT_ID: optionalString,
   /**
+   * Chat de Telegram para los avisos de "aqui hace falta una persona".
+   *
+   * Separado del grupo de reparto a proposito: un reclamo es ruido para quien
+   * esta montado en una moto. Ausente = se usa `TELEGRAM_CHAT_ID`, porque
+   * exigir un grupo nuevo antes de tenerlo creado apagaria la funcion entera, y
+   * un aviso en el grupo equivocado sirve mas que ninguno.
+   */
+  TELEGRAM_HANDOFF_CHAT_ID: optionalString,
+  /**
    * Acceso interno (/dashboard y /cocina). Server-only, nunca NEXT_PUBLIC_.
    *
    * Secreto HMAC (>=32 chars) que firma la cookie de sesion. Si falta, el

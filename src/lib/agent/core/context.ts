@@ -28,9 +28,9 @@ export const CONTEXT_MAX_MESSAGES = 24;
  * interpretar sería inventar, y un automatismo futuro no debería aparecer en la
  * conversación hasta que alguien decida cómo se cuenta.
  */
-export type AutomationAction = 'send_menu';
+export type AutomationAction = 'send_menu' | 'human_handoff';
 
-const AUTOMATION_ACTIONS: readonly AutomationAction[] = ['send_menu'];
+const AUTOMATION_ACTIONS: readonly AutomationAction[] = ['send_menu', 'human_handoff'];
 
 /** ¿Es una acción conocida? Todo lo demás cae al evento genérico. */
 export function toAutomationAction(raw: unknown): AutomationAction | null {
@@ -160,9 +160,18 @@ export function isCustomerConversationalText(
  * ningún sitio.
  */
 export function automationEventLine(action: AutomationAction | null | undefined): string | null {
-  return action === 'send_menu'
-    ? 'Evento del canal: el sistema envió un menú interactivo al cliente.'
-    : null;
+  if (action === 'send_menu') {
+    return 'Evento del canal: el sistema envió un menú interactivo al cliente.';
+  }
+  if (action === 'human_handoff') {
+    // Un HECHO, como el del menú: dice lo que pasó, no lo que hay que hacer.
+    // La conversación está pausada, así que en la práctica el modelo no vuelve
+    // a hablar mientras dure — pero si vuelve (pausa vencida, o alguien la
+    // levantó), tiene que saber que aquí ya intervino una persona y no empezar
+    // de cero como si nada hubiera pasado.
+    return 'Evento del canal: el sistema derivó la conversación a una persona del equipo.';
+  }
+  return null;
 }
 
 export interface WorkingContextOptions {

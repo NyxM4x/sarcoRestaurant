@@ -10,6 +10,8 @@ import { categoryLabel, productDescription } from '@/lib/menu/catalog';
 import { dispatchMenu, type MenuAutomationMemoryPort } from '@/lib/menu/dispatch';
 import { createGetMenuItemsTool, createSendMenuTool } from './tools/menu-tools';
 import { createAnswerDirectlyAction } from './tools/answer-directly';
+import { createRequestHumanAction } from './tools/request-human';
+import { createHandoffPort } from './handoff/service';
 import type { AgentTool } from './tools/registry';
 import { createAgentStore } from './memory/repository';
 import { handleHumanTakeover, humanTakeoverPauseMinutes } from './control/takeover';
@@ -157,6 +159,11 @@ function createAgentActions(): AgentTool[] {
       },
     }),
     createAnswerDirectlyAction(),
+    // Va la última del catálogo, no porque importe menos: es la que se elige
+    // cuando ninguna de las otras tres sirve, y el orden documentado va de la
+    // acción más consecuente a la que no hace nada. Derivar es lo que se hace
+    // cuando ya no hay nada que contestar.
+    createRequestHumanAction(createHandoffPort()),
   ];
 }
 
