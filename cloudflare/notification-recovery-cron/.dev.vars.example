@@ -3,7 +3,7 @@
 #
 # WORKER_TICK_URL ya se define como var pública en wrangler.jsonc; aquí solo se
 # sobreescribe si se quiere apuntar a otra URL en local.
-WORKER_TICK_URL="https://la-fija-orders.vercel.app/api/internal/order-notifications/worker/tick"
+WORKER_TICK_URL="https://sarco-restaurant.vercel.app/api/internal/order-notifications/worker/tick"
 
 # Secreto interno. En producción se guarda con:
 #   npx wrangler secret put WORKER_INTERNAL_TOKEN

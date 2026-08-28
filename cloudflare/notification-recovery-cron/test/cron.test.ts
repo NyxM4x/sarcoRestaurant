@@ -376,7 +376,7 @@ describe('wrangler.jsonc — un único Cron compartido, secret obligatorio, sin 
     // Ningún placeholder que pudiera desplegarse como secreto real.
     expect(raw).not.toMatch(/Bearer\s+\S/);
     expect(cfg.vars.WORKER_TICK_URL).toBe(
-      'https://la-fija-orders.vercel.app/api/internal/order-notifications/worker/tick',
+      'https://sarco-restaurant.vercel.app/api/internal/order-notifications/worker/tick',
     );
   });
 });

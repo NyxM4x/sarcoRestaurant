@@ -1,7 +1,20 @@
 {
-  // Cloudflare Worker COMPARTIDO: un único despertador del worker interno de
-  // recuperación de notificaciones. NO crear uno por restaurante.
-  "name": "notification-recovery-cron",
+  // Cloudflare Worker de SARCO: un único despertador del worker interno de
+  // recuperación de notificaciones de ESTE despliegue.
+  //
+  // ── El nombre lleva prefijo `sarco-` a propósito ──────────────────────────
+  //
+  // `name` es la identidad del Worker DENTRO de la cuenta de Cloudflare: dos
+  // proyectos que declaren el mismo `name` son el mismo Worker, y el segundo
+  // `wrangler deploy` sobrescribe al primero sin avisar. Un nombre genérico
+  // como `notification-recovery-cron` es exactamente esa trampa cuando otro
+  // restaurante del mismo operador despliega su propio recovery en la misma
+  // cuenta: el despertador de uno acaba llamando al endpoint del otro.
+  //
+  // `WORKER_TICK_URL` apunta al dominio de Sarco y a NADA más. Si algún día
+  // vuelve a aparecer aquí el host de otro despliegue, la prueba arquitectónica
+  // `test/no-cross-tenant.test.ts` falla antes de que se pueda desplegar.
+  "name": "sarco-notification-recovery-cron",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-31",
 
@@ -13,7 +26,7 @@
 
   // Variable NO secreta: URL del endpoint interno en Vercel.
   "vars": {
-    "WORKER_TICK_URL": "https://la-fija-orders.vercel.app/api/internal/order-notifications/worker/tick"
+    "WORKER_TICK_URL": "https://sarco-restaurant.vercel.app/api/internal/order-notifications/worker/tick"
   },
 
   // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;

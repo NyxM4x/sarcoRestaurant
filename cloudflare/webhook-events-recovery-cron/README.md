@@ -1,9 +1,18 @@
-# webhook-events-recovery-cron
+# sarco-webhook-events-recovery-cron
+
+> **Tenencia.** Este Worker despierta EXCLUSIVAMENTE a Sarco
+> (`https://sarco-restaurant.vercel.app`) y su nombre desplegable lleva el
+> prefijo `sarco-` para no colisionar con los Workers de otro restaurante en la
+> misma cuenta de Cloudflare. `test/no-cross-tenant.test.ts` falla si alguna
+> configuracion ejecutable vuelve a apuntar a otro despliegue.
+>
+> Contexto completo, plan de despliegue y el hardening pendiente de un
+> `RECOVERY_CRON_TOKEN` dedicado: [`docs/RECOVERY_CRON.md`](../../docs/RECOVERY_CRON.md).
 
 Cloudflare Worker que despierta, mediante un **Cron Trigger**, el recovery del
 **inbox durable de webhooks** (`webhook_events`) desplegado en Vercel.
 
-> **Despliegue INDEPENDIENTE de `notification-recovery-cron`.** Son dos Workers,
+> **Despliegue INDEPENDIENTE de `sarco-notification-recovery-cron`.** Son dos Workers,
 > dos Crons y dos endpoints. No se fusionan, y el porqué está más abajo.
 
 ## Propósito
@@ -11,7 +20,7 @@ Cloudflare Worker que despierta, mediante un **Cron Trigger**, el recovery del
 Cada minuto, Cloudflare invoca:
 
 ```
-POST https://la-fija-orders.vercel.app/api/internal/webhook-events/worker/tick
+POST https://sarco-restaurant.vercel.app/api/internal/webhook-events/worker/tick
 Authorization: Bearer <WORKER_INTERNAL_TOKEN>
 Content-Type: application/json
 
@@ -83,7 +92,7 @@ Desplegarlo antes no rompe nada —el endpoint devolverá 404 y el log dirá
 | `WORKER_INTERNAL_TOKEN` | **secreto** | Cloudflare secret (nunca en el repo) |
 
 `WORKER_INTERNAL_TOKEN` debe coincidir con `INTERNAL_API_TOKEN` del endpoint.
-Es el **mismo valor** que usa `notification-recovery-cron`, guardado por
+Es el **mismo valor** que usa `sarco-notification-recovery-cron`, guardado por
 separado en cada Worker. **Nunca** se escribe en `wrangler.jsonc`, código,
 tests, README ni logs.
 
@@ -132,13 +141,13 @@ npx wrangler deploy
 
 - Estado: `npx wrangler deployments status` y `npx wrangler versions list`.
 - Health check inerte (**no** dispara el tick):
-  `GET https://<worker>.workers.dev/` → `{"service":"webhook-events-recovery-cron","status":"ok"}`.
+  `GET https://<worker>.workers.dev/` → `{"service":"sarco-webhook-events-recovery-cron","status":"ok"}`.
 - Contrato del endpoint:
   - `POST .../worker/tick` sin Bearer → **401**.
   - `GET  .../worker/tick` → **405**.
 
 ```bash
-npx wrangler tail webhook-events-recovery-cron --format json
+npx wrangler tail sarco-webhook-events-recovery-cron --format json
 ```
 
 En reposo, cada minuto debe verse `cron_started` y luego `cron_completed` con
@@ -167,7 +176,7 @@ de idempotencia.
 
 El Cron es un trigger declarado en `wrangler.jsonc` (`"crons": ["* * * * *"]`).
 
-1. Preferido (dashboard): Workers & Pages → `webhook-events-recovery-cron` →
+1. Preferido (dashboard): Workers & Pages → `sarco-webhook-events-recovery-cron` →
    Triggers → Cron Triggers → eliminar/deshabilitar.
 2. Por código: comentar `crons` en `wrangler.jsonc` y `npx wrangler deploy`.
 

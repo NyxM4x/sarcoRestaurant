@@ -5,6 +5,7 @@ import { resolveProofFile } from '@/lib/kapso/media-resolver';
 import type { ImageAttachment } from '@/lib/kapso/channel/image';
 import { capturePaymentProof, type IntakeOutcome } from './capture';
 import { decideAssociation } from './association';
+import { classifyForAgentGate, type ProofClassification } from './agent-gate';
 import type { ProofAssociationMethod } from '@/types';
 import { createSupabaseIntakeDataSource, newClaimToken } from './intake-data-source';
 import { isProofStorageConfigured, putProofObject } from './storage';
@@ -93,26 +94,84 @@ export interface ProofIntakeInput {
 }
 
 /**
+ * Lo que la captura devuelve al canal.
+ *
+ * Además del desenlace de siempre, lleva el veredicto del motor determinístico
+ * sobre si esto llegó COMO UN PAGO. Ese veredicto es lo que la puerta de
+ * `agent-gate` usa para decidir si los bytes pueden viajar a OpenAI, y va aquí
+ * —y no en una segunda consulta— porque se calcula con los MISMOS candidatos
+ * que ya se leyeron para enrutar: preguntarlo dos veces sería arriesgarse a dos
+ * respuestas distintas para el mismo archivo.
+ *
+ * Es INDEPENDIENTE del desenlace: un `already_captured` de un reintento sigue
+ * clasificando como comprobante, que es justo lo que mantiene la puerta cerrada
+ * cuando Kapso reentrega el mismo evento.
+ */
+export type ProofIntakeResult = IntakeOutcome & { proofClassification: ProofClassification };
+
+/**
  * Captura un comprobante recibido por WhatsApp.
  *
  * Nunca lanza: un comprobante problemático no puede tumbar el webhook que
  * atiende a todos los clientes. Los fallos se registran y se devuelven como
  * resultado.
  */
-export async function intakePaymentProof(input: ProofIntakeInput): Promise<IntakeOutcome> {
+export async function intakePaymentProof(input: ProofIntakeInput): Promise<ProofIntakeResult> {
   // Interruptor primero: apagada, ni se consulta la base.
-  if (!isProofCaptureEnabled()) return { result: 'failed', reason: 'capture_disabled' };
-
-  // Sin bucket configurado no se empieza siquiera: guardar una fila que jamás
-  // podrá tener archivo solo genera ruido en el panel.
-  if (!isProofStorageConfigured()) {
-    return { result: 'failed', reason: 'storage_not_configured' };
+  //
+  // ── `unknown`, NUNCA `not_payment_proof` ─────────────────────────────────
+  //
+  // La primera versión devolvía aquí `not_payment_proof`, razonando que con la
+  // captura apagada no hay flujo de comprobantes y por tanto no hay nada que
+  // proteger. El razonamiento era falso y una auditoría lo demostró: los
+  // comprobantes SIGUEN llegando por WhatsApp cuando el flag está apagado — lo
+  // único que deja de pasar es que los guardemos. Autorizar Vision ahí mandaba
+  // a OpenAI exactamente los archivos que el sistema había decidido no tocar.
+  //
+  // `PAYMENT_PROOF_CAPTURE_ENABLED` gobierna si CAPTURAMOS, no si es seguro
+  // enseñar la imagen a un tercero. Sin motor no hay veredicto, y sin veredicto
+  // no hay permiso: los adjuntos quedan retenidos y el turno responde por el
+  // texto. Es una degradación segura y deliberada, documentada en
+  // `docs/payment-proof-agent-gate.md`.
+  if (!isProofCaptureEnabled()) {
+    return { result: 'failed', reason: 'capture_disabled', proofClassification: 'unknown' };
   }
 
   const source = createSupabaseIntakeDataSource();
 
   try {
     const candidates = await source.candidatesForPhone(input.customerPhone);
+
+    // ── El enrutado, UNA sola vez ────────────────────────────────────────────
+    //
+    // Determinístico y sin tocar un solo byte del archivo: mira el estado de los
+    // PEDIDOS de este teléfono, no la imagen. De aquí salen dos cosas —si un
+    // archivo ilegible merece fila, y si los bytes pueden ir al modelo— y salen
+    // de la MISMA decisión para que no puedan discrepar.
+    //
+    // `duplicateOfProofId` va en null porque el duplicado se descubre al
+    // descargar. No afecta a la puerta: un reenvío del mismo comprobante enruta
+    // igual que el original mientras el pedido siga vivo, y si ya no lo está lo
+    // retiene la excepción de enrutado.
+    const enrutado = decideAssociation({
+      replyToOrderId: null,
+      candidates,
+      duplicateOfProofId: null,
+      nowMs: input.receivedAtMs,
+    });
+    const proofClassification = classifyForAgentGate(enrutado);
+
+    // Sin bucket configurado no se captura: guardar una fila que jamás podrá
+    // tener archivo solo genera ruido en el panel.
+    //
+    // Va DESPUÉS de clasificar, y no antes como hasta ahora, por una razón
+    // concreta: con la captura ENCENDIDA y el bucket mal configurado, salir aquí
+    // sin veredicto dejaba pasar el comprobante al modelo. El pago se pierde en
+    // los dos casos —eso no lo arregla este orden— pero la imagen deja de
+    // viajar. Cuesta una lectura de candidatos en un estado que ya está roto.
+    if (!isProofStorageConfigured()) {
+      return { result: 'failed', reason: 'storage_not_configured', proofClassification };
+    }
 
     // ── Media que no sabemos leer: se registra, pero NO siempre ──────────────
     //
@@ -136,19 +195,23 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
     // Y el escenario no es raro: sale solo del flujo normal —se rechaza un pago,
     // el cliente pide otra vez, y quedan dos pedidos vivos a la vez—. Era
     // exactamente el caso en el que perder el archivo más duele.
+    //
+    // Se pregunta por `parecíaUnPago` y NO por la clasificación de la puerta:
+    // son dos preguntas distintas sobre el mismo enrutado. Aquella decide si
+    // abrir una fila en el panel; esta, si unos bytes pueden salir hacia un
+    // tercero. La segunda es a propósito más amplia, y confundirlas llenaría el
+    // panel de ruido o dejaría escapar un comprobante.
     if (input.attachment === null) {
-      const enrutado = decideAssociation({
-        replyToOrderId: null,
-        candidates,
-        duplicateOfProofId: null,
-        nowMs: input.receivedAtMs,
-      });
       if (!parecíaUnPago(enrutado.method)) {
-        return { result: 'failed', reason: 'unsupported_media_ignored' };
+        return {
+          result: 'failed',
+          reason: 'unsupported_media_ignored',
+          proofClassification,
+        };
       }
     }
 
-    return await capturePaymentProof(
+    const outcome = await capturePaymentProof(
       {
         sourceMessageId: input.sourceMessageId,
         declaredMimeType:
@@ -204,11 +267,19 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
         },
       },
     );
+
+    // El veredicto viaja con CUALQUIER desenlace del motor. `already_captured`,
+    // `in_progress` y `lost_claim` son los caminos que recorren un reintento y
+    // una carrera entre el `after()` y el worker de recovery: si perdieran la
+    // clasificación, la puerta se abriría justo en el segundo intento.
+    return { ...outcome, proofClassification };
   } catch (error) {
     // Solo el nombre del fallo: nunca bytes, URLs de media ni el teléfono.
     log.error('payment_proof_intake_failed', {
       reason: error instanceof Error ? error.name : 'unknown',
     });
-    return { result: 'failed', reason: 'intake_error' };
+    // FAIL CLOSED: si no se pudo decidir, los bytes no salen. Un fallo de la
+    // base no puede convertirse en una imagen de más viajando a OpenAI.
+    return { result: 'failed', reason: 'intake_error', proofClassification: 'unknown' };
   }
 }

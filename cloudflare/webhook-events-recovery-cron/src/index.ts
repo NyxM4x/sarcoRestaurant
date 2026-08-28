@@ -77,7 +77,7 @@ export default {
    */
   async fetch(): Promise<Response> {
     return new Response(
-      JSON.stringify({ service: 'webhook-events-recovery-cron', status: 'ok' }),
+      JSON.stringify({ service: 'sarco-webhook-events-recovery-cron', status: 'ok' }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   },
