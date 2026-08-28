@@ -61,6 +61,33 @@ export interface MenuConfigReport {
   /** Forma de cada variable requerida. */
   vars: Record<MenuRequiredVar, VarShape>;
   agent: AgentConfigReport;
+  proofs: ProofsConfigReport;
+}
+
+/**
+ * Estado de la tubería de comprobantes.
+ *
+ * Va aquí y no en un endpoint aparte porque las tres cosas se preguntan a la
+ * vez —"¿por qué no pasa nada?"— y responder solo un tercio obliga a buscar los
+ * otros dos en sitios distintos.
+ */
+export interface ProofsConfigReport {
+  /** ¿Se capturan los comprobantes? Sin esto NO llega ninguno al panel. */
+  captureEnabled: boolean;
+  /** ¿Están las cuatro variables de R2? Sin bucket la captura no arranca. */
+  storageConfigured: boolean;
+  /** ¿Está encendido el análisis automático? */
+  analysisEnabled: boolean;
+  /**
+   * ¿Hay cuenta contra la que contrastar? Sin ella el análisis NO corre aunque
+   * el interruptor esté en `true`: un veredicto sin patrón sería un aprobado
+   * que nadie ha dado.
+   */
+  expectedAccountConfigured: boolean;
+  /** ¿Analizaría de verdad un comprobante entrante ahora mismo? */
+  wouldAnalyze: boolean;
+  /** Modelo que leería la imagen. */
+  analysisModel: string;
 }
 
 export interface AgentConfigReport {
@@ -80,6 +107,8 @@ export interface AgentConfigReport {
   hasApiKey: boolean;
   /** Modelo configurado, o el que se usaría por defecto. */
   model: string | null;
+  /** Modelo para los turnos con foto. `null` = el mismo de texto. */
+  visionModel: string | null;
 }
 
 /** Lee la forma de una variable sin exponer su valor. */
@@ -113,6 +142,14 @@ export function parseMenuPipelineConfig(env: Record<string, string | undefined>)
     if (!shape.present) missing.push(name);
   }
 
+  const almacenamiento = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
+  const storageConfigured = almacenamiento.every((v) => Boolean(env[v]));
+  const captureEnabled = env.PAYMENT_PROOF_CAPTURE_ENABLED === 'true';
+  const analysisEnabled = env.PAYMENT_PROOF_ANALYSIS_ENABLED === 'true';
+  const expectedAccountConfigured = Boolean(
+    env.PAYMENT_PROOF_ACCOUNT_NUMBER || env.PAYMENT_PROOF_ACCOUNT_HOLDER,
+  );
+
   const enabled = env.AI_ENABLED === 'true';
   const accessMode = env.AI_ACCESS_MODE === 'all' ? 'all' : 'allowlist';
   const hasApiKey = Boolean(env.OPENAI_API_KEY);
@@ -131,6 +168,22 @@ export function parseMenuPipelineConfig(env: Record<string, string | undefined>)
       allowlistCount: contarLista(env.AI_TEST_PHONES),
       hasApiKey,
       model: env.OPENAI_MODEL || null,
+      visionModel: env.AI_VISION_MODEL || null,
+    },
+    proofs: {
+      captureEnabled,
+      storageConfigured,
+      analysisEnabled,
+      expectedAccountConfigured,
+      // Las cuatro condiciones a la vez. Es la pregunta que de verdad se hace
+      // quien manda un comprobante de prueba y no ve ninguna alerta.
+      wouldAnalyze:
+        captureEnabled &&
+        storageConfigured &&
+        analysisEnabled &&
+        expectedAccountConfigured &&
+        Boolean(env.OPENAI_API_KEY),
+      analysisModel: env.PAYMENT_PROOF_ANALYSIS_MODEL || 'gpt-5-mini',
     },
   };
 }

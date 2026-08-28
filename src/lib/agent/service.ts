@@ -17,6 +17,7 @@ import { resolveExpiredPause } from './control/pause-expiry';
 import { resumeAgentConversation } from './control/resume';
 import { persistCustomerInbound } from './memory/persist-inbound';
 import { runAgentTurn } from './core/run';
+import { pickTurnModel, turnHasImage } from './core/model-choice';
 import { createOpenAiModel, OPENAI_DEFAULT_MODEL } from './openai/adapter';
 import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
 import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './business/prompt';
@@ -79,9 +80,16 @@ export function createAgentChannel(): AgentChannelPort {
         {
           store,
           runs: store,
+          // El modelo se elige POR TURNO: el barato de texto para una
+          // conversación, el barato de imagen cuando el cliente mandó una foto.
+          // Ver `pickTurnModel` para por qué no puede ser uno fijo.
           model: createOpenAiModel({
             apiKey: readAgentEnv().apiKey ?? '',
-            model: readAgentEnv().model,
+            model: pickTurnModel({
+              hasImage: turnHasImage(burst),
+              textModel: readAgentEnv().model,
+              visionModel: readAgentEnv().visionModel,
+            }),
           }),
           send: createKapsoSendPort(),
           config: readAgentEligibility(),
@@ -157,6 +165,8 @@ function readAgentEnv(): {
   testPhones: readonly string[];
   apiKey: string | null;
   model: string;
+  /** Modelo para los turnos con foto. `null` = el mismo de texto. */
+  visionModel: string | null;
 } {
   const env = getServerEnv();
   return {
@@ -175,6 +185,7 @@ function readAgentEnv(): {
     testPhones: parseTestPhones(env.AI_TEST_PHONES ?? env.AI_TEST_PHONE),
     apiKey: env.OPENAI_API_KEY ?? null,
     model: env.OPENAI_MODEL ?? OPENAI_DEFAULT_MODEL,
+    visionModel: env.AI_VISION_MODEL ?? null,
   };
 }
 

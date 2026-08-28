@@ -157,6 +157,19 @@ const serverEnvSchema = z.object({
   PAYMENT_PROOF_ANALYSIS_MODEL: optionalString,
   OPENAI_API_KEY: optionalString,
   OPENAI_MODEL: optionalString,
+  /**
+   * Modelo del agente para los turnos QUE LLEVAN FOTO.
+   *
+   * `gpt-4o-mini` es el mas barato para texto y el mas caro para imagen: cobra
+   * unos 48 000 tokens por una foto de movil, frente a ~3 000 de los `gpt-5-*`.
+   * Con esta variable, el turno de texto sigue yendo por el barato de texto y el
+   * turno con foto va por el barato de imagen.
+   *
+   * Ausente o vacia = se usa `OPENAI_MODEL` para todo, que es el comportamiento
+   * anterior. Una optimizacion de coste no puede cambiar a que modelo habla el
+   * negocio sin que alguien lo escriba.
+   */
+  AI_VISION_MODEL: optionalString,
   // Sin OPENAI_BASE_URL a propósito: el host de OpenAI es una constante del
   // adaptador. Hacerlo configurable permitiría que una variable mal puesta
   // enviara el Bearer de la clave a un host arbitrario, y no hay ningún

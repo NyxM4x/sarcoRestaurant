@@ -76,6 +76,30 @@ export function readExpectedAccount(): ExpectedAccount | null {
   }
 }
 
+/**
+ * Modelo por defecto del lector de comprobantes.
+ *
+ * ── Por qué NO hereda el del agente ─────────────────────────────────────────
+ *
+ * El default del agente es `gpt-4o-mini`, y para MIRAR una imagen es el peor de
+ * la lista por un motivo que no se ve en la tabla de precios: su tokenización de
+ * imágenes lleva un multiplicador enorme —2 833 tokens de base y 5 667 por cada
+ * cuadro de 512 px, unas 33 veces lo que cuesta la misma foto en `gpt-4o`—. Una
+ * captura de banco corriente sale por unos 48 000 tokens de entrada.
+ *
+ * Los modelos `gpt-5-*` cuentan por parches de 32 px con un tope de 2 500 para
+ * `detail: high`, así que la MISMA imagen ronda los 3 000 tokens. Leer el mismo
+ * comprobante cuesta del orden de siete veces menos, y además lo lee mejor.
+ *
+ * Heredar `OPENAI_MODEL` sería cómodo y estaría mal: conversar por WhatsApp y
+ * leer números pequeños en una foto son dos trabajos con dos modelos buenos
+ * distintos, y el bueno para uno es el caro para el otro.
+ *
+ * `PAYMENT_PROOF_ANALYSIS_MODEL` sigue mandando sobre esto para poder cambiarlo
+ * sin desplegar.
+ */
+export const PROOF_ANALYSIS_DEFAULT_MODEL = 'gpt-5-mini';
+
 /** Modelo de visión configurado. `null` si falta la clave. */
 function readModel(): AgentModel | null {
   try {
@@ -83,10 +107,7 @@ function readModel(): AgentModel | null {
     if (!env.OPENAI_API_KEY) return null;
     return createOpenAiModel({
       apiKey: env.OPENAI_API_KEY,
-      // Un modelo propio para esto es opcional: lo normal es reutilizar el del
-      // agente. Existe la variable porque leer números pequeños y conversar no
-      // son la misma tarea, y puede convenir separarlas sin tocar código.
-      model: env.PAYMENT_PROOF_ANALYSIS_MODEL || env.OPENAI_MODEL,
+      model: env.PAYMENT_PROOF_ANALYSIS_MODEL || PROOF_ANALYSIS_DEFAULT_MODEL,
     });
   } catch {
     return null;

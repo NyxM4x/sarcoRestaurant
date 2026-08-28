@@ -88,3 +88,51 @@ describe('diagnóstico del agente — por qué no contesta', () => {
     expect(r.agent.enabled).toBe(false);
   });
 });
+
+describe('diagnóstico de comprobantes — por qué no se analiza nada', () => {
+  const todo = {
+    ...COMPLETO,
+    PAYMENT_PROOF_CAPTURE_ENABLED: 'true',
+    R2_ACCOUNT_ID: 'a',
+    R2_ACCESS_KEY_ID: 'b',
+    R2_SECRET_ACCESS_KEY: 'c',
+    R2_BUCKET: 'd',
+    PAYMENT_PROOF_ANALYSIS_ENABLED: 'true',
+    PAYMENT_PROOF_ACCOUNT_NUMBER: '1234567890',
+    OPENAI_API_KEY: 'sk-loquesea',
+  };
+
+  it('con todo puesto, analizaría', () => {
+    expect(parseMenuPipelineConfig(todo).proofs.wouldAnalyze).toBe(true);
+  });
+
+  it('cada pieza que falte lo apaga, y se ve CUÁL', () => {
+    const sin = (k: string) => parseMenuPipelineConfig({ ...todo, [k]: '' }).proofs;
+    // Sin captura no llega ningún comprobante: no hay nada que analizar.
+    expect(sin('PAYMENT_PROOF_CAPTURE_ENABLED').captureEnabled).toBe(false);
+    expect(sin('PAYMENT_PROOF_CAPTURE_ENABLED').wouldAnalyze).toBe(false);
+    // Sin bucket la captura ni arranca.
+    expect(sin('R2_BUCKET').storageConfigured).toBe(false);
+    // Sin clave no se puede leer la imagen.
+    expect(sin('OPENAI_API_KEY').wouldAnalyze).toBe(false);
+  });
+
+  it('sin cuenta esperada NO analiza, aunque el interruptor esté en true', () => {
+    // Un veredicto sin patrón contra el que comparar sería un aprobado que
+    // nadie ha dado, y la pantalla lo pintaría como comprobante verificado.
+    const r = parseMenuPipelineConfig({
+      ...todo,
+      PAYMENT_PROOF_ACCOUNT_NUMBER: '',
+      PAYMENT_PROOF_ACCOUNT_HOLDER: '',
+    }).proofs;
+    expect(r.analysisEnabled).toBe(true);
+    expect(r.expectedAccountConfigured).toBe(false);
+    expect(r.wouldAnalyze).toBe(false);
+  });
+
+  it('el modelo del lector NO hereda el del agente', () => {
+    // gpt-4o-mini es el más caro para imagen: ~48.000 tokens por foto.
+    const r = parseMenuPipelineConfig({ ...todo, OPENAI_MODEL: 'gpt-4o-mini' }).proofs;
+    expect(r.analysisModel).toBe('gpt-5-mini');
+  });
+});
