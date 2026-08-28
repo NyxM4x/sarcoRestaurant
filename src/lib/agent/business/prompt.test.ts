@@ -42,8 +42,37 @@ describe('prompt — hechos con respaldo', () => {
     // puede registrar un pedido ni calcular un envío. El prompt lo dice con
     // todas las letras para que no lo intente.
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Los pedidos NO se arman por chat contigo/);
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no lo anotes ni lo confirmes/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no lo anotes, no lo confirmes/);
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/nunca das un monto de envío/);
+  });
+
+  it('tampoco le repite el pedido al cliente: repetirlo se lee como confirmarlo', () => {
+    // Un "perfecto, dos trancapechos y una coca" suena a pedido anotado, y no
+    // hay nada anotado. El cliente se queda esperando comida que nadie preparó.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/se lo repitas de vuelta/);
+  });
+
+  it('el cambio se explica como una VENTAJA, no como una regla', () => {
+    // "No puedo" y "es el sistema" suenan a muro. A un cliente que lleva años
+    // dictando su pedido por chat, un muro lo pierde; una razón lo convence.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Dilo como una ventaja para él/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/suenan a muro/);
+  });
+
+  it('sabe explicar el recojo y que la cocina espera al pago', () => {
+    // Es un caso real y frecuente —el cliente manda su propio repartidor— y el
+    // dato que evita que alguien espere en la puerta es cuándo empieza a
+    // cocinarse. "Recojo" va con la misma palabra que ve en la pantalla.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/"Recojo"/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no se le cobra envío/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/la cocina empieza cuando el pago está confirmado/);
+  });
+
+  it('ante la frustración no insiste con el menú', () => {
+    // Repetir el botón a quien ya lo recibió y sigue sin poder pedir es lo que
+    // convierte a un cliente atascado en un cliente perdido.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no necesita\s+el menú otra vez/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Necesita a una persona/);
   });
 
   it('manda consultar la herramienta en vez de contestar de memoria (6D.2F.5B)', () => {
