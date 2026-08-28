@@ -40,6 +40,24 @@ export const dynamic = 'force-dynamic';
  * Se lanzan con `allSettled`: que el inbox falle no puede impedir que las
  * notificaciones se recuperen, ni al revés. Cada uno ya es idempotente y
  * reclama su propio trabajo, así que dos latidos solapados no se pisan.
+ *
+ * Independencia en la EJECUCIÓN, no en el diagnóstico: los dos corren pase lo
+ * que pase, y después el estado HTTP resume si los dos lo consiguieron.
+ *
+ * ── Esta ruta es el FALLBACK, no el despertador principal ────────────────────
+ *
+ * El camino oficial son los dos Cloudflare Workers dedicados
+ * (`cloudflare/webhook-events-recovery-cron` y
+ * `cloudflare/notification-recovery-cron`), que llaman por POST a cada worker
+ * interno por separado, cada uno con su propio presupuesto de 55 s y su propia
+ * observabilidad. Esa separación existe porque un evento del inbox puede llevar
+ * un turno completo del agente —11-12 s medidos—: encadenar los dos recoveries
+ * en una sola invocación hace que uno le coma el presupuesto al otro.
+ *
+ * Esta ruta se conserva porque no cuesta nada y cubre el caso en que Cloudflare
+ * esté caído o los Workers todavía no estén desplegados: un solo cron de Vercel
+ * mueve los dos. Pero mientras los Workers estén activos, el despertador
+ * principal son ellos, y esto es la segunda cuerda.
  */
 
 /** Token esperado. Acepta `CRON_SECRET` para no obligar a duplicar el valor. */
@@ -88,21 +106,61 @@ export async function GET(request: Request): Promise<Response> {
     tickNotifications(interno()),
   ]);
 
+  /**
+   * Estado de UN worker, saneado.
+   *
+   * Una promesa rechazada sale como `'error'` y nada más: el mensaje de la
+   * excepción puede llevar una consulta SQL, una URL con token o el teléfono de
+   * un cliente, y esto se devuelve por HTTP.
+   */
   const estado = (r: PromiseSettledResult<Response>): number | 'error' =>
     r.status === 'fulfilled' ? r.value.status : 'error';
 
+  /**
+   * ¿Este worker se EJECUTÓ?
+   *
+   * Un 2xx significa que el tick corrió y el worker informó de lo que hizo. Lo
+   * que hizo puede incluir eventos que fallaron: esos ya quedaron reprogramados
+   * dentro del worker, con su `next_attempt_at`, y volverán solos. Eso es el
+   * sistema funcionando, no una avería, y no debe teñir el latido de rojo.
+   *
+   * Lo que sí es una avería es que el worker no llegara a responder —lanzó— o
+   * respondiera 401, 4xx o 5xx: entonces el minuto entero no se recuperó nada y
+   * nadie se enteraría si esto devolviera 200.
+   */
+  const ejecutado = (r: PromiseSettledResult<Response>): boolean =>
+    r.status === 'fulfilled' && r.value.status >= 200 && r.value.status <= 299;
+
+  const inboxOk = ejecutado(inbox);
+  const notificationsOk = ejecutado(notifications);
+  const ok = inboxOk && notificationsOk;
+
   log.info('cron_tick_done', {
+    ok,
     inbox: estado(inbox),
     notifications: estado(notifications),
   });
 
-  // 200 siempre que el latido se haya ejecutado: el resultado de cada worker es
-  // observabilidad, no un fallo del cron. Un 500 aquí solo haría que Vercel
-  // marcara el cron en rojo por un evento que ya se reintentará al minuto
-  // siguiente.
-  return Response.json({
-    ok: true,
-    inbox: estado(inbox),
-    notifications: estado(notifications),
-  });
+  // ── 200 solo si los DOS se ejecutaron; 503 si alguno no ────────────────────
+  //
+  // El latido es la red de seguridad del sistema, y su modo de fallo es
+  // silencioso: si deja de correr, no aparece ningún error en ninguna parte —
+  // simplemente hay pedidos que no se confirman y comprobantes que no se
+  // capturan, y nadie se entera hasta que reclama el cliente.
+  //
+  // Devolver 200 pase lo que pase convertía este endpoint en un monitor que
+  // siempre dice que todo va bien. 503 —"servicio no disponible"— es la
+  // respuesta correcta para "el latido no pudo mover a alguno de los dos": es
+  // reintentable por naturaleza, y el propio Cron reintenta al minuto.
+  //
+  // NO se reintenta aquí. Un retry interno alargaría la invocación dentro de la
+  // misma ventana y podría solaparse con el siguiente tick; el reintento es el
+  // minuto que viene, con el trabajo intacto en la base.
+  //
+  // El cuerpo lleva los dos estados por separado a propósito: un 503 sin decir
+  // cuál de los dos cayó obliga a abrir los logs para saber dónde mirar.
+  return Response.json(
+    { ok, inbox: estado(inbox), notifications: estado(notifications) },
+    { status: ok ? 200 : 503 },
+  );
 }

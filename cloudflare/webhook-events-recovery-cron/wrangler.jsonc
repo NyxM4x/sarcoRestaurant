@@ -1,12 +1,25 @@
 {
   // Cloudflare Worker DEDICADO al recovery del inbox de webhooks (6D.2F.5C.1).
   //
-  // Es un despliegue INDEPENDIENTE de `notification-recovery-cron`, y lo es a
+  // Es un despliegue INDEPENDIENTE de `sarco-notification-recovery-cron`, y lo es a
   // propósito: un evento de este inbox puede llevar un turno completo del
   // agente (11-12 s medidos), así que compartir ventana de ejecución con el
   // recovery de notificaciones haría que uno le comiera el presupuesto al otro
   // y que un timeout tumbara a los dos el mismo minuto.
-  "name": "webhook-events-recovery-cron",
+  //
+  // ── El nombre lleva prefijo `sarco-` a propósito ──────────────────────────
+  //
+  // `name` es la identidad del Worker DENTRO de la cuenta de Cloudflare: dos
+  // proyectos que declaren el mismo `name` son el mismo Worker, y el segundo
+  // `wrangler deploy` sobrescribe al primero sin avisar. Un nombre genérico
+  // como `webhook-events-recovery-cron` es exactamente esa trampa cuando otro
+  // restaurante del mismo operador despliega su propio recovery en la misma
+  // cuenta.
+  //
+  // `WORKER_TICK_URL` apunta al dominio de Sarco y a NADA más. Si algún día
+  // vuelve a aparecer aquí el host de otro despliegue, la prueba arquitectónica
+  // `test/no-cross-tenant.test.ts` falla antes de que se pueda desplegar.
+  "name": "sarco-webhook-events-recovery-cron",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-31",
 
@@ -17,7 +30,7 @@
 
   // Variable NO secreta: URL del endpoint interno en Vercel.
   "vars": {
-    "WORKER_TICK_URL": "https://la-fija-orders.vercel.app/api/internal/webhook-events/worker/tick"
+    "WORKER_TICK_URL": "https://sarco-restaurant.vercel.app/api/internal/webhook-events/worker/tick"
   },
 
   // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;

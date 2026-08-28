@@ -1,5 +1,5 @@
 {
-  "name": "webhook-events-recovery-cron",
+  "name": "sarco-webhook-events-recovery-cron",
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Cron dedicado que despierta el recovery del inbox durable de webhooks (POST {} al endpoint interno de Vercel). Despliegue independiente de notification-recovery-cron.",

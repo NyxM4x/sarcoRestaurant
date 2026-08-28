@@ -1,6 +1,15 @@
-# notification-recovery-cron
+# sarco-notification-recovery-cron
 
-Cloudflare Worker **compartido** que despierta, mediante un **Cron Trigger**, el
+> **Tenencia.** Este Worker despierta EXCLUSIVAMENTE a Sarco
+> (`https://sarco-restaurant.vercel.app`) y su nombre desplegable lleva el
+> prefijo `sarco-` para no colisionar con los Workers de otro restaurante en la
+> misma cuenta de Cloudflare. `test/no-cross-tenant.test.ts` falla si alguna
+> configuracion ejecutable vuelve a apuntar a otro despliegue.
+>
+> Contexto completo, plan de despliegue y el hardening pendiente de un
+> `RECOVERY_CRON_TOKEN` dedicado: [`docs/RECOVERY_CRON.md`](../../docs/RECOVERY_CRON.md).
+
+Cloudflare Worker de **Sarco** que despierta, mediante un **Cron Trigger**, el
 worker interno de recuperación de notificaciones desplegado en Vercel.
 
 > **Un único Cron compartido, NO uno por restaurante.** En el futuro varios
@@ -13,7 +22,7 @@ worker interno de recuperación de notificaciones desplegado en Vercel.
 Cada minuto, Cloudflare invoca:
 
 ```
-POST https://la-fija-orders.vercel.app/api/internal/order-notifications/worker/tick
+POST https://sarco-restaurant.vercel.app/api/internal/order-notifications/worker/tick
 Authorization: Bearer <WORKER_INTERNAL_TOKEN>
 Content-Type: application/json
 
@@ -108,7 +117,7 @@ npx wrangler deploy
 
 ## Verificar el Cron
 
-- En el dashboard de Cloudflare: *Workers & Pages → notification-recovery-cron →
+- En el dashboard de Cloudflare: *Workers & Pages → sarco-notification-recovery-cron →
   Triggers → Cron Triggers* debe listar **exactamente un** trigger `* * * * *`.
 - Cloudflare interpreta el Cron en **UTC**; para "cada minuto" la zona horaria no
   altera la frecuencia.

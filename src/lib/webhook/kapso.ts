@@ -21,6 +21,15 @@ import {
 } from './inbox';
 import { INCAPTURABLE_MEDIA, parseKapsoProvenance } from '@/lib/kapso/channel/provenance';
 import type { ProvenanceMessage } from '@/lib/kapso/channel/provenance';
+import {
+  buildVisionAllowlist,
+  withholdAttachments,
+  withholdAttachmentsFromBurst,
+  EMPTY_VISION_ALLOWLIST,
+  type ProofClassification,
+  type ProofGateEntry,
+  type VisionAllowlist,
+} from '@/lib/payment-proof/agent-gate';
 import type { AgentChannelPort, HumanTakeoverResult } from '@/lib/agent/core/types';
 import type { ConfirmOrderInput, ConfirmOrderResult } from '@/lib/orders/confirm';
 import type { EnsureLocationResult } from '@/lib/orders/location';
@@ -257,7 +266,18 @@ export type PaymentProofIntake = (input: {
   declaredMimeType?: string | null;
   providerPhoneNumberId: string | null;
   receivedAtMs: number;
-}) => Promise<{ result: string }>;
+}) => Promise<{
+  result: string;
+  /**
+   * Veredicto del motor determinístico: ¿esto llegó COMO UN PAGO?
+   *
+   * Ausente significa "no me pronuncié", y la puerta de `agent-gate` lo trata
+   * como comprobante (fail closed). Es opcional para que un doble de prueba que
+   * solo comprueba la captura no tenga que hablar de Vision, no para que la
+   * implementación real pueda ahorrárselo.
+   */
+  proofClassification?: ProofClassification;
+}>;
 
 const DUPLICATE: WebhookResult = {
   status: 200,
@@ -1118,8 +1138,10 @@ async function capturePaymentProofs(
   envelopes: ReadonlyArray<{ payload: unknown }>,
   eventName: string | null,
   intake: PaymentProofIntake,
-): Promise<string[]> {
+): Promise<{ outcomes: string[]; allowlist: VisionAllowlist }> {
   const outcomes: string[] = [];
+  /** Veredicto por WAMID. De aquí sale la lista de AUTORIZADOS a Vision. */
+  const veredictos: ProofGateEntry[] = [];
   for (const envelope of envelopes) {
     const provenance = parseKapsoProvenance(eventName, envelope.payload);
     if (provenance.kind !== 'customer_inbound') continue;
@@ -1153,12 +1175,22 @@ async function capturePaymentProofs(
         receivedAtMs: Date.now(),
       });
       outcomes.push(res.result);
+      veredictos.push({
+        sourceMessageId: message.providerMessageId,
+        classification: res.proofClassification ?? 'unknown',
+      });
     } catch {
       // Un comprobante problematico no tumba la entrega del resto.
       outcomes.push('failed');
+      // …y NO autoriza a ese mensaje. El motor no llegó a decidir, y una
+      // imagen sin veredicto no viaja a OpenAI.
+      veredictos.push({
+        sourceMessageId: message.providerMessageId,
+        classification: 'unknown',
+      });
     }
   }
-  return outcomes;
+  return { outcomes, allowlist: buildVisionAllowlist(veredictos) };
 }
 
 export async function processClaimedEvent(
@@ -1253,9 +1285,18 @@ async function runBusiness(
     // agente ya se atendieron arriba, y perder un comprobante es recuperable
     // (la fila queda reclamable y se reintenta) mientras que tumbar la entrega
     // entera no lo es.
-    const proofs = params.paymentProofIntake
+    //
+    // De aquí sale también la LISTA DE AUTORIZADOS: qué WAMIDs recibieron un
+    // veredicto explícito de "esto no es un pago" y solo por eso pueden mandar
+    // sus bytes al modelo. Se calcula ANTES del turno porque ese es el único
+    // orden en el que puede servir de algo.
+    //
+    // Sin puerto de captura cableado la lista queda VACÍA, y vacía significa
+    // que ningún adjunto viaja. No hay un tercer camino sin puerta.
+    const captura = params.paymentProofIntake
       ? await capturePaymentProofs(normalized.envelopes, eventName, params.paymentProofIntake)
-      : [];
+      : { outcomes: [] as string[], allowlist: EMPTY_VISION_ALLOWLIST };
+    const proofs = captura.outcomes;
 
     // ── El turno agregado ────────────────────────────────────────────────────
     //
@@ -1271,10 +1312,37 @@ async function runBusiness(
       // tiene que mirar puede estar en otro elemento: en `[foto, "¿qué
       // hamburguesa es esta?"]` el ancla es el texto y la imagen es el otro.
       // Solo entrantes reales del cliente; lo determinístico ya se atendió.
-      const burst = results
+      const crudo = results
         .filter((r) => r.message !== null)
         .map((r) => r.message!) as readonly ProvenanceMessage[];
-      turn = await runAgentTurnSafely(params.agentChannel, anchor.message, burst);
+
+      // ── LA PUERTA DE COMPROBANTES ─────────────────────────────────────────
+      //
+      // Último punto antes del agente en el que los bytes siguen siendo
+      // nuestros. Lo que la puerta retiene NO llega a `runAgentTurn`, luego no
+      // llega a `resolveImage`, luego no existe un data URL, luego no se
+      // construye `input_image` y luego OpenAI no ve nada. La cadena se corta
+      // aquí y no más abajo justamente para que no haya un "más abajo".
+      //
+      // AUTORIZACIÓN POSITIVA: viaja lo que está en `allowlist`, no lo que no
+      // está en una lista de prohibidos. La diferencia importa porque el modo de
+      // fallo se invierte — sin veredicto, sin identidad, sin motor o sin puerto
+      // cableado, la lista no contiene a nadie y no sale ni un byte.
+      //
+      // El texto NO se toca: el mensaje sigue entero, solo sin adjunto. Y el
+      // ancla se pasa por la misma puerta porque `runAgentTurn` cae a `[message]`
+      // cuando no hay burst — dejarla sin filtrar sería dejar la puerta con una
+      // ventana abierta al lado.
+      const { messages: burst, withheld } = withholdAttachmentsFromBurst(
+        crudo,
+        captura.allowlist,
+      );
+      if (withheld > 0) {
+        // Recuento y nada más: ni WAMID, ni teléfono, ni tipo de archivo.
+        log.info('agent_burst_proof_withheld', { withheld, burst_size: burst.length });
+      }
+      const anclaFiltrada = withholdAttachments(anchor.message, captura.allowlist);
+      turn = await runAgentTurnSafely(params.agentChannel, anclaFiltrada, burst);
     }
 
     if (normalized.batched) {

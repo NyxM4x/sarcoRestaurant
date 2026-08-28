@@ -1,8 +1,8 @@
 {
-  "name": "notification-recovery-cron",
+  "name": "sarco-notification-recovery-cron",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloudflare Cron compartido que despierta el worker interno de recuperación de notificaciones (POST {} al endpoint de Vercel). Un solo Worker/Cron/endpoint para todos los restaurantes.",
+  "description": "Cloudflare Cron EXCLUSIVO de Sarco que despierta el worker interno de recuperación de notificaciones (POST {} al endpoint de Vercel de Sarco). No es compartido: cada despliegue tiene el suyo, con nombre propio, para no colisionar en la misma cuenta de Cloudflare.",
   "type": "module",
   "scripts": {
     "test": "vitest run",

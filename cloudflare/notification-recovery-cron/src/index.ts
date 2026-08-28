@@ -72,7 +72,7 @@ export default {
    */
   async fetch(): Promise<Response> {
     return new Response(
-      JSON.stringify({ service: 'notification-recovery-cron', status: 'ok' }),
+      JSON.stringify({ service: 'sarco-notification-recovery-cron', status: 'ok' }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   },
