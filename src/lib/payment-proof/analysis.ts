@@ -8,10 +8,9 @@
  * ── Por qué el modelo NO decide ─────────────────────────────────────────────
  *
  * La lectura óptica y el juicio son dos trabajos distintos, y solo uno de ellos
- * es opinable. Leer "Bs 20" en una imagen es algo que un modelo hace bien;
- * decidir que un pago de Bs 20 para un pedido de Bs 48 es sospechoso es una
- * regla del negocio, y una regla del negocio tiene que poder leerse, discutirse
- * y probarse sin gastar un token.
+ * es opinable. Leer "2505098350" en una imagen es algo que un modelo hace bien;
+ * decidir que esa cuenta no es la nuestra es una regla del negocio, y una regla
+ * del negocio tiene que poder leerse, discutirse y probarse sin gastar un token.
  *
  * Si el veredicto viniera del modelo, dos comprobantes idénticos podrían recibir
  * respuestas distintas, nadie podría explicar por qué saltó una alerta, y
@@ -28,9 +27,25 @@
  * Es deliberado, y en esta dirección: un falso positivo cuesta que alguien mire
  * dos veces un pago bueno; un rechazo automático equivocado insulta a un cliente
  * que sí pagó, y lo hace por WhatsApp y al instante.
+ *
+ * ── Tres datos, y el monto NO es uno de ellos ────────────────────────────
+ *
+ * Lo que se contrasta es el DESTINO del dinero: cuenta, titular y banco. Los
+ * tres describen el mismo hecho —"esto entró donde cobra Don Zarco"— y ninguno
+ * depende de cómo se comportó el cliente.
+ *
+ * El monto se lee y se guarda, pero no acusa. No se sabe de antemano cuánto va a
+ * transferir alguien por WhatsApp: hay quien adelanta, quien paga dos pedidos
+ * juntos, quien redondea la propina y quien abona una parte. Contrastar contra
+ * el total del pedido marcaría como sospechosos pagos perfectamente buenos, y a
+ * diario — que es la forma más rápida de que cocina aprenda a ignorar el aviso.
+ *
+ * Queda visible en el panel junto al comprobante: quien revisa lo ve y decide.
+ * Lo que no hace es gritar.
  */
 import {
   matchesAccount,
+  matchesBank,
   matchesHolder,
   type ExpectedAccount,
   type FieldMatch,
@@ -48,10 +63,8 @@ export const PROOF_ANALYSIS_REASONS = [
   'account_mismatch',
   /** El titular que cobra no es el nuestro. */
   'holder_mismatch',
-  /** Pagó MENOS de lo que debía. */
-  'amount_short',
-  /** Pagó más de lo que debía: suele ser el comprobante de otro pedido. */
-  'amount_over',
+  /** El dinero entró en otro banco. */
+  'bank_mismatch',
   /** El número de transacción ya se usó en otro comprobante. */
   'reference_reused',
   /** El comprobante es de otro momento, no de este pedido. */
@@ -72,11 +85,15 @@ export interface ProofFacts {
   looksLikeReceipt: boolean;
   /** ¿Se lee lo bastante como para contrastar algo? */
   legible: boolean;
+  /** Banco o app desde donde se emitió el comprobante. Informativo. */
   bank: string | null;
+  /** Banco que RECIBE el dinero. */
+  destinationBank: string | null;
   /** Cuenta que RECIBE el dinero (no la del cliente). */
   destinationAccount: string | null;
   /** Titular que RECIBE el dinero. */
   destinationHolder: string | null;
+  /** Monto leído. Informativo: se muestra, no acusa. */
   amount: number | null;
   /** Moneda tal como se lee: BOB, USD… */
   currency: string | null;
@@ -88,8 +105,6 @@ export interface ProofFacts {
 
 export interface ProofJudgeContext {
   expected: ExpectedAccount;
-  /** Lo que el cliente debía transferir por QR. `null` si no se pudo calcular. */
-  amountDueByQr: number | null;
   /** Instante en que llegó el comprobante (ms). */
   receivedAtMs: number;
   /** ¿Ese número de transacción ya está registrado en otro comprobante? */
@@ -99,7 +114,7 @@ export interface ProofJudgeContext {
 export interface ProofChecks {
   account: FieldMatch;
   holder: FieldMatch;
-  amount: FieldMatch;
+  bank: FieldMatch;
 }
 
 export interface ProofJudgement {
@@ -123,9 +138,6 @@ const BOLIVIA_UTC_OFFSET_MS = 4 * 60 * 60 * 1000;
  */
 export const STALE_RECEIPT_TOLERANCE_MS = 6 * 60 * 60 * 1000;
 
-/** Tolerancia del monto: el céntimo. Un banco no redondea. */
-const AMOUNT_EPSILON = 0.01;
-
 /**
  * Instante UTC de una hora local boliviana escrita como `YYYY-MM-DDTHH:mm`.
  * `null` si no tiene esa forma exacta: no se adivinan formatos, porque adivinar
@@ -140,19 +152,6 @@ export function parseBolivianLocalTime(value: string | null): number | null {
   return utc + BOLIVIA_UTC_OFFSET_MS;
 }
 
-/** ¿Cuadra el monto leído con lo que había que pagar? */
-function revisarMonto(
-  amount: number | null,
-  due: number | null,
-): { match: FieldMatch; reason: ProofAnalysisReason | null } {
-  if (amount === null || !Number.isFinite(amount) || due === null || due <= 0) {
-    return { match: 'unknown', reason: null };
-  }
-  if (amount < due - AMOUNT_EPSILON) return { match: 'mismatch', reason: 'amount_short' };
-  if (amount > due + AMOUNT_EPSILON) return { match: 'mismatch', reason: 'amount_over' };
-  return { match: 'match', reason: null };
-}
-
 /**
  * Juzga un comprobante ya leído.
  *
@@ -162,7 +161,7 @@ function revisarMonto(
  * ignorar la palabra justo cuando aparezca de verdad.
  */
 export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudgement {
-  const sinContrastar: ProofChecks = { account: 'unknown', holder: 'unknown', amount: 'unknown' };
+  const sinContrastar: ProofChecks = { account: 'unknown', holder: 'unknown', bank: 'unknown' };
 
   if (!facts.looksLikeReceipt) {
     return { verdict: 'suspicious', reasons: ['not_a_receipt'], checks: sinContrastar };
@@ -171,17 +170,16 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
     return { verdict: 'unreadable', reasons: ['unreadable'], checks: sinContrastar };
   }
 
-  const monto = revisarMonto(facts.amount, ctx.amountDueByQr);
   const checks: ProofChecks = {
     account: matchesAccount(facts.destinationAccount, ctx.expected.accountNumber),
     holder: matchesHolder(facts.destinationHolder, ctx.expected.holderNames),
-    amount: monto.match,
+    bank: matchesBank(facts.destinationBank, ctx.expected.bankNames),
   };
 
   const reasons: ProofAnalysisReason[] = [];
   if (checks.account === 'mismatch') reasons.push('account_mismatch');
   if (checks.holder === 'mismatch') reasons.push('holder_mismatch');
-  if (monto.reason) reasons.push(monto.reason);
+  if (checks.bank === 'mismatch') reasons.push('bank_mismatch');
   if (ctx.referenceReused) reasons.push('reference_reused');
 
   const pagadoMs = parseBolivianLocalTime(facts.paidAtLocal);
@@ -189,11 +187,11 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
     reasons.push('stale_receipt');
   }
 
-  // Nada que contrastar: ni la cuenta, ni el titular, ni el monto pudieron
+  // Nada que contrastar: ni la cuenta, ni el titular, ni el banco pudieron
   // compararse. Decir "ok" ahí sería un aprobado que nadie ha dado, y la
   // pantalla lo pintaría como si el comprobante estuviera verificado.
   const seContrastoAlgo =
-    checks.account !== 'unknown' || checks.holder !== 'unknown' || checks.amount !== 'unknown';
+    checks.account !== 'unknown' || checks.holder !== 'unknown' || checks.bank !== 'unknown';
   if (reasons.length === 0 && !seContrastoAlgo) {
     return { verdict: 'unreadable', reasons: ['unreadable'], checks };
   }

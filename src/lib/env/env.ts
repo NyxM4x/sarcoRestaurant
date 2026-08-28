@@ -151,6 +151,13 @@ const serverEnvSchema = z.object({
    * comprobante retocado.
    */
   PAYMENT_PROOF_ACCOUNT_BANK: optionalString,
+  /**
+   * Otras formas de escribir ESE mismo banco, separadas por `|`. Las siglas y el
+   * nombre largo no comparten ni una palabra (`BNB` contra `Banco Nacional de
+   * Bolivia`), asi que no se deducen: se configuran. Sin el alias, el
+   * comprobante que use la sigla haria saltar una alerta en un pago legitimo.
+   */
+  PAYMENT_PROOF_ACCOUNT_BANK_ALIASES: optionalString,
   /** Numero de cuenta destino. Se compara por sus digitos finales. */
   PAYMENT_PROOF_ACCOUNT_NUMBER: optionalString,
   /** Titular que aparece como beneficiario. */

@@ -1,8 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { amountDueByQrOf } from '@/lib/orders/amount-due';
-import type { DeliveryType } from '@/types';
 import type { ProofAnalysisReason, ProofVerdict } from './analysis';
 
 /**
@@ -17,7 +15,7 @@ import type { ProofAnalysisReason, ProofVerdict } from './analysis';
 export interface AnalysisOutcome {
   verdict: ProofVerdict;
   reasons: ProofAnalysisReason[];
-  /** Monto leído en la imagen; `null` si no se leyó. */
+  /** Monto leído en la imagen; `null` si no se leyó. Informativo. */
   amount: number | null;
   /** Número de transacción leído; `null` si no se leyó. */
   reference: string | null;
@@ -25,8 +23,6 @@ export interface AnalysisOutcome {
 }
 
 export interface AnalysisDataSource {
-  /** Lo que el cliente debía transferir por QR. `null` si no se pudo calcular. */
-  amountDueByQr(orderId: string): Promise<number | null>;
   /**
    * ¿Ese número de transacción ya aparece en el comprobante de OTRO pedido?
    *
@@ -48,27 +44,6 @@ export function createSupabaseAnalysisDataSource(
   client: SupabaseClient = getSupabaseAdmin(),
 ): AnalysisDataSource {
   return {
-    async amountDueByQr(orderId) {
-      const { data, error } = await client
-        .from('orders')
-        .select('delivery_type,subtotal_amount,total_amount')
-        .eq('id', orderId)
-        .limit(1);
-      if (error) return null;
-      const row = (data ?? [])[0] as
-        | {
-            delivery_type: DeliveryType;
-            subtotal_amount: number | string | null;
-            total_amount: number | string | null;
-          }
-        | undefined;
-      if (!row) return null;
-      const due = amountDueByQrOf(row);
-      // Un 0 no es una cifra contra la que contrastar: significa que no se pudo
-      // calcular. Devolverlo haría saltar `amount_over` en todos los pagos.
-      return due > 0 ? due : null;
-    },
-
     async isReferenceUsedElsewhere(reference, proofId, orderId) {
       const { data, error } = await client
         .from('payment_proofs')

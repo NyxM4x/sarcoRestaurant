@@ -58,15 +58,16 @@ export function isProofAnalysisEnabled(): boolean {
 /**
  * La cuenta contra la que se contrasta, leída de configuración.
  *
- * `null` apaga el análisis: sin saber qué cuenta debería aparecer, lo único que
- * se podría comprobar es el monto, y un veredicto construido sobre un solo dato
- * pinta de "verificado" un comprobante que nadie ha verificado.
+ * `null` apaga el análisis: sin saber qué cuenta ni qué titular deberían
+ * aparecer, no queda nada contra lo que contrastar, y un veredicto sin nada
+ * detrás pinta de "verificado" un comprobante que nadie ha verificado.
  */
 export function readExpectedAccount(): ExpectedAccount | null {
   try {
     const env = getServerEnv();
     return parseExpectedAccount({
       bank: env.PAYMENT_PROOF_ACCOUNT_BANK,
+      bankAliases: env.PAYMENT_PROOF_ACCOUNT_BANK_ALIASES,
       accountNumber: env.PAYMENT_PROOF_ACCOUNT_NUMBER,
       holder: env.PAYMENT_PROOF_ACCOUNT_HOLDER,
       holderAliases: env.PAYMENT_PROOF_ACCOUNT_HOLDER_ALIASES,
@@ -158,9 +159,6 @@ export async function analyzeProofWith(
   }
 
   const { facts } = lectura;
-  const amountDueByQr = input.orderId
-    ? await deps.source.amountDueByQr(input.orderId)
-    : null;
   const referenceReused = facts.transactionRef
     ? await deps.source.isReferenceUsedElsewhere(
         facts.transactionRef,
@@ -171,7 +169,6 @@ export async function analyzeProofWith(
 
   const juicio = judgeProof(facts, {
     expected: deps.expected,
-    amountDueByQr,
     receivedAtMs: input.receivedAtMs,
     referenceReused,
   });

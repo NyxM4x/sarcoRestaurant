@@ -39,7 +39,7 @@ Un commit sin mensaje que en realidad son cinco trabajos:
 | Qué | Dónde | Por qué |
 |---|---|---|
 | **El total del KDS espera al pago** | `src/lib/kitchen/summary.ts`, `ticket-view.ts` | El planchero cocinaba contra un total que incluía pedidos con el pago sin confirmar. Ahora solo suman los confirmados — salvo los ya iniciados, que cuentan igual porque están en la plancha |
-| **Análisis del comprobante** | `src/lib/payment-proof/analysis*.ts`, migración `0025` | Lee la imagen con visión y contrasta cuenta, titular, monto y nº de transacción. **Es lo que se cruza con tu puerta** |
+| **Análisis del comprobante** | `src/lib/payment-proof/analysis*.ts`, migración `0025` | Lee la imagen con visión y contrasta el destino del dinero —cuenta, titular y banco— más el nº de transacción. El monto se lee y se muestra, pero no acusa: no se sabe de antemano cuánto transfiere alguien por WhatsApp. **Es lo que se cruza con tu puerta** |
 | **Jornada de servicio** | `src/lib/orders/business-day.ts` | Ver §4: arreglaba un bug diario |
 | **Numeración diaria** | `src/lib/orders/order-number.ts`, migración `0026` | El dueño pidió que los pedidos empiecen en 1 cada noche. Se guarda `ORD-260828-007`, se muestra `#7` |
 | **Horario y menú** | `facts.ts`, `menu-intent.ts`, `api/internal/menu/config-check` | El horario decía 21:00 en cuatro sitios y el local abre a las 18:00 — incluido el mensaje que recibe cada cliente nuevo |
@@ -160,9 +160,13 @@ decisión.
   tanto, `WEBHOOK_ASYNC_ACK` no debería encenderse: sin despertador, un evento
   que se caiga a mitad queda huérfano.
 - **Variables nuevas**: `AI_VISION_MODEL`, `TELEGRAM_HANDOFF_CHAT_ID`,
-  `PAYMENT_PROOF_ANALYSIS_*`. Todas opcionales y apagadas por defecto.
-- **Falta el dato del negocio**: la cuenta bancaria real (número, titular, cómo
-  la escribe cada banco) para poder encender el analizador.
+  `PAYMENT_PROOF_ANALYSIS_*`, `PAYMENT_PROOF_ACCOUNT_*`. Todas opcionales y
+  apagadas por defecto.
+- **La cuenta del negocio ya está**: número, titular, banco y los alias de cada
+  uno, calibrados contra cinco comprobantes reales (BNB, BCP, Mercantil, Yape,
+  Banco Económico). Están transcritos como fixtures en
+  `src/lib/payment-proof/analysis-real-receipts.test.ts`. Falta ponerlas en
+  producción y aplicar la `0025`.
 
 ---
 

@@ -1,8 +1,8 @@
 # Análisis automático del comprobante (0025)
 
 Filtro previo a la revisión humana. Lee la imagen del comprobante que manda el
-cliente y contrasta **la cuenta destino, el titular, el monto, el número de
-transacción y la hora** con lo que debería decir.
+cliente y contrasta **el destino del dinero —cuenta, titular y banco— más el
+número de transacción y la hora** con lo que debería decir.
 
 ## Qué NO hace
 
@@ -53,12 +53,25 @@ deja el comprobante exactamente como estaba.
 |---|---|
 | `account_mismatch` | La cuenta que recibe el dinero no es la nuestra |
 | `holder_mismatch` | El titular que cobra no es el nuestro |
-| `amount_short` | Pagó menos de lo que debía |
-| `amount_over` | El monto no es el de este pedido |
+| `bank_mismatch` | El dinero entró en otro banco |
 | `reference_reused` | Ese número de transacción ya se usó en otro comprobante |
 | `stale_receipt` | El comprobante es de otro momento (más de 6 h de desfase) |
 | `not_a_receipt` | La imagen no es un comprobante |
 | `unreadable` | No se pudo leer lo suficiente. **No es una acusación.** |
+
+### Por qué el monto no está en esa tabla
+
+Se lee y se guarda en `analysis_amount`, y el panel lo muestra junto al
+comprobante. Lo que no hace es disparar una alerta.
+
+No se sabe de antemano cuánto va a transferir alguien por WhatsApp: hay quien
+adelanta, quien paga dos pedidos juntos, quien redondea la propina y quien abona
+una parte. Contrastarlo contra el total del pedido marcaría como sospechosos
+pagos perfectamente buenos, y a diario — que es la forma más rápida de que
+cocina aprenda a ignorar el aviso.
+
+Los tres datos que sí acusan describen todos el mismo hecho —"esto entró donde
+cobra Don Zarco"— y ninguno depende de cómo se comportó el cliente.
 
 El número de transacción es el dato más valioso: el hash del contenido (0021)
 reconoce el *mismo archivo* reenviado, pero no una captura nueva del mismo pago
@@ -101,5 +114,13 @@ los datos de forma que el lector no reconoce. Para comprobarlo:
    ("Cuenta destino", "Beneficiario", "Para", "Cuenta abonada"…).
 3. Si el titular falla, casi siempre se arregla añadiendo el alias en
    `PAYMENT_PROOF_ACCOUNT_HOLDER_ALIASES` — sin tocar código.
+4. Si falla el banco, lo mismo con `PAYMENT_PROOF_ACCOUNT_BANK_ALIASES`. La
+   sigla es obligatoria: `BNB` y `Banco Nacional de Bolivia` no comparten ni una
+   palabra, así que sin el alias el comprobante que use la sigla acusa a un pago
+   bueno.
+
+Los fixtures de `analysis-real-receipts.test.ts` son comprobantes reales de
+cinco bancos, transcritos campo por campo. Al añadir un banco nuevo, lo barato
+es añadirlo ahí antes de tocar nada.
 
 El coste es de una llamada de visión por comprobante recibido.

@@ -28,8 +28,15 @@
 export type FieldMatch = 'match' | 'mismatch' | 'unknown';
 
 export interface ExpectedAccount {
-  /** Banco o billetera donde se cobra. Informativo: no dispara sospecha. */
-  bank: string | null;
+  /**
+   * Banco o billetera donde se cobra, con las formas en que lo escribe cada
+   * comprobante. Basta con que UNA coincida.
+   *
+   * SÍ dispara sospecha: es el tercero de los tres datos que identifican el
+   * destino. Sin él, dos cuentas de bancos distintos que compartan los cuatro
+   * últimos dígitos —una entre diez mil— pasarían por la misma.
+   */
+  bankNames: string[];
   /** Número de cuenta destino. Se compara por sus dígitos finales. */
   accountNumber: string | null;
   /**
@@ -101,6 +108,55 @@ export function matchesAccount(read: string | null, expected: string | null): Fi
 }
 
 /**
+ * Palabras que NO distinguen a un banco.
+ *
+ * Casi todos se llaman "Banco algo", y la mitad añade "de Bolivia" o "S.A.".
+ * Comparando con esas palabras dentro, `BANCO DE CRÉDITO DE BOLIVIA S.A.` se
+ * parecería a `BANCO NACIONAL DE BOLIVIA` — y lo que hay que distinguir es
+ * justamente eso.
+ */
+const PALABRAS_GENERICAS_DE_BANCO = new Set([
+  'BANCO',
+  'BANCA',
+  'BANK',
+  'MOVIL',
+  'BOLIVIA',
+  'BOLIVIANO',
+  'SA',
+  'SRL',
+  'LTDA',
+]);
+
+/** Lo que de verdad nombra a un banco: `NACIONAL`, `MERCANTIL`, `BNB`. */
+function bankTokens(name: string): string[] {
+  return significantTokens(name).filter((t) => !PALABRAS_GENERICAS_DE_BANCO.has(t));
+}
+
+/**
+ * ¿Es el banco leído aquel donde cobramos?
+ *
+ * Las siglas y el nombre largo son el mismo banco y no comparten una sola
+ * palabra (`BNB` contra `BANCO NACIONAL DE BOLIVIA`), así que no se deducen: se
+ * configuran como alias. Lo que no esté configurado no acusa.
+ *
+ * Si a algún lado no le queda ninguna palabra distintiva —el comprobante dice
+ * solo "Banco", o solo "Banca Móvil"— la respuesta es `unknown`. Acusar con eso
+ * sería acusar por la palabra que llevan todos.
+ */
+export function matchesBank(read: string | null, expected: string[]): FieldMatch {
+  const leidos = bankTokens(read ?? '');
+  const candidatos = expected.map(bankTokens).filter((t) => t.length > 0);
+  if (leidos.length === 0 || candidatos.length === 0) return 'unknown';
+
+  for (const esperados of candidatos) {
+    const [corto, largo] =
+      leidos.length <= esperados.length ? [leidos, esperados] : [esperados, leidos];
+    if (corto.every((t) => largo.includes(t))) return 'match';
+  }
+  return 'mismatch';
+}
+
+/**
  * ¿Es el titular leído el nuestro?
  *
  * Coincide si TODAS las palabras significativas del nombre más corto están en el
@@ -132,17 +188,19 @@ export function matchesHolder(read: string | null, expected: string[]): FieldMat
  */
 export function parseExpectedAccount(raw: {
   bank?: string | null;
+  bankAliases?: string | null;
   accountNumber?: string | null;
   holder?: string | null;
   holderAliases?: string | null;
 }): ExpectedAccount | null {
+  const separadas = (v: string | null | undefined, primera?: string | null) =>
+    [primera ?? '', ...(v ?? '').split('|')].map((n) => n.trim()).filter((n) => n.length > 0);
+
   const accountNumber = (raw.accountNumber ?? '').trim() || null;
-  const nombres = [raw.holder ?? '', ...(raw.holderAliases ?? '').split('|')]
-    .map((n) => n.trim())
-    .filter((n) => n.length > 0);
+  const nombres = separadas(raw.holderAliases, raw.holder);
   if (accountNumber === null && nombres.length === 0) return null;
   return {
-    bank: (raw.bank ?? '').trim() || null,
+    bankNames: separadas(raw.bankAliases, raw.bank),
     accountNumber,
     holderNames: nombres,
   };

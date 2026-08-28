@@ -3,7 +3,7 @@ import { judgeProof, parseBolivianLocalTime, type ProofFacts } from './analysis'
 import type { ExpectedAccount } from './expected-account';
 
 const CUENTA: ExpectedAccount = {
-  bank: 'Banco Unión',
+  bankNames: ['Banco Unión', 'BUN'],
   accountNumber: '1234567890',
   holderNames: ['DON ZARCO', 'DON ZARCO SRL'],
 };
@@ -17,6 +17,7 @@ function bueno(over: Partial<ProofFacts> = {}): ProofFacts {
     looksLikeReceipt: true,
     legible: true,
     bank: 'Banco Unión',
+    destinationBank: 'Banco Unión',
     destinationAccount: '1234567890',
     destinationHolder: 'DON ZARCO SRL',
     amount: 48,
@@ -29,7 +30,6 @@ function bueno(over: Partial<ProofFacts> = {}): ProofFacts {
 
 const ctx = (over: Partial<Parameters<typeof judgeProof>[1]> = {}) => ({
   expected: CUENTA,
-  amountDueByQr: 48,
   receivedAtMs: LLEGADA,
   referenceReused: false,
   ...over,
@@ -40,7 +40,7 @@ describe('veredicto — el comprobante que cuadra', () => {
     const j = judgeProof(bueno(), ctx());
     expect(j.verdict).toBe('ok');
     expect(j.reasons).toEqual([]);
-    expect(j.checks).toEqual({ account: 'match', holder: 'match', amount: 'match' });
+    expect(j.checks).toEqual({ account: 'match', holder: 'match', bank: 'match' });
   });
 
   it('la cuenta enmascarada del banco también cuadra', () => {
@@ -62,26 +62,21 @@ describe('veredicto — lo que delata un retoque', () => {
     expect(j.reasons).toContain('holder_mismatch');
   });
 
-  it('pagó menos de lo que debía', () => {
-    // El caso clásico: Bs 20 para un pedido de Bs 48, aceptado con prisa.
-    const j = judgeProof(bueno({ amount: 20 }), ctx());
+  it('el banco destino cambiado', () => {
+    const j = judgeProof(bueno({ destinationBank: 'Banco Mercantil Santa Cruz' }), ctx());
     expect(j.verdict).toBe('suspicious');
-    expect(j.reasons).toEqual(['amount_short']);
+    expect(j.reasons).toContain('bank_mismatch');
   });
 
-  it('el monto es de otro pedido, aunque sea mayor', () => {
-    const j = judgeProof(bueno({ amount: 64 }), ctx());
-    expect(j.verdict).toBe('suspicious');
-    expect(j.reasons).toEqual(['amount_over']);
+  it('la sigla configurada como alias es el mismo banco', () => {
+    expect(judgeProof(bueno({ destinationBank: 'BUN' }), ctx()).reasons).toEqual([]);
   });
 
-  it('un céntimo de diferencia no dispara la alerta; un boliviano sí', () => {
-    // La lectura es ÓPTICA: tolerar el céntimo absorbe un decimal mal leído sin
-    // abrirle ninguna puerta a nadie. Nadie roba céntimos, y una alerta por un
-    // céntimo es una alerta que se aprende a ignorar.
-    expect(judgeProof(bueno({ amount: 47.99 }), ctx()).reasons).toEqual([]);
-    expect(judgeProof(bueno({ amount: 48.01 }), ctx()).reasons).toEqual([]);
-    expect(judgeProof(bueno({ amount: 47 }), ctx()).reasons).toEqual(['amount_short']);
+  it('la palabra `banco` sola no acusa a nadie', () => {
+    // La llevan todos. Acusar con eso sería acusar por lo único que no distingue.
+    const j = judgeProof(bueno({ destinationBank: 'Banco' }), ctx());
+    expect(j.checks.bank).toBe('unknown');
+    expect(j.reasons).toEqual([]);
   });
 
   it('el número de transacción ya usado en otro pedido', () => {
@@ -100,13 +95,17 @@ describe('veredicto — lo que delata un retoque', () => {
 
   it('acumula TODOS los motivos: la pantalla dice qué mirar, no solo que mire', () => {
     const j = judgeProof(
-      bueno({ destinationAccount: '9999999999', destinationHolder: 'MARIA LOPEZ', amount: 20 }),
+      bueno({
+        destinationAccount: '9999999999',
+        destinationHolder: 'MARIA LOPEZ',
+        destinationBank: 'Banco Mercantil',
+      }),
       ctx({ referenceReused: true }),
     );
     expect(j.reasons).toEqual([
       'account_mismatch',
       'holder_mismatch',
-      'amount_short',
+      'bank_mismatch',
       'reference_reused',
     ]);
   });
@@ -138,16 +137,20 @@ describe('veredicto — lo que NO es una acusación', () => {
     // Decir "ok" ahí sería un aprobado que nadie ha dado, y la pantalla lo
     // pintaría como comprobante verificado.
     const j = judgeProof(
-      bueno({ destinationAccount: null, destinationHolder: null, amount: null }),
+      bueno({ destinationAccount: null, destinationHolder: null, destinationBank: null }),
       ctx(),
     );
     expect(j.verdict).toBe('unreadable');
   });
 
-  it('sin saber cuánto había que pagar, el monto no se juzga', () => {
-    const j = judgeProof(bueno({ amount: 20 }), ctx({ amountDueByQr: null }));
-    expect(j.verdict).toBe('ok');
-    expect(j.checks.amount).toBe('unknown');
+  it('el monto NO se juzga: pagó de menos y sigue siendo `ok`', () => {
+    // No se sabe de antemano cuánto va a transferir alguien por WhatsApp: hay
+    // quien adelanta, quien paga dos pedidos juntos y quien abona una parte.
+    for (const amount of [20, 500, null]) {
+      const j = judgeProof(bueno({ amount }), ctx());
+      expect(j.verdict, String(amount)).toBe('ok');
+      expect(j.reasons, String(amount)).toEqual([]);
+    }
   });
 
   it('una hora ilegible no inventa un desfase', () => {

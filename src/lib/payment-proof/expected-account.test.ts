@@ -73,12 +73,13 @@ describe('configuración de la cuenta esperada', () => {
   it('parte los alias por `|` y descarta los vacíos', () => {
     const cuenta = parseExpectedAccount({
       bank: ' Banco Unión ',
+      bankAliases: 'BUN | ',
       accountNumber: ' 1234567890 ',
       holder: 'DON ZARCO',
       holderAliases: 'DON ZARCO SRL | | ZARCO GASTRONOMIA',
     });
     expect(cuenta).toEqual({
-      bank: 'Banco Unión',
+      bankNames: ['Banco Unión', 'BUN'],
       accountNumber: '1234567890',
       holderNames: ['DON ZARCO', 'DON ZARCO SRL', 'ZARCO GASTRONOMIA'],
     });
@@ -93,7 +94,7 @@ describe('configuración de la cuenta esperada', () => {
 
   it('con solo el titular ya hay algo que contrastar', () => {
     expect(parseExpectedAccount({ holder: 'DON ZARCO' })).toEqual({
-      bank: null,
+      bankNames: [],
       accountNumber: null,
       holderNames: ['DON ZARCO'],
     });

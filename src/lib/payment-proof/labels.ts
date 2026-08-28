@@ -70,8 +70,7 @@ export const REVIEW_STATUS_TONES: Record<PaymentReviewStatus, ReviewTone> = {
 export const ANALYSIS_REASON_LABELS: Record<ProofAnalysisReason, string> = {
   account_mismatch: 'La cuenta que recibe el dinero NO es la nuestra',
   holder_mismatch: 'El titular que cobra NO es el nuestro',
-  amount_short: 'Pagó menos de lo que debía',
-  amount_over: 'El monto no es el de este pedido',
+  bank_mismatch: 'El dinero entró en OTRO banco, no en el nuestro',
   reference_reused: 'Ese número de transacción ya se usó en otro comprobante',
   stale_receipt: 'El comprobante es de otro momento, no de este pedido',
   not_a_receipt: 'La imagen no parece un comprobante de pago',

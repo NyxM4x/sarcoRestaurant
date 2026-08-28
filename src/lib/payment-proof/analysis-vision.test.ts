@@ -89,6 +89,7 @@ describe('lectura de la respuesta', () => {
       looksLikeReceipt: true,
       legible: true,
       bank: null,
+      destinationBank: null,
       destinationAccount: null,
       destinationHolder: null,
       amount: null,

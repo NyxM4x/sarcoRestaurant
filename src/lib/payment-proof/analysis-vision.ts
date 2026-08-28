@@ -55,6 +55,7 @@ Mira la imagen y devuelve ÚNICAMENTE un objeto JSON, sin texto alrededor y sin 
   "looksLikeReceipt": boolean,
   "legible": boolean,
   "bank": string | null,
+  "destinationBank": string | null,
   "destinationAccount": string | null,
   "destinationHolder": string | null,
   "amount": number | null,
@@ -66,7 +67,11 @@ Mira la imagen y devuelve ÚNICAMENTE un objeto JSON, sin texto alrededor y sin 
 Reglas:
 - "looksLikeReceipt": true solo si la imagen es un comprobante, recibo o captura de una transferencia o pago. Una foto de comida, una conversación, un QR sin pagar o una captura de otra cosa es false.
 - "legible": false si la imagen está tan borrosa, cortada u oscura que no puedes leer los datos del pago.
-- "destinationAccount" y "destinationHolder" son de quien RECIBE el dinero (destino, beneficiario, "cuenta destino", "para"), NUNCA de quien lo envía. Si la imagen solo muestra al remitente, deja ambos en null.
+- "bank" es el banco o la app que EMITE el comprobante (el membrete de arriba).
+- "destinationBank" es el banco que RECIBE el dinero ("banco destino", "del banco" junto a la cuenta de destino). Suele ser distinto del membrete. Si no aparece, null.
+- "destinationAccount" y "destinationHolder" son de quien RECIBE el dinero (destino, beneficiario, "cuenta destino", "a la cuenta", "se acreditó a la cuenta", "para"), NUNCA de quien lo envía ("originante", "remitente", "cuenta de origen", "se debitó de", "enviado por", "realizado por"). Si la imagen solo muestra al remitente, deja ambos en null.
+- En un pago con QR, quien cobra puede aparecer como "solicitante" o "beneficiario", y quien paga como "remitente": el solicitante del QR es el DESTINO.
+- Si la imagen no separa origen y destino y solo hay un nombre junto al monto (por ejemplo en Yape), ese es el destino; la cuenta y el banco que figuren en los datos de la transacción son también los del destino.
 - Copia la cuenta TAL COMO SE VE, incluidos asteriscos o guiones del enmascarado.
 - "amount": solo el número, sin símbolo ni separador de miles. Usa punto decimal.
 - "currency": "BOB" para bolivianos (Bs), "USD" para dólares.
@@ -123,6 +128,7 @@ const factsSchema = z.object({
   looksLikeReceipt: z.boolean(),
   legible: z.boolean(),
   bank: textoOpcional,
+  destinationBank: textoOpcional,
   destinationAccount: textoOpcional,
   destinationHolder: textoOpcional,
   amount: numeroOpcional,

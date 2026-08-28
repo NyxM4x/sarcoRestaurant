@@ -5,7 +5,7 @@ import type { AgentModel, AgentModelResult } from '@/lib/agent/core/model';
 import type { ExpectedAccount } from './expected-account';
 
 const CUENTA: ExpectedAccount = {
-  bank: 'Banco Unión',
+  bankNames: ['Banco Unión'],
   accountNumber: '1234567890',
   holderNames: ['DON ZARCO'],
 };
@@ -20,6 +20,7 @@ const LECTURA = (over: Record<string, unknown> = {}) =>
     looksLikeReceipt: true,
     legible: true,
     bank: 'Banco Unión',
+    destinationBank: 'Banco Unión',
     destinationAccount: '1234567890',
     destinationHolder: 'DON ZARCO',
     amount: 48,
@@ -37,7 +38,6 @@ function fuente(over: Partial<AnalysisDataSource> = {}) {
   const guardados: Array<{ proofId: string; outcome: AnalysisOutcome }> = [];
   const fallidos: string[] = [];
   const source: AnalysisDataSource = {
-    amountDueByQr: async () => 48,
     isReferenceUsedElsewhere: async () => false,
     saveAnalysis: async (proofId, outcome) => {
       guardados.push({ proofId, outcome });
@@ -79,15 +79,30 @@ describe('análisis — el recorrido completo', () => {
     ]);
   });
 
-  it('el monto se contrasta contra lo que había que pagar por QR', async () => {
-    const { source, guardados } = fuente({ amountDueByQr: async () => 64 });
+  it('el banco destino cambiado hace saltar la alerta', async () => {
+    const { source, guardados } = fuente();
     await analyzeProofWith(entrada(), {
-      model: modelo({ ok: true, text: LECTURA(), model: 'gpt-4o-mini' }),
+      model: modelo({
+        ok: true,
+        text: LECTURA({ destinationBank: 'Banco Mercantil Santa Cruz' }),
+        model: 'gpt-4o-mini',
+      }),
       source,
       expected: CUENTA,
     });
     expect(guardados[0].outcome.verdict).toBe('suspicious');
-    expect(guardados[0].outcome.reasons).toEqual(['amount_short']);
+    expect(guardados[0].outcome.reasons).toEqual(['bank_mismatch']);
+  });
+
+  it('el monto leído se guarda aunque no acuse', async () => {
+    const { source, guardados } = fuente();
+    await analyzeProofWith(entrada(), {
+      model: modelo({ ok: true, text: LECTURA({ amount: 7 }), model: 'gpt-4o-mini' }),
+      source,
+      expected: CUENTA,
+    });
+    expect(guardados[0].outcome.verdict).toBe('ok');
+    expect(guardados[0].outcome.amount).toBe(7);
   });
 
   it('pregunta por el número de transacción repetido, y lo tiene en cuenta', async () => {
@@ -118,16 +133,14 @@ describe('análisis — el recorrido completo', () => {
     expect(espia).not.toHaveBeenCalled();
   });
 
-  it('un comprobante sin pedido asociado se juzga igual, pero sin monto', async () => {
-    // Llegó algo que no se pudo enlazar: no saber contra qué monto contrastarlo
-    // no es motivo para dejar de mirar la cuenta y el titular.
-    const espia = vi.fn(async () => 48);
-    const { source, guardados } = fuente({ amountDueByQr: espia });
+  it('un comprobante sin pedido asociado se juzga igual', async () => {
+    // Llegó algo que no se pudo enlazar: no tener pedido no es motivo para dejar
+    // de mirar la cuenta, el titular y el banco.
+    const { source, guardados } = fuente();
     await analyzeProofWith(
       { ...entrada(), orderId: null },
       { model: modelo({ ok: true, text: LECTURA(), model: 'gpt' }), source, expected: CUENTA },
     );
-    expect(espia).not.toHaveBeenCalled();
     expect(guardados[0].outcome.verdict).toBe('ok');
   });
 });
