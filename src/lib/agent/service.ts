@@ -12,6 +12,7 @@ import { createGetMenuItemsTool, createSendMenuTool } from './tools/menu-tools';
 import { createAnswerDirectlyAction } from './tools/answer-directly';
 import { createRequestHumanAction } from './tools/request-human';
 import { createHandoffPort } from './handoff/service';
+import { escalateIfMenuLoop } from './handoff/menu-loop-service';
 import type { AgentTool } from './tools/registry';
 import { createAgentStore } from './memory/repository';
 import { handleHumanTakeover, humanTakeoverPauseMinutes } from './control/takeover';
@@ -140,7 +141,16 @@ function createAgentActions(): AgentTool[] {
 
   return [
     createSendMenuTool({
-      dispatch: (input) => dispatchMenu(input, createMenuDispatchDeps()),
+      // El menú sale SIEMPRE primero: a quien lo pide no se le niega nunca. La
+      // comprobación del atasco va después y es contabilidad — si falla, el
+      // cliente ya tiene su menú y el turno terminó bien.
+      dispatch: async (input) => {
+        const result = await dispatchMenu(input, createMenuDispatchDeps());
+        if (result.result === 'sent') {
+          await escalateIfMenuLoop(input.customerPhone);
+        }
+        return result;
+      },
     }),
     createGetMenuItemsTool({
       async listForModel() {
