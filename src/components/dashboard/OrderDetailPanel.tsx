@@ -12,6 +12,7 @@ import { StatusBadge } from './StatusBadge';
 import { DeliveryStateChip } from './DeliveryStateChip';
 import { formatMoney, formatTime, formatDate, deliveryTypeLabel, formatCustomerName, formatPhone, formatDistanceKm } from '@/lib/dashboard/format';
 import { updateOrderStatusAction, type UpdateActionResult } from '@/app/dashboard/actions';
+import { shortOrderNumber } from '@/lib/orders/order-number';
 
 const REASON_TEXT: Record<string, string> = {
   conflict: 'El pedido cambió mientras lo actualizabas. Se recargó su estado.',
@@ -103,7 +104,14 @@ export function OrderDetailPanel({
       <aside className="relative flex h-full w-full max-w-md flex-col overflow-hidden border-l border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-950">
         <header className="flex shrink-0 items-center justify-between border-b border-black/[0.07] bg-white/90 px-5 py-4 backdrop-blur dark:border-white/10 dark:bg-zinc-950/90">
           <div>
-            <p className="text-lg font-semibold tracking-tight">{orderNumber}</p>
+            <p className="text-lg font-semibold tracking-tight">
+              {shortOrderNumber(orderNumber)}
+              {/* El número completo, en pequeño: es lo que hay que copiar para
+                  buscar, y lo que dice el cliente si lo tiene apuntado. */}
+              {shortOrderNumber(orderNumber) !== orderNumber && (
+                <span className="ml-2 text-xs font-normal text-zinc-400">{orderNumber}</span>
+              )}
+            </p>
             {detail && <p className="text-xs text-zinc-500">{formatDate(detail.createdAt)} · {formatTime(detail.createdAt)}</p>}
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10" aria-label="Cerrar panel">✕</button>

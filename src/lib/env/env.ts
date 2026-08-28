@@ -122,6 +122,39 @@ const serverEnvSchema = z.object({
    * produccion es cambiar esta variable, sin revertir codigo.
    */
   PAYMENT_PROOF_CAPTURE_ENABLED: optionalString,
+  /**
+   * Analisis automatico del comprobante (0025). Solo la cadena exacta 'true';
+   * apagado por defecto, igual que la captura y por la misma razon: corre
+   * dentro del webhook que atiende a TODOS los clientes y gasta API.
+   *
+   * Encendido pero sin cuenta configurada abajo, no analiza nada: sin saber que
+   * cuenta deberia aparecer, lo unico comprobable seria el monto, y eso pintaria
+   * de "verificado" un comprobante que nadie ha verificado.
+   */
+  PAYMENT_PROOF_ANALYSIS_ENABLED: optionalString,
+  /**
+   * La cuenta donde cobra Don Zarco, tal como sale IMPRESA en el comprobante
+   * del cliente — no como figura en el contrato del banco. Es lo que se compara
+   * con lo que se lee en la imagen.
+   *
+   * Vive en entorno y no en la base a proposito: cambia una vez al ano, y quien
+   * entra al panel no deberia poder mover el patron contra el que se detecta un
+   * comprobante retocado.
+   */
+  PAYMENT_PROOF_ACCOUNT_BANK: optionalString,
+  /** Numero de cuenta destino. Se compara por sus digitos finales. */
+  PAYMENT_PROOF_ACCOUNT_NUMBER: optionalString,
+  /** Titular que aparece como beneficiario. */
+  PAYMENT_PROOF_ACCOUNT_HOLDER: optionalString,
+  /**
+   * Otras formas en que los bancos escriben ese mismo titular, separadas por
+   * `|`. Cada banco abrevia a su manera y basta con que UNA coincida; sin esto,
+   * el banco que pinta la razon social en vez del nombre haria saltar una alerta
+   * en cada pago legitimo.
+   */
+  PAYMENT_PROOF_ACCOUNT_HOLDER_ALIASES: optionalString,
+  /** Modelo de vision para leer comprobantes. Ausente = el del agente. */
+  PAYMENT_PROOF_ANALYSIS_MODEL: optionalString,
   OPENAI_API_KEY: optionalString,
   OPENAI_MODEL: optionalString,
   // Sin OPENAI_BASE_URL a propósito: el host de OpenAI es una constante del

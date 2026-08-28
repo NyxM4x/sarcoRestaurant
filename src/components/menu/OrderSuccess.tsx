@@ -3,6 +3,7 @@
 // Formatter monetario de presentación compartido (puro): `Bs 45,00`.
 import { formatMoney } from '@/lib/dashboard/format';
 import type { CheckoutOrder } from '@/lib/checkout/client';
+import { shortOrderNumber } from '@/lib/orders/order-number';
 
 /**
  * Pantalla final del checkout. Estado terminal: no hay ningún botón que vuelva
@@ -41,9 +42,14 @@ export function OrderSuccess({
             {isPickup ? 'Pedido confirmado' : 'Pedido registrado'}
           </h2>
 
-          <p className="mt-1 text-2xl font-bold tracking-wide text-donzarco-red-dark tabular-nums">
-            {order.order_number}
+          <p className="mt-1 text-3xl font-bold tracking-wide text-donzarco-red-dark tabular-nums">
+            {shortOrderNumber(order.order_number)}
           </p>
+          {/* El número completo, discreto: es la referencia con la que se puede
+              reclamar un pedido de otra noche, cuando el "#7" ya no distingue. */}
+          {shortOrderNumber(order.order_number) !== order.order_number && (
+            <p className="text-xs text-zinc-400 tabular-nums">{order.order_number}</p>
+          )}
 
           {isPickup && order.customer_name ? (
             <p className="mt-1 text-sm text-zinc-500">A nombre de {order.customer_name}</p>

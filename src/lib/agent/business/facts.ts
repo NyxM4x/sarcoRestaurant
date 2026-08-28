@@ -40,7 +40,31 @@ export const BUSINESS_DESCRIPTION =
  * momento: no tiene reloj confiable, no sabe de feriados y no sabe si hoy
  * cerraron antes. Esa restricción viaja en el prompt.
  */
-export const BUSINESS_HOURS = 'todos los días, de nueve de la noche a cuatro de la madrugada';
+export const BUSINESS_HOURS = 'todos los días, de seis de la tarde a cuatro de la madrugada';
+
+/**
+ * El mismo horario en números, para lo que no es conversación.
+ *
+ * `BUSINESS_HOURS` está redactado para que el agente lo repita en voz alta;
+ * esto es el dato. Se declaran juntos a propósito: separarlos garantiza que un
+ * día se cambie uno y no el otro, y entonces el agente diría una hora mientras
+ * el sistema opera con otra.
+ */
+export const BUSINESS_OPENS_HOUR = 18;
+export const BUSINESS_CLOSES_HOUR = 4;
+
+/**
+ * El horario en formato reloj: `18:00 a 04:00`.
+ *
+ * Lo usan los mensajes automáticos, que no conversan y donde la prosa sobra.
+ * Se DERIVA de las horas de arriba en vez de escribirse aparte: la copia a mano
+ * que había en `kapso/messages.ts` se quedó desactualizada exactamente como
+ * avisaba su propio comentario que pasaría.
+ */
+export function businessHoursClock(): string {
+  const dosDigitos = (h: number) => String(h).padStart(2, '0');
+  return `${dosDigitos(BUSINESS_OPENS_HOUR)}:00 a ${dosDigitos(BUSINESS_CLOSES_HOUR)}:00`;
+}
 
 /** Enlace oficial de Google Maps del local. */
 export const BUSINESS_MAPS_URL = 'https://maps.app.goo.gl/DLJZvSY7GyJNzccD9';

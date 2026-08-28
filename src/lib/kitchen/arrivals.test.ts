@@ -16,6 +16,7 @@ function ticket(orderNumber: string, stage: KdsStage, minutes = 0): KitchenTicke
     notes: null,
     completedAt: stage === 'done' ? iso(minutes + 10) : null,
     amountDueByQr: 0,
+    awaitingPaymentConfirmation: false,
     payment: null,
   };
 }

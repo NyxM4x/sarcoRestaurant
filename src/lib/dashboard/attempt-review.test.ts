@@ -32,7 +32,11 @@ function proof(id: string, over: Partial<ProofUiRow> = {}): ProofUiRow {
     duplicate_of_id: null,
     capture_status: 'stored',
     received_at: T(1),
+    // Sin analizar por defecto: el analisis es una dimension aparte y cada test
+    // que lo necesite lo enciende, igual que hace con el resto de la fila.
     analysis_status: 'pending',
+    analysis_verdict: null,
+    analysis_reasons: [],
     ...over,
   };
 }

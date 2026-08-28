@@ -10,6 +10,7 @@ import type {
   ProofAssociationMethod,
   ProofRoutingException,
 } from '@/types';
+import type { ProofAnalysisReason, ProofVerdict } from './analysis';
 
 /** Estado de revision del intento, tal como se titula en el panel. */
 export const REVIEW_STATUS_LABELS: Record<PaymentReviewStatus, string> = {
@@ -55,3 +56,45 @@ export const REVIEW_STATUS_TONES: Record<PaymentReviewStatus, ReviewTone> = {
   accepted: 'green',
   rejected: 'red',
 };
+
+// ── Análisis automático del comprobante (0025) ──────────────────────────────
+
+/**
+ * Por qué saltó la alerta, dicho para quien tiene la plancha encendida.
+ *
+ * Cada texto nombra el HECHO concreto, no una categoría: "la cuenta que recibe
+ * no es la nuestra" se puede comprobar abriendo el comprobante; "comprobante
+ * sospechoso" no se puede comprobar de ninguna manera, y una alerta que no se
+ * puede comprobar acaba pulsándose igual.
+ */
+export const ANALYSIS_REASON_LABELS: Record<ProofAnalysisReason, string> = {
+  account_mismatch: 'La cuenta que recibe el dinero NO es la nuestra',
+  holder_mismatch: 'El titular que cobra NO es el nuestro',
+  amount_short: 'Pagó menos de lo que debía',
+  amount_over: 'El monto no es el de este pedido',
+  reference_reused: 'Ese número de transacción ya se usó en otro comprobante',
+  stale_receipt: 'El comprobante es de otro momento, no de este pedido',
+  not_a_receipt: 'La imagen no parece un comprobante de pago',
+  unreadable: 'No se pudo leer el comprobante',
+};
+
+export function analysisReasonLabel(reason: ProofAnalysisReason): string {
+  return ANALYSIS_REASON_LABELS[reason] ?? 'Revisar el comprobante';
+}
+
+/**
+ * Título del aviso según el veredicto.
+ *
+ * `ok` NO tiene título: un comprobante que cuadra no merece un cartel. La
+ * pantalla del KDS es pequeña y cada aviso que no dice nada le quita sitio a
+ * uno que sí. Solo se habla cuando hay algo que mirar.
+ */
+export const VERDICT_HEADLINES: Record<ProofVerdict, string | null> = {
+  ok: null,
+  suspicious: 'Revisar este comprobante',
+  unreadable: 'No se pudo leer el comprobante',
+};
+
+export function verdictHeadline(verdict: ProofVerdict): string | null {
+  return VERDICT_HEADLINES[verdict] ?? null;
+}

@@ -2,6 +2,8 @@
 
 import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
 import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
+import { proofAlertOf, type KitchenProofAlert } from '@/lib/kitchen/proof-alert';
+import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import { KitchenPaymentPanel } from './KitchenPaymentPanel';
 
@@ -47,11 +49,37 @@ export function KitchenTicketCard({
 
   const buttons = buttonsForStage(ticket.stage);
 
+  /**
+   * ¿Este ticket todavía no entra en el resumen de la derecha?
+   *
+   * Solo mientras está NUEVO y su pago sigue sin confirmar. En cuanto alguien
+   * pulsa INICIAR, el pedido cuenta aunque el comprobante siga en revisión —la
+   * comida ya se está haciendo—, así que decirlo entonces sería mentira.
+   *
+   * Se dice en el ticket, y no solo en el panel derecho, porque el panel informa
+   * de CUÁNTO falta pero no de CUÁL: sin esta marca hay que abrir pedido por
+   * pedido para encontrar el que está reteniendo el total.
+   */
+  const noSumaTodavia = ticket.stage === 'new' && ticket.awaitingPaymentConfirmation;
+
+  /**
+   * Aviso del análisis automático del comprobante.
+   *
+   * `null` la mayor parte del tiempo: solo aparece cuando hay algo que mirar. No
+   * bloquea ningún botón ni oculta nada — el comprobante se abre igual y quien
+   * decide sigue siendo quien está delante de la pantalla.
+   */
+  const alerta = proofAlertOf(ticket.payment);
+
   return (
     <article className="flex max-h-full w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-black/5">
       <header className={`shrink-0 px-4 py-3 ${headerTone}`}>
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="truncate text-2xl font-extrabold tracking-tight">{ticket.orderNumber}</h2>
+          {/* El número como se dice en voz alta. El tablero muestra UNA sola
+              jornada, así que aquí no hace falta la fecha para desambiguar. */}
+          <h2 className="truncate text-3xl font-extrabold tracking-tight">
+            {shortOrderNumber(ticket.orderNumber)}
+          </h2>
           <span className="shrink-0 text-2xl font-bold tabular-nums">
             {formatElapsedSince(ticket.enteredAt, nowMs)}
           </span>
@@ -59,6 +87,7 @@ export function KitchenTicketCard({
         <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide opacity-90">
           {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
           {late && ' · Atrasado'}
+          {noSumaTodavia && ' · No suma al resumen'}
         </p>
       </header>
 
@@ -105,6 +134,11 @@ export function KitchenTicketCard({
           onDecided={onPaymentDecided ?? (() => {})}
         />
 
+        {/* El aviso va JUNTO a la nota de cocina y encima de ella: las dos cosas
+            son "lee esto antes de tocar nada", y lo que se lee primero tiene que
+            ser lo que puede costar dinero. */}
+        {alerta && <ProofAlertBox alert={alerta} />}
+
         {ticket.notes && (
           <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Notas</p>
@@ -148,6 +182,37 @@ export function KitchenTicketCard({
           ))}
       </footer>
     </article>
+  );
+}
+
+/**
+ * Aviso del análisis. Texto grande y motivos en lista: quien lo lee está de pie,
+ * a un metro de la pantalla y con prisa.
+ *
+ * El color va SIEMPRE con la palabra —"Revisar este comprobante"— porque a esa
+ * distancia un recuadro de color se confunde con el resto de la tarjeta, y
+ * porque nadie debería tener que saberse un código de colores para cobrar.
+ */
+function ProofAlertBox({ alert }: { alert: KitchenProofAlert }) {
+  const tono =
+    alert.tone === 'red'
+      ? 'bg-red-50 ring-red-300 text-red-900'
+      : 'bg-amber-50 ring-amber-300 text-amber-900';
+  return (
+    <div role="status" className={`mb-3 rounded-lg px-3 py-2.5 ring-2 ${tono}`}>
+      <p className="text-sm font-extrabold uppercase leading-tight tracking-wide">
+        {alert.headline}
+      </p>
+      {alert.reasons.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {alert.reasons.map((r) => (
+            <li key={r} className="text-sm font-semibold leading-snug">
+              · {r}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

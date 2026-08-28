@@ -124,6 +124,7 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     // test falla y obliga a justificarlo. Así se añadieron `total` y `payment`.
     expect(Object.keys(ticket).sort()).toEqual([
       'amountDueByQr',
+      'awaitingPaymentConfirmation',
       'completedAt',
       'deliveryType',
       'enteredAt',

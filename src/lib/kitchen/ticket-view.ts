@@ -31,6 +31,7 @@
  */
 import type { OrderStatus, DeliveryType, PaymentMethod } from '@/types';
 import type { PaymentView } from '@/lib/dashboard/attempt-review';
+import { amountDueByQrOf } from '@/lib/orders/amount-due';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
 
 /** Fila cruda minima de `orders` (mas `id`, solo para unir los items server-side). */
@@ -97,6 +98,19 @@ export interface KitchenTicket {
    */
   amountDueByQr: number;
   /**
+   * ¿Este pedido sigue esperando que alguien confirme su pago?
+   *
+   * Es lo que decide si el pedido suma en el RESUMEN de la barra derecha: hasta
+   * que el comprobante se acepta, sus productos no entran en el total que mira
+   * el planchero. Un pedido en efectivo —o histórico, sin método registrado— no
+   * espera nada, y un tablero que no pudo consultar los pagos tampoco afirma que
+   * esté esperando: ante la duda, cuenta.
+   *
+   * NO oculta el ticket ni bloquea ningún botón: la comanda se ve entera y se
+   * puede iniciar igual. Solo dice si sus unidades ya son trabajo en firme.
+   */
+  awaitingPaymentConfirmation: boolean;
+  /**
    * Pago del pedido: intentos y comprobantes, ya en forma de vista.
    *
    * `null` cuando no hay nada que revisar. Es la MISMA estructura que usa el
@@ -123,6 +137,27 @@ function hayComprobante(payment: PaymentView | null): boolean {
   // que cocina tiene que ver, no un motivo para ocultar el pedido.
   if (payment.unlinkedProofs.length > 0) return true;
   return payment.attempts.some((a) => a.proofs.length > 0);
+}
+
+/**
+ * ¿Sigue este pedido esperando que se confirme su pago?
+ *
+ * Confirmado = ALGÚN intento aceptado. No "el último": una vez que un pago se
+ * acepta, el pedido está pagado, y un comprobante posterior —un duplicado, o un
+ * archivo que el cliente reenvía por si acaso— no puede volver a dejarlo a
+ * deber. El historial de intentos se conserva entero justamente para eso.
+ *
+ * Un pedido que no se paga por QR no espera nada: en efectivo se cobra en mano,
+ * y los históricos sin método registrado no tienen comprobante que aceptar.
+ * Tratarlos como pendientes los borraría para siempre del resumen.
+ */
+function esperandoConfirmacionDePago(
+  row: RawKitchenOrderRow,
+  payment: PaymentView | null,
+): boolean {
+  if (row.payment_method !== 'qr') return false;
+  if (payment === null) return true;
+  return !payment.attempts.some((a) => a.status === 'accepted');
 }
 
 /**
@@ -159,17 +194,12 @@ function esperandoComprobante(
 /**
  * Importe que el cliente debia transferir por QR.
  *
- * `numeric` de Postgres puede llegar como cadena segun el driver, y un valor
- * ilegible cae a 0 en vez de a `NaN`: la tarjeta muestra "Bs 0,00", que es
- * visiblemente raro y hace mirar dos veces, en lugar de un "NaN" que parece un
- * fallo de la pantalla y se ignora.
+ * El calculo vive en `@/lib/orders/amount-due` desde que tiene un segundo
+ * consumidor —el analisis automatico del comprobante, que contrasta esa misma
+ * cifra sin mirar la pantalla—. Se re-exporta aqui para que quien ya lo
+ * importaba del ticket siga encontrandolo donde estaba.
  */
-export function amountDueByQrOf(row: RawKitchenOrderRow): number {
-  // Recojo: no hay envio que cobrar aparte, se paga todo por QR.
-  if (row.delivery_type === 'pickup') return Number(row.total_amount) || 0;
-  // Delivery: solo la comida. El envio lo paga al recibir el pedido.
-  return Number(row.subtotal_amount) || 0;
-}
+export { amountDueByQrOf };
 
 /** Agrupa las filas de items por `order_id` (una sola consulta las trae todas). */
 export function groupItemsByOrder(
@@ -224,6 +254,10 @@ export function toKitchenTickets(
       notes: row.notes,
       completedAt: stage === 'done' ? row.updated_at : null,
       amountDueByQr: amountDueByQrOf(row),
+      // Sin haber podido consultar los pagos no se afirma que falte confirmar:
+      // eso vaciaría el resumen entero por un fallo de consulta, que es la misma
+      // trampa que ya evita el filtro de entrada de arriba.
+      awaitingPaymentConfirmation: pagosConsultados && esperandoConfirmacionDePago(row, payment),
       payment,
     });
   }

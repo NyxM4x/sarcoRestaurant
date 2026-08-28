@@ -44,11 +44,17 @@ const row = (status: OrderStatus): RawKitchenOrderRow => ({
 });
 
 describe('repositorio de cocina — lectura del tablero', () => {
-  it('acota la consulta a la jornada de hoy y devuelve el reloj del servidor', async () => {
+  it('acota la consulta a la jornada de SERVICIO y devuelve el reloj del servidor', async () => {
+    // NOW = 18:00 UTC = 14:00 en Bolivia, ya pasado el corte del mediodía: la
+    // jornada vigente empezó ese mismo día a las 12:00 local (16:00 UTC).
+    //
+    // Antes esto cortaba por medianoche UTC —las 20:00 hora de Bolivia— y el
+    // tablero perdía cada noche los pedidos de las dos primeras horas del
+    // servicio justo al dar las 20:00, con la comida todavía sin salir.
     const { source, bounds } = fakeSource({ rows: [row('confirmed')] });
     const board = await createKitchenRepository(source).getBoard(NOW);
     expect(board.serverNow).toBe(NOW);
-    expect(bounds[0].since).toBe('2026-08-22T00:00:00.000Z');
+    expect(bounds[0].since).toBe('2026-08-22T16:00:00.000Z');
     expect(board.tickets).toHaveLength(1);
   });
 });

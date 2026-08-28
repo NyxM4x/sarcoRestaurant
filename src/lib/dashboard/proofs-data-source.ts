@@ -28,7 +28,19 @@ const ATTEMPT_COLUMNS = 'id,order_id,review_status,opened_at,reviewed_at,created
 const PROOF_UI_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
-  'capture_status,received_at,analysis_status';
+  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons';
+
+/**
+ * `analysis_amount` y `analysis_reference` NO viajan a la UI a proposito.
+ *
+ * Son una lectura optica, y pintarlos junto al veredicto invita a decidir por
+ * ellos en vez de por el comprobante: "dice Bs 48" leido de una imagen retocada
+ * es exactamente lo que el retoque queria conseguir. Quien revisa mira el
+ * archivo; el analisis solo le dice DONDE mirar.
+ *
+ * Se guardan igualmente en la base, que es donde sirven: contrastar despues y
+ * reconocer un numero de transaccion repetido.
+ */
 
 export type ProofUiRow = Pick<
   PaymentProof,
@@ -45,6 +57,8 @@ export type ProofUiRow = Pick<
   | 'capture_status'
   | 'received_at'
   | 'analysis_status'
+  | 'analysis_verdict'
+  | 'analysis_reasons'
 >;
 
 /** Referencia privada al objeto: SOLO para el endpoint de streaming. */

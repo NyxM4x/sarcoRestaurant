@@ -5,6 +5,7 @@
  * validan; los valores desconocidos se ignoran (no rompen la consulta).
  */
 import { ORDER_STATUSES, DELIVERY_TYPES, type OrderStatus, type DeliveryType } from '@/types';
+import { businessDayBounds, businessDayStart } from '@/lib/orders/business-day';
 
 export type DateRange = 'today' | 'yesterday' | 'last7' | 'all';
 export const DATE_RANGES: readonly DateRange[] = ['today', 'yesterday', 'last7', 'all'];
@@ -98,19 +99,38 @@ export function normalizeFilters(input: OrderFiltersInput = {}): OrderFilters {
   return { statuses, deliveryType, dateRange, search, limit, offset };
 }
 
-/** Limites de fecha [desde, hasta) en ISO, segun el rango y un `now` inyectado. */
+/**
+ * Limites de fecha [desde, hasta) en ISO, segun el rango y un `now` inyectado.
+ *
+ * ── "Hoy" es la JORNADA, no el dia del calendario ──────────────────────────
+ *
+ * El local abre a las 18:00 y cierra a las 04:00, asi que su noche de trabajo
+ * cruza la medianoche. Antes esto cortaba por medianoche UTC —las 20:00 hora de
+ * Bolivia— y el efecto era grave y diario: a las 20:00 en punto, en plena hora
+ * punta, el tablero de cocina dejaba de mostrar los pedidos de las dos primeras
+ * horas del servicio. Comandas vivas, con la comida sin salir, desaparecidas de
+ * la pantalla porque el reloj habia cambiado de dia en otro continente.
+ *
+ * Ahora el corte lo pone `businessDayBounds`: la jornada del 28 va del 28 a las
+ * 12:00 al 29 a las 12:00, hora de Bolivia, y el servicio entero cabe dentro.
+ *
+ * `until` sigue siendo `null` para `today` a proposito: acota por donde EMPIEZA
+ * la jornada y deja el final abierto, asi que ningun pedido recien entrado puede
+ * quedarse fuera de la pantalla por un desfase de reloj.
+ */
 export function dateBounds(range: DateRange, now: number): { since: string | null; until: string | null } {
   if (range === 'all') return { since: null, until: null };
-  const d = new Date(now);
-  const startOfToday = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   const DAY = 86_400_000;
   switch (range) {
     case 'today':
-      return { since: new Date(startOfToday).toISOString(), until: null };
-    case 'yesterday':
-      return { since: new Date(startOfToday - DAY).toISOString(), until: new Date(startOfToday).toISOString() };
+      return { since: businessDayBounds(now).since, until: null };
+    case 'yesterday': {
+      // La jornada anterior, entera y cerrada por los dos lados.
+      const anterior = businessDayBounds(now, -1);
+      return { since: anterior.since, until: anterior.until };
+    }
     case 'last7':
-      return { since: new Date(startOfToday - 6 * DAY).toISOString(), until: null };
+      return { since: new Date(businessDayStart(now) - 6 * DAY).toISOString(), until: null };
     default:
       return { since: null, until: null };
   }

@@ -18,6 +18,8 @@ import {
   type ReviewTone,
 } from '@/lib/payment-proof/labels';
 import { isImageMime } from '@/lib/payment-proof/mime';
+import { analysisReasonLabel, verdictHeadline } from '@/lib/payment-proof/labels';
+import type { ProofVerdict } from '@/lib/payment-proof/analysis';
 
 /** Un archivo de comprobante tal como lo ve el panel. */
 export interface ProofView {
@@ -47,6 +49,43 @@ export interface ProofView {
    * tercero, y aquí vale únicamente para contárselo a una persona.
    */
   declaredLabel: string | null;
+  /**
+   * Lo que encontro el analisis automatico. `null` mientras no se haya
+   * analizado —un PDF, el analisis apagado, una lectura fallida— y tambien
+   * cuando el veredicto es `ok`: un comprobante que cuadra no merece un cartel,
+   * y cada aviso que no dice nada le quita sitio a uno que si.
+   */
+  analysis: ProofAnalysisView | null;
+}
+
+/** Aviso del analisis, ya traducido: la UI no ve codigos. */
+export interface ProofAnalysisView {
+  verdict: Exclude<ProofVerdict, 'ok'>;
+  /** Titulo corto del aviso. */
+  headline: string;
+  /** Motivos concretos, en el orden en que se detectaron. */
+  reasons: string[];
+}
+
+/**
+ * Traduce el analisis de la fila.
+ *
+ * Devuelve `null` salvo que haya algo que decir. La condicion es doble a
+ * proposito: `analysis_status` tiene que ser `done` —un veredicto con el
+ * analisis a medias seria una alerta sin procedencia— y el veredicto no puede
+ * ser `ok`.
+ */
+function toAnalysisView(row: ProofUiRow): ProofAnalysisView | null {
+  if (row.analysis_status !== 'done') return null;
+  const verdict = row.analysis_verdict;
+  if (verdict === null || verdict === 'ok') return null;
+  const headline = verdictHeadline(verdict);
+  if (headline === null) return null;
+  return {
+    verdict,
+    headline,
+    reasons: (row.analysis_reasons ?? []).map(analysisReasonLabel),
+  };
 }
 
 /**
@@ -100,6 +139,7 @@ function toProofView(row: ProofUiRow): ProofView {
     mimeType: row.verified_mime_type,
     filename: row.safe_filename,
     declaredLabel: declaredLabelOf(row),
+    analysis: toAnalysisView(row),
   };
 }
 

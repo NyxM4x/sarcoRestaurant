@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { businessHoursClock } from '@/lib/agent/business/facts';
 
 /**
  * Construcción de mensajes salientes de Kapso — módulo puro.
@@ -140,12 +141,17 @@ export function buildImagePayload(toDigits: string, imageUrl: string, caption: s
  * sí se puede pedir que lo toquen. En un mensaje de texto suelto esa frase
  * sería una promesa falsa (no habría ningún botón que tocar).
  *
- * El horario se repite aquí a propósito, porque este suele ser el primer
- * mensaje que recibe un cliente nuevo. Su fuente es `BUSINESS_HOURS`
- * (`src/lib/agent/business/facts.ts`): si cambia el horario, cambiar ambos.
+ * El horario aparece aquí porque este suele ser el primer mensaje que recibe un
+ * cliente nuevo. Ya NO se escribe a mano: sale de `businessHoursClock()`, la
+ * misma fuente que usa el agente.
+ *
+ * La copia a mano duró hasta el primer cambio de horario, tal como avisaba el
+ * comentario que estaba aquí: el local pasó a abrir a las 18:00 y este mensaje
+ * siguió diciendo 21:00 a cada cliente nuevo. Un dato duplicado "con cuidado" es
+ * un dato que se va a desincronizar; lo único que lo evita es que haya uno solo.
  */
 export const MENU_CTA_BODY_TEXT =
-  'Hola, soy Don Zarco 👋 Atendemos todos los días de 21:00 a 04:00. ' +
+  `Hola, soy Don Zarco 👋 Atendemos todos los días de ${businessHoursClock()}. ` +
   'Toca el botón para ver el menú y armar tu pedido.';
 
 /** Etiqueta del botón (WhatsApp la limita a 20 caracteres). */

@@ -21,6 +21,9 @@ function ticket(
     notes: null,
     completedAt: stage === 'done' ? iso(minutes + 10) : null,
     amountDueByQr: 0,
+    // Por defecto el pago ya está confirmado: así los tests de etapas miden
+    // etapas, y los del pago activan la espera explícitamente.
+    awaitingPaymentConfirmation: false,
     payment: null,
   };
 }
@@ -36,23 +39,23 @@ describe('resumen — solo suma los tickets activos', () => {
     const s = summarizeProducts(tickets);
     expect(s.rows).toEqual([{ name: 'Trancapecho', quantity: 5 }]);
     expect(s.totalUnits).toBe(5);
-    expect(s.activeOrders).toBe(2);
+    expect(s.countedOrders).toBe(2);
   });
 
   it('COMPLETAR resta los productos y el pedido; DEVOLVER A COCINA los vuelve a sumar', () => {
     const activo = [ticket('A', 'in_progress', [['Trancaburguer', 4]])];
     expect(summarizeProducts(activo).totalUnits).toBe(4);
-    expect(summarizeProducts(activo).activeOrders).toBe(1);
+    expect(summarizeProducts(activo).countedOrders).toBe(1);
 
     // COMPLETAR: el mismo ticket pasa a `done`.
     const completado = [{ ...activo[0], stage: 'done' as KdsStage }];
     expect(summarizeProducts(completado).totalUnits).toBe(0);
-    expect(summarizeProducts(completado).activeOrders).toBe(0);
+    expect(summarizeProducts(completado).countedOrders).toBe(0);
 
     // DEVOLVER A COCINA: vuelve a `in_progress` y el resumen recupera todo.
     const devuelto = [{ ...completado[0], stage: 'in_progress' as KdsStage }];
     expect(summarizeProducts(devuelto).totalUnits).toBe(4);
-    expect(summarizeProducts(devuelto).activeOrders).toBe(1);
+    expect(summarizeProducts(devuelto).countedOrders).toBe(1);
   });
 
   it('INICIAR y RETORNAR no cambian el resumen: el pedido sigue activo', () => {
@@ -67,7 +70,7 @@ describe('resumen — solo suma los tickets activos', () => {
     const nuevo = [ticket('A', 'new', [['Trancapecho', 3]])];
     const cancelado = [{ ...nuevo[0], stage: 'cancelled' as KdsStage }];
     expect(summarizeProducts(cancelado).totalUnits).toBe(0);
-    expect(summarizeProducts(cancelado).activeOrders).toBe(0);
+    expect(summarizeProducts(cancelado).countedOrders).toBe(0);
   });
 });
 
@@ -106,7 +109,100 @@ describe('resumen — orden y agrupación', () => {
   });
 
   it('sin tickets activos el resumen queda vacío', () => {
-    expect(summarizeProducts([])).toEqual({ rows: [], totalUnits: 0, activeOrders: 0 });
+    expect(summarizeProducts([])).toEqual({
+      rows: [],
+      totalUnits: 0,
+      countedOrders: 0,
+      awaitingOrders: 0,
+      awaitingUnits: 0,
+    });
+  });
+});
+
+describe('resumen — el total espera a que el pago se confirme', () => {
+  /**
+   * Quien mira la barra derecha es el planchero, y lo que lee ahí es cuánto
+   * poner a la plancha AHORA. Desde que cocina revisa los comprobantes, un
+   * pedido puede llegar al tablero con un pago que después se rechaza; hasta
+   * entonces sus unidades inflaban el total y se cocinaba de más.
+   */
+  const sinConfirmar = (t: KitchenTicket): KitchenTicket => ({
+    ...t,
+    awaitingPaymentConfirmation: true,
+  });
+
+  it('un pedido nuevo con el pago sin confirmar NO suma al total', () => {
+    const tickets = [
+      ticket('A', 'new', [['Trancapecho', 3]]),
+      sinConfirmar(ticket('B', 'new', [['Trancapecho', 2]])),
+    ];
+    const s = summarizeProducts(tickets);
+    expect(s.rows).toEqual([{ name: 'Trancapecho', quantity: 3 }]);
+    expect(s.totalUnits).toBe(3);
+    expect(s.countedOrders).toBe(1);
+  });
+
+  it('lo retenido se declara aparte: ni se suma ni se esconde', () => {
+    const s = summarizeProducts([
+      sinConfirmar(ticket('A', 'new', [['Trancapecho', 2], ['Api con pastel', 1]])),
+      sinConfirmar(ticket('B', 'new', [['Trancaburguer', 4]])),
+    ]);
+    expect(s.rows).toEqual([]);
+    expect(s.totalUnits).toBe(0);
+    expect(s.awaitingOrders).toBe(2);
+    expect(s.awaitingUnits).toBe(7);
+  });
+
+  it('al confirmar el pago, sus productos entran al total de golpe', () => {
+    const esperando = [sinConfirmar(ticket('A', 'new', [['Trancapecho', 3]]))];
+    expect(summarizeProducts(esperando).totalUnits).toBe(0);
+
+    const confirmado = [{ ...esperando[0], awaitingPaymentConfirmation: false }];
+    const s = summarizeProducts(confirmado);
+    expect(s.totalUnits).toBe(3);
+    expect(s.countedOrders).toBe(1);
+    expect(s.awaitingOrders).toBe(0);
+    expect(s.awaitingUnits).toBe(0);
+  });
+
+  it('ya en la plancha, cuenta aunque el pago siga sin confirmar', () => {
+    // INICIAR es una decisión de cocinar: el total que no la incluye le miente
+    // al planchero en la dirección contraria, diciéndole que le queda menos
+    // trabajo del que ya tiene en la mano.
+    const s = summarizeProducts([
+      sinConfirmar(ticket('A', 'in_progress', [['Trancapecho', 2]])),
+    ]);
+    expect(s.totalUnits).toBe(2);
+    expect(s.countedOrders).toBe(1);
+    expect(s.awaitingOrders).toBe(0);
+  });
+
+  it('un pedido completado o cancelado no cuenta como pendiente de pago', () => {
+    // La espera solo describe trabajo por llegar. Un `done` ya se cocinó y un
+    // `cancelled` no se cocinará: contarlos ahí sería inventar trabajo futuro.
+    const s = summarizeProducts([
+      sinConfirmar(ticket('A', 'done', [['Trancapecho', 5]])),
+      sinConfirmar(ticket('B', 'cancelled', [['Trancapecho', 9]])),
+    ]);
+    expect(s.awaitingOrders).toBe(0);
+    expect(s.awaitingUnits).toBe(0);
+    expect(s.totalUnits).toBe(0);
+  });
+
+  it('los contadores de la barra superior NO cambian: siguen contando pedidos', () => {
+    // La barra de arriba responde "cuántos pedidos hay", no "cuánto cocinar".
+    // Un pedido esperando comprobante es un pedido pendiente de verdad, y
+    // ocultarlo ahí dejaría a cocina sin saber que tiene algo que revisar.
+    const tickets = [
+      sinConfirmar(ticket('A', 'new', [['Trancapecho', 1]])),
+      ticket('B', 'new', [['Trancapecho', 1]]),
+    ];
+    expect(countersFrom(tickets)).toEqual({ today: 2, pending: 2, inProgress: 0, done: 0 });
+  });
+
+  it('el grid sigue pintando el ticket: lo que espera es el conteo, no la comanda', () => {
+    const tickets = [sinConfirmar(ticket('A', 'new', [['Trancapecho', 1]]))];
+    expect(gridTickets(tickets).map((t) => t.orderNumber)).toEqual(['A']);
   });
 });
 

@@ -71,8 +71,8 @@ describe('ticket — orden y contenido', () => {
 
   it('las fechas ilegibles se van al final sin romper el orden', () => {
     const tickets = sortByAge([
-      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, payment: null },
-      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, payment: null },
+      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null },
+      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null },
     ]);
     expect(tickets.map((t) => t.orderNumber)).toEqual(['ok', 'roto']);
   });
@@ -251,5 +251,99 @@ describe('si no se pudo consultar el pago, entran TODOS', () => {
     // El parámetro es opcional y su default es el seguro. Un llamador que aún no
     // sepa de pagos —o un test antiguo— no puede dejar la cocina sin comandas.
     expect(toKitchenTickets([porQr()], [])).toHaveLength(1);
+  });
+});
+
+describe('el pedido solo SUMA al resumen cuando el pago está confirmado', () => {
+  /**
+   * El comprobante decide la ENTRADA al tablero desde antes; esto decide algo
+   * distinto: cuándo sus unidades entran en el total de la barra derecha. El
+   * planchero cocina contra ese número, y un pago que después se rechaza le
+   * hacía cocinar de más.
+   */
+  function pedido(over: Partial<RawKitchenOrderRow> = {}): RawKitchenOrderRow {
+    return {
+      id: 'order-1',
+      order_number: 'ORD-000300',
+      status: 'confirmed',
+      delivery_type: 'delivery',
+      notes: null,
+      created_at: '2026-08-27T20:00:00.000Z',
+      confirmed_at: '2026-08-27T20:01:00.000Z',
+      updated_at: '2026-08-27T20:01:00.000Z',
+      payment_method: 'qr',
+      subtotal_amount: 48,
+      total_amount: 64,
+      ...over,
+    };
+  }
+
+  /** Vista de pago con un único intento en el estado que pida el test. */
+  const conIntento = (...estados: Array<'pending_review' | 'accepted' | 'rejected'>) =>
+    ({
+      attempts: estados.map((status, i) => ({
+        id: `a${i}`,
+        status,
+        statusLabel: status,
+        tone: 'amber' as const,
+        openedAt: '2026-08-27T20:05:00.000Z',
+        reviewedAt: null,
+        proofCount: 1,
+        proofs: [{ id: `p${i}` }],
+        canDecide: status === 'pending_review',
+      })),
+      unlinkedProofs: [],
+      hasPendingReview: estados.includes('pending_review'),
+    }) as never;
+
+  it('con el comprobante pendiente de revisión, el pedido espera', () => {
+    const [ticket] = toKitchenTickets(
+      [pedido()],
+      [],
+      { 'order-1': conIntento('pending_review') },
+      true,
+    );
+    expect(ticket.awaitingPaymentConfirmation).toBe(true);
+  });
+
+  it('con el pago aceptado, deja de esperar', () => {
+    const [ticket] = toKitchenTickets([pedido()], [], { 'order-1': conIntento('accepted') }, true);
+    expect(ticket.awaitingPaymentConfirmation).toBe(false);
+  });
+
+  it('con el pago rechazado, sigue esperando', () => {
+    const [ticket] = toKitchenTickets(
+      [pedido({ status: 'preparing' })],
+      [],
+      { 'order-1': conIntento('rejected') },
+      true,
+    );
+    expect(ticket.awaitingPaymentConfirmation).toBe(true);
+  });
+
+  it('un intento aceptado basta, aunque llegue otro comprobante después', () => {
+    // Una vez que un pago se acepta, el pedido está pagado: un duplicado o un
+    // reenvío del cliente no puede volver a dejarlo a deber.
+    const [ticket] = toKitchenTickets(
+      [pedido({ status: 'preparing' })],
+      [],
+      { 'order-1': conIntento('pending_review', 'accepted') },
+      true,
+    );
+    expect(ticket.awaitingPaymentConfirmation).toBe(false);
+  });
+
+  it('los pedidos en efectivo no esperan nada: no hay comprobante que aceptar', () => {
+    for (const metodo of ['cash', null] as const) {
+      const [ticket] = toKitchenTickets([pedido({ payment_method: metodo })], [], {}, true);
+      expect(ticket.awaitingPaymentConfirmation, String(metodo)).toBe(false);
+    }
+  });
+
+  it('si no se pudo consultar el pago, NO se afirma que falte confirmar', () => {
+    // Mismo criterio que el filtro de entrada: un fallo de consulta no puede
+    // vaciar el resumen entero. Ante la duda, cuenta.
+    const [ticket] = toKitchenTickets([pedido()], [], {}, false);
+    expect(ticket.awaitingPaymentConfirmation).toBe(false);
   });
 });

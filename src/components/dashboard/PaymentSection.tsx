@@ -78,6 +78,31 @@ function ProofCard({ proof }: { proof: ProofView }) {
               </span>
             )}
           </div>
+
+          {/* Lo que encontró el análisis automático. Aquí NO se retira al
+              decidir —a diferencia del KDS— porque este panel es también el
+              historial: quien revisa un pago de la semana pasada tiene que poder
+              ver qué se sabía cuando se decidió. */}
+          {proof.analysis && (
+            <div
+              className={`mt-2 rounded-md px-2 py-1.5 ring-1 ${
+                proof.analysis.verdict === 'suspicious'
+                  ? 'bg-red-50 text-red-900 ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900'
+                  : 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
+              }`}
+            >
+              <p className="text-xs font-bold uppercase tracking-wide">{proof.analysis.headline}</p>
+              {proof.analysis.reasons.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {proof.analysis.reasons.map((r) => (
+                    <li key={r} className="text-xs font-medium leading-snug">
+                      · {r}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Imagen: miniatura clicable. PDF o fallo: tarjeta de documento. La

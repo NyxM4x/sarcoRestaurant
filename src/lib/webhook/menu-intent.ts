@@ -10,14 +10,66 @@
  * jamás abre el menú. El trigger QA `TESTMENU9842` vive aparte (`menu-trigger`).
  */
 
-/** Normaliza para matching: trim, minúsculas, NFD sin diacríticos, espacios colapsados. */
+/**
+ * Normaliza para matching: trim, minúsculas, NFD sin diacríticos, sin signos y
+ * espacios colapsados.
+ *
+ * ── Por qué se quitan los signos ────────────────────────────────────────────
+ *
+ * "¿Menú?" es la forma MÁS natural de preguntar por la carta, y con los signos
+ * dentro no coincidía con nada: `menu?` no es `menu`, así que el cliente
+ * escribía exactamente lo que había que escribir y no le llegaba nada. Un
+ * detector que exige escribir sin signos de interrogación no es un detector.
+ *
+ * Se quitan los de puntuación y cierre, no los alfanuméricos: lo que distingue
+ * una intención de otra son las palabras.
+ */
 export function normalizeIntentText(text: string): string {
   return text
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '') // elimina diacríticos/tildes (marcas combinantes)
     .toLowerCase()
+    .replace(/[¿?¡!.,;:"'()]/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+/**
+ * Saludos con los que la gente ABRE el mensaje antes de pedir de verdad.
+ *
+ * "Hola, quiero pedir" es un mensaje real y frecuentísimo, y no coincidía con
+ * nada: las frases de intención están ancladas al COMIENZO —y con razón, es lo
+ * que evita los falsos positivos— pero eso dejaba fuera a todo el que saluda
+ * primero, que en WhatsApp es casi todo el mundo.
+ *
+ * Se retira UN saludo del principio y se vuelve a mirar. No se retira nada más:
+ * quitar palabras hasta que algo encaje convertiría el detector en una búsqueda
+ * de subcadena, que es justo lo que este módulo no hace.
+ */
+const SALUDOS: readonly string[] = [
+  'hola',
+  'holi',
+  'buenas',
+  'buenas noches',
+  'buenas tardes',
+  'buenos dias',
+  'buen dia',
+  'hey',
+  'que tal',
+  'disculpa',
+  'disculpe',
+  'por favor',
+];
+
+/** Quita un saludo inicial, si lo hay. Devuelve el texto tal cual si no. */
+function sinSaludoInicial(norm: string): string {
+  // Del más largo al más corto: "buenas noches" antes que "buenas", o quedaría
+  // un "noches" suelto delante de la intención.
+  for (const saludo of [...SALUDOS].sort((a, b) => b.length - a.length)) {
+    if (norm === saludo) return '';
+    if (norm.startsWith(`${saludo} `)) return norm.slice(saludo.length + 1).trim();
+  }
+  return norm;
 }
 
 /**
@@ -81,7 +133,13 @@ export function isMenuIntent(text: string | null | undefined): boolean {
   // 1. Necesidad de menú expresada con negación de acceso ("no veo la carta").
   if (NEEDS_MENU.test(norm)) return true;
 
-  // 2. Intención positiva por frase/keyword controlada (anclada al comienzo).
-  if (EXACT_PHRASES.has(norm)) return true;
-  return PREFIX_PHRASES.some((p) => norm === p || norm.startsWith(`${p} `));
+  // 2. Intención positiva, con y sin el saludo de apertura. Las negaciones
+  //    siguen cayendo fuera: quitar "hola" de "hola no quiero pedir" deja "no
+  //    quiero pedir", que tampoco empieza por ninguna frase de intención.
+  const candidatos = [norm, sinSaludoInicial(norm)];
+  return candidatos.some(
+    (c) =>
+      c !== '' &&
+      (EXACT_PHRASES.has(c) || PREFIX_PHRASES.some((p) => c === p || c.startsWith(`${p} `))),
+  );
 }

@@ -8,6 +8,7 @@ import { decideAssociation } from './association';
 import type { ProofAssociationMethod } from '@/types';
 import { createSupabaseIntakeDataSource, newClaimToken } from './intake-data-source';
 import { isProofStorageConfigured, putProofObject } from './storage';
+import { analyzeCapturedProof } from './analysis-service';
 
 /**
  * Entrada de comprobantes desde el canal — server-only.
@@ -148,7 +149,16 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
       }
     }
 
-    return await capturePaymentProof(
+    /**
+     * Los bytes descargados, para el analisis posterior.
+     *
+     * Se guardan de paso en vez de volver a bajarlos del bucket: la descarga ya
+     * se hizo, y repetirla anadiria una segunda ida a la red dentro del webhook
+     * para conseguir exactamente los mismos bytes.
+     */
+    let descargados: Uint8Array | null = null;
+
+    const outcome = await capturePaymentProof(
       {
         sourceMessageId: input.sourceMessageId,
         declaredMimeType:
@@ -190,7 +200,8 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
           // aceptan.
           const res = await resolveProofFile(input.attachment);
           if (!res.ok) return null;
-          return bytesFromDataUrl(res.dataUrl);
+          descargados = bytesFromDataUrl(res.dataUrl);
+          return descargados;
         },
 
         async hashBytes(bytes) {
@@ -204,6 +215,28 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Intak
         },
       },
     );
+
+    // ── Analisis automatico ──────────────────────────────────────────────────
+    //
+    // Va DESPUES de la captura y solo si termino: el comprobante ya esta
+    // guardado, asociado a su intento y visible en cocina antes de que esto
+    // empiece. Se espera a proposito —nada de `void`— porque en modo asincrono
+    // esto corre dentro del `after()` de la ruta, y soltar la promesa dejaria el
+    // analisis a merced de que la funcion serverless siga viva.
+    //
+    // `analyzeCapturedProof` no lanza nunca: lo peor que puede pasar es que este
+    // comprobante se quede sin analizar, y sin analisis el flujo es exactamente
+    // el de antes de que existiera — una persona lo abre y decide.
+    if (outcome.result === 'captured' && descargados !== null) {
+      await analyzeCapturedProof({
+        proofId: outcome.proofId,
+        orderId: outcome.orderId,
+        bytes: descargados,
+        receivedAtMs: input.receivedAtMs,
+      });
+    }
+
+    return outcome;
   } catch (error) {
     // Solo el nombre del fallo: nunca bytes, URLs de media ni el teléfono.
     log.error('payment_proof_intake_failed', {

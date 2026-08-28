@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import type { KdsAction } from '@/lib/kitchen/kds-status';
 import { formatClockTime } from '@/lib/kitchen/timer';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
+import { shortOrderNumber } from '@/lib/orders/order-number';
 
 /**
  * Historial de "Pedidos listos": el salvavidas por si un cocinero completo un
@@ -68,8 +69,8 @@ export function KitchenReadyPanel({
                   className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5"
                 >
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-xl font-extrabold tracking-tight text-zinc-900">
-                      {ticket.orderNumber}
+                    <span className="text-2xl font-extrabold tracking-tight text-zinc-900">
+                      {shortOrderNumber(ticket.orderNumber)}
                     </span>
                     <span className="text-sm font-semibold tabular-nums text-zinc-500">
                       {formatClockTime(ticket.completedAt)}

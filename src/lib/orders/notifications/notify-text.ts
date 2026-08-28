@@ -7,6 +7,14 @@ import {
   DYNAMIC_CONFIRMATION_PREFIX,
   ORDER_RECEIVED_PREFIX,
 } from '@/lib/kapso/outbound-classify';
+/**
+ * El cliente ve el número CORTO ("#7"), no el interno (`ORD-260828-007`).
+ *
+ * Es el número que oirá gritar cuando recoja, el que dirá por teléfono y el
+ * único que le sirve para algo esta noche. Los prefijos canónicos NO se tocan:
+ * siguen siendo la marca con la que el clasificador reconoce cada mensaje.
+ */
+import { shortOrderNumber } from '@/lib/orders/order-number';
 
 /**
  * Construcción de los textos de confirmación del checkout web — módulo puro.
@@ -72,7 +80,7 @@ export function buildConfirmationText(input: ConfirmationTextInput): Confirmatio
     return {
       ok: true,
       text: [
-        `📦 ¡Recibí tu pedido ${input.order_number}!`,
+        `📦 ¡Recibí tu pedido ${shortOrderNumber(input.order_number)}!`,
         '',
         'Tu pedido quedó confirmado para recoger en el local.',
         '',
@@ -87,7 +95,7 @@ export function buildConfirmationText(input: ConfirmationTextInput): Confirmatio
   return {
     ok: true,
     text: [
-      `📦 ¡Recibí tu pedido ${input.order_number}!`,
+      `📦 ¡Recibí tu pedido ${shortOrderNumber(input.order_number)}!`,
       '',
       'Resumen:',
       ...lines,
@@ -110,7 +118,7 @@ export function buildConfirmationText(input: ConfirmationTextInput): Confirmatio
  */
 export function buildOrderReceivedText(orderNumber: string): string {
   return [
-    `${ORDER_RECEIVED_PREFIX}${orderNumber}.`,
+    `${ORDER_RECEIVED_PREFIX}${shortOrderNumber(orderNumber)}.`,
     '',
     'Ahora necesitamos tu ubicación para calcular el costo de delivery.',
   ].join('\n');
@@ -136,7 +144,7 @@ export function buildDynamicDeliveryConfirmationText(
   input: DynamicDeliveryConfirmationInput,
 ): string {
   return [
-    `${DYNAMIC_CONFIRMATION_PREFIX}${input.order_number}`,
+    `${DYNAMIC_CONFIRMATION_PREFIX}${shortOrderNumber(input.order_number)}`,
     '',
     `${CONFIRMATION_FOOD_LABEL} ${formatBs(input.subtotal_amount)}`,
     `${CONFIRMATION_DELIVERY_LABEL} ${formatBs(input.delivery_amount)}`,

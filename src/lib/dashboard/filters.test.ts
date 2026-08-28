@@ -50,14 +50,32 @@ describe('filters — normalización y límites', () => {
     expect(normalizeFilters({ dateRange: 'ever' }).dateRange).toBe('today');
   });
 
-  it('dateBounds calcula ventanas coherentes', () => {
+  it('dateBounds corta por JORNADA de servicio, no por medianoche', () => {
+    // 15:30 UTC = 11:30 en Bolivia: todavía ANTES del corte del mediodía, así
+    // que la jornada vigente es la que abrió el día 5.
     const now = Date.parse('2026-08-06T15:30:00.000Z');
     expect(dateBounds('all', now)).toEqual({ since: null, until: null });
-    expect(dateBounds('today', now).since).toBe('2026-08-06T00:00:00.000Z');
+    // 5-ago 12:00 en Bolivia = 5-ago 16:00 UTC.
+    expect(dateBounds('today', now).since).toBe('2026-08-05T16:00:00.000Z');
     expect(dateBounds('yesterday', now)).toEqual({
-      since: '2026-08-05T00:00:00.000Z',
-      until: '2026-08-06T00:00:00.000Z',
+      since: '2026-08-04T16:00:00.000Z',
+      until: '2026-08-05T16:00:00.000Z',
     });
-    expect(dateBounds('last7', now).since).toBe('2026-07-31T00:00:00.000Z');
+    expect(dateBounds('last7', now).since).toBe('2026-07-30T16:00:00.000Z');
+  });
+
+  it('la noche entera de servicio cae en la MISMA jornada', () => {
+    // Es la regresión que importa: con el corte por medianoche UTC, a las 20:00
+    // de Bolivia el tablero de cocina perdía los pedidos de 18:00 a 20:00 —en
+    // plena hora punta y con la comida sin salir.
+    const seisDeLaTarde = Date.parse('2026-08-28T22:00:00.000Z'); // 18:00 Bolivia
+    const medianoche = Date.parse('2026-08-29T04:00:00.000Z'); // 00:00 Bolivia
+    const tresDeLaManana = Date.parse('2026-08-29T07:00:00.000Z'); // 03:00 Bolivia
+
+    const desde = dateBounds('today', seisDeLaTarde).since;
+    expect(dateBounds('today', medianoche).since).toBe(desde);
+    expect(dateBounds('today', tresDeLaManana).since).toBe(desde);
+    // Y ese inicio es anterior a la apertura: ningún pedido de la noche queda fuera.
+    expect(Date.parse(desde!)).toBeLessThan(seisDeLaTarde);
   });
 });

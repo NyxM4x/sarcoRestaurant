@@ -1,3 +1,5 @@
+import type { ProofAnalysisReason, ProofVerdict } from '@/lib/payment-proof/analysis';
+
 /**
  * Tipos del modelo de datos de Don Zarco Orders.
  *
@@ -336,6 +338,11 @@ export interface DashboardUser {
 
 // ── Comprobantes de pago (0021) ──────────────────────────────────────────
 
+// El veredicto y sus motivos se declaran junto a las REGLAS que los producen
+// (`@/lib/payment-proof/analysis`), no aqui: la fila los guarda, pero quien
+// decide que significan es el modulo puro que los calcula.
+
+
 /**
  * Estado de revision de un intento de pago. Es una dimension INDEPENDIENTE de
  * `orders.status`: confirmar un pago no avanza el pedido.
@@ -369,7 +376,11 @@ export type ProofRoutingException = (typeof PROOF_ROUTING_EXCEPTIONS)[number];
 export const PROOF_CAPTURE_STATUSES = ['pending', 'stored', 'failed'] as const;
 export type ProofCaptureStatus = (typeof PROOF_CAPTURE_STATUSES)[number];
 
-/** Analisis automatico futuro. `pending` es su estado NORMAL, no un fallo. */
+/**
+ * Analisis automatico (0021 lo dejo preparado; 0025 lo puso en marcha).
+ * `pending` sigue siendo un estado NORMAL: significa "no analizado", que es lo
+ * que le pasa a un PDF o a un comprobante recibido con el analisis apagado.
+ */
 export const PROOF_ANALYSIS_STATUSES = ['pending', 'done', 'failed'] as const;
 export type ProofAnalysisStatus = (typeof PROOF_ANALYSIS_STATUSES)[number];
 
@@ -414,6 +425,23 @@ export interface PaymentProof {
   storage_stored_at: string | null;
   storage_expires_at: string | null;
   analysis_status: ProofAnalysisStatus;
+  /**
+   * Resultado del analisis automatico (0025). NULL mientras no se haya
+   * analizado; hay veredicto exactamente cuando `analysis_status = 'done'`.
+   *
+   * NO decide nada: no acepta, no rechaza y no oculta el comprobante. Es lo que
+   * se le pone delante a quien revisa para que un vistazo con prisa no se salte
+   * lo que no cuadra.
+   */
+  analysis_verdict: ProofVerdict | null;
+  /** Codigos de motivo, en el orden en que se detectaron. */
+  analysis_reasons: ProofAnalysisReason[];
+  /** Monto leido en la imagen. Es una lectura optica, no una verdad contable. */
+  analysis_amount: number | null;
+  /** Numero de transaccion leido. Reconoce el mismo pago en una captura nueva. */
+  analysis_reference: string | null;
+  analysis_model: string | null;
+  analyzed_at: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -53,6 +53,14 @@ export type IntakeOutcome =
       matchMethod: ProofAssociationMethod;
       duplicateOfProofId: string | null;
       attemptId: string | null;
+      /**
+       * Pedido al que se enruto, o `null` si no se pudo asociar a ninguno.
+       *
+       * Viaja porque el analisis automatico lo necesita para saber CONTRA QUE
+       * monto contrastar el comprobante, y recalcular el enrutado fuera del
+       * motor abriria una segunda decision que podria discrepar de esta.
+       */
+      orderId: string | null;
     }
   /** Ya estaba almacenado: no se repite descarga, subida ni intento. */
   | { result: 'already_captured'; proofId: string }
@@ -249,6 +257,7 @@ export async function capturePaymentProof(
     matchMethod: decision.method,
     duplicateOfProofId: decision.duplicateOfProofId,
     attemptId,
+    orderId: decision.orderId,
   };
 }
 

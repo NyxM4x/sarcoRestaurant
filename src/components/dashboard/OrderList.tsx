@@ -8,6 +8,7 @@ import { primaryActionFor, isTerminalStatus } from '@/lib/dashboard/status';
 import { elapsedMinutes, waitingLabel, urgencyLevel, urgencyMeta } from '@/lib/dashboard/urgency';
 import { paymentMethodMeta } from '@/lib/dashboard/payment';
 import { formatMoney, formatTime, deliveryTypeLabel, formatCustomerName } from '@/lib/dashboard/format';
+import { orderDayLabel, shortOrderNumber } from '@/lib/orders/order-number';
 
 function Flag({ tone, children }: { tone: 'amber' | 'red'; children: React.ReactNode }) {
   const cls =
@@ -83,7 +84,17 @@ function OrderCard({
       {/* Superior: número (+ "Nuevo") + estado */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">{order.orderNumber}</p>
+          {/* La fecha va SIEMPRE junto al número: esta lista muestra varias
+              jornadas a la vez, y dos "#7" de dos noches distintas serían
+              indistinguibles. Es el precio de reiniciar el contador. */}
+          <p className="font-semibold tracking-tight text-zinc-900 tabular-nums dark:text-zinc-50">
+            {shortOrderNumber(order.orderNumber)}
+          </p>
+          {orderDayLabel(order.orderNumber) && (
+            <span className="shrink-0 text-xs font-medium tabular-nums text-zinc-400">
+              {orderDayLabel(order.orderNumber)}
+            </span>
+          )}
           {isNew && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-600 px-1.5 py-0.5 text-[11px] font-semibold text-white">
               <span aria-hidden>●</span> Nuevo
