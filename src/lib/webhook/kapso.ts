@@ -173,6 +173,19 @@ export type AskLocationForQuote = (input: {
   sourceMessageId: string;
 }) => Promise<{ ok: boolean }>;
 
+/**
+ * Comprobación del cliente atascado (0027 / 29-08-2026).
+ *
+ * Corre una vez por entrega, después de persistir los mensajes y con
+ * independencia de quién los atendió. Antes colgaba del despacho del menú, así
+ * que solo veía a quien pedía el menú una y otra vez; el que se traba
+ * preguntando por el envío era invisible.
+ *
+ * NUNCA lanza y su resultado se ignora: es contabilidad, no puede tumbar una
+ * entrega ya atendida. Opcional — sin ella no se comprueba nada.
+ */
+export type CheckStuckCustomer = (customerPhone: string) => Promise<void>;
+
 export type QuoteStandaloneLocation = (input: {
   /** Teléfono del cliente, solo dígitos. */
   customerPhone: string;
@@ -277,6 +290,8 @@ export interface HandleKapsoWebhookParams {
   quoteStandaloneLocation?: QuoteStandaloneLocation;
   /** 0027: "¿cuánto sale el envío?" antes de que mande el pin. */
   askLocationForQuote?: AskLocationForQuote;
+  /** Avisa al equipo del cliente que lleva muchos mensajes y no consigue pedir. */
+  checkStuckCustomer?: CheckStuckCustomer;
   /**
    * Store de reconciliación outbound (Fase 5.2D.5C). Opcional: si no se inyecta,
    * los eventos salientes de Kapso se ignoran con 200 (comportamiento previo),
@@ -1417,6 +1432,22 @@ async function runBusiness(
     // fabrica un mensaje nuevo: el ancla es un mensaje REAL del cliente, con su
     // WAMID, y la ráfaga entera ya está persistida antes de llamar al modelo —
     // así que el contexto la ve completa y en orden sin ningún vínculo explícito.
+    // ── ¿Se está trabando este cliente? ──────────────────────────────────────
+    //
+    // Va aquí, no en el turno del agente: cuando el pipeline determinista
+    // atiende un mensaje —el CTA del menú, la cotización del envío— no hay
+    // turno, y son justo esos clientes los que se quedaban sin detectar. Los
+    // mensajes ya están persistidos, así que el conteo incluye el de ahora.
+    //
+    // Best-effort y sin `await` que pueda tumbar nada: el módulo captura sus
+    // propios errores. Se hace ANTES del turno para que la pausa, si la pone,
+    // frene al agente en su barrera en lugar de dejarlo hablar encima.
+    const anclaCliente = results.find((r) => r.message !== null)?.message ?? null;
+    if (params.checkStuckCustomer && anclaCliente) {
+      const phoneDigits = normalizePhone(anclaCliente.customerPhone);
+      if (phoneDigits) await params.checkStuckCustomer(phoneDigits);
+    }
+
     const anchor = pickTurnAnchor(results);
     let turn: string | null = null;
     if (anchor?.message && params.agentChannel?.runAgentTurn) {

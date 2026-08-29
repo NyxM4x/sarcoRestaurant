@@ -17,6 +17,7 @@ import {
   askLocationForQuote,
   quoteStandaloneLocation,
 } from '@/lib/delivery/quote-request-service';
+import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
   acceptKapsoWebhook,
@@ -82,6 +83,8 @@ export async function POST(request: Request): Promise<Response> {
       // 0027: "¿cuánto sale el envío?" se contesta pidiendo la ubicación, sin
       // pasar por el modelo — medido, el modelo lo derivaba a una persona.
       askLocationForQuote: (input) => askLocationForQuote(input),
+      // Avisa al equipo del cliente que escribe y escribe sin conseguir pedir.
+      checkStuckCustomer: (phone) => escalateIfStuck(phone),
       // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
       outbound: createSupabaseOutboundStore(supabase),
       // Fase 6D.2F.2B: historial del cliente + human takeover.

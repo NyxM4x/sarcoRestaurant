@@ -90,3 +90,46 @@ describe('isDeliveryQuoteIntent — hacen falta las DOS familias de palabras', (
     expect(isDeliveryQuoteIntent(12345 as unknown as string)).toBe(false);
   });
 });
+
+describe('isDeliveryQuoteIntent — señalar un lugar junto a un precio', () => {
+  it('"Aquí cuánto cobra" — el mensaje que derivó una conversación', () => {
+    // 29-08-2026, 02:39. Venía justo después de un link de Google Maps: el
+    // cliente creía que ya había dicho dónde estaba. Hay palabra de coste pero
+    // ninguna de envío, así que caía al modelo, y el modelo llamó al equipo.
+    expect(isDeliveryQuoteIntent('Aquí cuánto cobra')).toBe(true);
+  });
+
+  it('las otras formas de señalar el sitio sin nombrar el envío', () => {
+    for (const texto of [
+      'cuanto cobran hasta aqui',
+      'cuanto me sale a mi casa',
+      'que precio a esta direccion',
+      'cuanto cuesta a mi ubicacion',
+      'aca cuanto seria',
+    ]) {
+      expect(isDeliveryQuoteIntent(texto), texto).toBe(true);
+    }
+  });
+
+  it('un producto preguntado normalmente sigue sin activarlo', () => {
+    // La deixis es lo que separa las dos preguntas: nadie pregunta el precio de
+    // una hamburguesa diciendo "aquí".
+    for (const texto of [
+      'cuanto cuesta el trancapecho?',
+      'que precio tiene la coca de dos litros',
+      'cuanto vale la salchipapa',
+    ]) {
+      expect(isDeliveryQuoteIntent(texto), texto).toBe(false);
+    }
+  });
+
+  it('un lugar sin precio tampoco: eso es una dirección, no una pregunta', () => {
+    for (const texto of [
+      'estoy aqui en el 5to anillo',
+      'mandenlo a mi casa',
+      'aqui te paso la ubicacion',
+    ]) {
+      expect(isDeliveryQuoteIntent(texto), texto).toBe(false);
+    }
+  });
+});

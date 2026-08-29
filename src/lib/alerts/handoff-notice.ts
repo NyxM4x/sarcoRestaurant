@@ -26,6 +26,9 @@
 /** Por qué se derivó, en el vocabulario de quien va a atender. */
 export const HANDOFF_CATEGORY_LABELS: Record<string, string> = {
   handoff_requested: 'El cliente necesita hablar con una persona',
+  handoff_stuck_customer: 'No consigue hacer su pedido',
+  // Valor histórico: lo escribió el detector mientras contaba menús enviados.
+  // Se conserva para que una alerta sobre una fila vieja siga siendo legible.
   handoff_menu_loop: 'No consigue hacer su pedido',
   payment_reviewed: 'Se acaba de revisar su comprobante',
 };

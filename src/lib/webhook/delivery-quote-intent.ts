@@ -55,6 +55,24 @@ import { normalizeIntentText } from './menu-intent';
 const COSTE = /\b(cuanto|cuantos|precio|costo|coste|tarifa|vale)\b/;
 
 /**
+ * Señalar un LUGAR sin nombrar el envío.
+ *
+ * "Aquí cuánto cobra" derivó una conversación a una persona el 29-08-2026: hay
+ * palabra de coste, pero ninguna de envío, así que el detector la dejaba pasar
+ * al modelo — y el modelo la mandó al equipo.
+ *
+ * Un "aquí" junto a un precio solo puede significar una cosa en un chat de
+ * restaurante: cuánto cuesta traerlo HASTA AQUÍ. Ningún producto del menú se
+ * pregunta así; "cuánto cuesta el trancapecho" no lleva deixis, y por eso esta
+ * familia no lo toca.
+ *
+ * Suele venir después de compartir la ubicación o pegar un link de Maps, que es
+ * justo cuando el cliente cree que ya dijo dónde está.
+ */
+const DEIXIS =
+  /\b(aqui|aca|hasta aqui|hasta aca|a esta direccion|a esta zona|a este barrio|a mi casa|a mi ubicacion|a mi direccion|a esta ubicacion)\b/;
+
+/**
  * Hablar del envío.
  *
  * Los sustantivos (`delivery`, `envio`, `domicilio`) son inequívocos. Los verbos
@@ -93,5 +111,5 @@ export function isDeliveryQuoteIntent(text: string | null | undefined): boolean 
   const norm = normalizeIntentText(text);
   if (norm === '') return false;
 
-  return COSTE.test(norm) && ENVIO.test(norm);
+  return COSTE.test(norm) && (ENVIO.test(norm) || DEIXIS.test(norm));
 }

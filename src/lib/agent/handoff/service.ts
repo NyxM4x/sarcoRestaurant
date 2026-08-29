@@ -1,18 +1,27 @@
 import 'server-only';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { notifyHandoff } from '@/lib/alerts/handoff-notice-service';
 import { createAgentStore } from '../memory/repository';
 import { pauseAgentForHandoff } from '../control/handoff-pause';
 import { PAUSE_REASON_HANDOFF_REQUESTED } from '../core/types';
 import type { HandoffPort } from '../tools/request-human';
+import { canHandOff, HANDOFF_COUNT_WINDOW_HOURS } from './handoff-gate';
+import { isExplicitHumanRequest } from './explicit-request';
 
 /**
  * Derivar una conversación a una persona — cableado server-only.
  *
- * Son dos cosas, en este orden y por este motivo:
+ * Son tres cosas, en este orden y por este motivo:
  *
- *   1. PAUSAR — primero, para que nadie más hable encima.
- *   2. AVISAR — al equipo, best-effort.
+ *   0. COMPROBAR — ¿hay conversación suficiente para que derivar tenga sentido?
+ *   1. PAUSAR    — primero que el aviso, para que nadie hable encima.
+ *   2. AVISAR    — al equipo, best-effort.
+ *
+ * El paso 0 va antes de escribir NADA. Ver `handoff-gate.ts` para los cuatro
+ * falsos positivos que lo motivaron; aquí basta con saber que si no pasa, no se
+ * pausa, no se avisa y no queda rastro en la base — solo un log.
  *
  * La pausa va antes que el aviso. Si fuera al revés y algo fallara por el
  * camino, el agente seguiría contestando a un cliente que ya pidió hablar con
@@ -26,8 +35,8 @@ import type { HandoffPort } from '../tools/request-human';
  * nadie contesta después de habérselo anunciado se siente ignorado; uno al que
  * simplemente deja de responderle un bot vuelve a escribir, o llama.
  *
- * Es además lo que ya hacía el detector de menús (`menu-loop-service.ts`), que
- * pausa y avisa sin decirle nada a nadie. Los dos caminos de derivación se
+ * Es además lo que ya hacía el detector de atasco (`stuck-customer-service.ts`),
+ * que pausa y avisa sin decirle nada a nadie. Los dos caminos de derivación se
  * comportan igual, y no hay que recordar cuál de ellos habla.
  *
  * Lo que sí sale, siempre, es la alerta a Telegram. La derivación es un aviso
@@ -37,10 +46,62 @@ import type { HandoffPort } from '../tools/request-human';
 /** Minutos que calla el agente tras derivar. */
 export const HANDOFF_PAUSE_MINUTES = 120;
 
+/**
+ * Mensajes del cliente en la ventana. `null` = no se pudo contar.
+ *
+ * Se cuenta por TELÉFONO y no por conversación para no depender de una lectura
+ * previa: es la misma clave con la que el resto del sistema identifica a un
+ * cliente, y `agent_conversations.customer_phone` es única.
+ */
+async function contarMensajesDelCliente(
+  supabase: SupabaseClient,
+  customerPhone: string,
+): Promise<number | null> {
+  const desde = new Date(
+    Date.now() - HANDOFF_COUNT_WINDOW_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data: conv, error: errConv } = await supabase
+    .from('agent_conversations')
+    .select('id')
+    .eq('customer_phone', customerPhone)
+    .maybeSingle();
+  if (errConv) return null;
+  // Sin conversación no hay mensajes: cero, no "no se pudo". La persistencia
+  // del entrante corre antes del turno, así que llegar aquí sin fila sería
+  // raro — y en todo caso cero es la respuesta correcta.
+  if (!conv) return 0;
+
+  const { count, error } = await supabase
+    .from('agent_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('agent_conversation_id', (conv as { id: string }).id)
+    .eq('actor', 'customer')
+    .gte('message_timestamp', desde);
+
+  return error ? null : (count ?? 0);
+}
+
 export function createHandoffPort(): HandoffPort {
   return {
     async escalate({ customerPhone, sourceMessageId, inboundText }) {
-      const store = createAgentStore(getSupabaseAdmin());
+      const supabase = getSupabaseAdmin();
+
+      // 0. LA PUERTA. Quien pide una persona con todas las letras la cruza sin
+      // contar nada; el resto necesita que la conversación exista de verdad.
+      const explicitRequest = isExplicitHumanRequest(inboundText);
+      const customerMessages = explicitRequest
+        ? null // no hace falta contar: la petición explícita ya decide.
+        : await contarMensajesDelCliente(supabase, customerPhone);
+
+      if (!canHandOff({ customerMessages, explicitRequest })) {
+        // El cliente NO se queda sin respuesta: `handed: false` deja el turno
+        // vivo y el modelo redacta. Lo que no ocurre es la derivación.
+        log.info('agent.handoff_below_threshold', { messages: customerMessages });
+        return { handed: false };
+      }
+
+      const store = createAgentStore(supabase);
 
       const pausa = await pauseAgentForHandoff(
         {

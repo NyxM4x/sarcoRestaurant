@@ -36,10 +36,15 @@ export const PAUSE_REASON_HUMAN_BUSINESS_APP = 'human_whatsapp_business_app';
 export const PAUSE_REASON_HANDOFF_REQUESTED = 'handoff_requested';
 
 /**
- * El cliente recibió el menú varias veces y no llegó a pedir. No es una queja:
- * es alguien atascado, que es peor porque no se queja — se va.
+ * El cliente lleva muchos mensajes y no llegó a pedir. No es una queja: es
+ * alguien atascado, que es peor porque no se queja — se va.
+ *
+ * Se llamaba `handoff_menu_loop` cuando el detector contaba menús enviados.
+ * Cuenta mensajes desde el 29-08-2026, y el nombre viejo describía el proxy en
+ * vez del fenómeno. Las filas anteriores conservan el valor antiguo y su
+ * etiqueta sigue en `HANDOFF_CATEGORY_LABELS`: el historial no se reescribe.
  */
-export const PAUSE_REASON_HANDOFF_MENU_LOOP = 'handoff_menu_loop';
+export const PAUSE_REASON_HANDOFF_STUCK = 'handoff_stuck_customer';
 
 /**
  * Se acaba de aceptar o rechazar su comprobante.

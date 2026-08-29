@@ -24,7 +24,35 @@ const AVISOS: unknown[] = [];
 /** Orden real de los efectos, para probar que la pausa va PRIMERO. */
 const ORDEN: string[] = [];
 
-vi.mock('@/lib/supabase/server', () => ({ getSupabaseAdmin: () => ({}) }));
+/**
+ * Mensajes del cliente que devuelve el conteo de la puerta. `null` = la
+ * consulta falla, que es un caso con su propia conducta esperada.
+ */
+let MENSAJES: number | null = 10;
+
+/**
+ * Supabase de mentira, encadenable.
+ *
+ * Cubre las dos consultas de la puerta: buscar la conversación por teléfono y
+ * contar sus mensajes de cliente. Cada método devuelve el mismo objeto, y el
+ * objeto es "thenable" para poder esperarlo al final de la cadena.
+ */
+function fakeSupabase() {
+  const builder: Record<string, unknown> = {};
+  const encadenar = () => builder;
+  for (const m of ['select', 'eq', 'gte', 'order', 'limit', 'in', 'not']) {
+    builder[m] = encadenar;
+  }
+  builder.maybeSingle = async () =>
+    MENSAJES === null ? { data: null, error: new Error('supabase caído') } : { data: { id: 'conv-1' }, error: null };
+  builder.then = (resolve: (v: unknown) => unknown) =>
+    Promise.resolve(
+      MENSAJES === null ? { count: null, error: new Error('supabase caído') } : { count: MENSAJES, error: null },
+    ).then(resolve);
+  return { from: () => builder };
+}
+
+vi.mock('@/lib/supabase/server', () => ({ getSupabaseAdmin: () => fakeSupabase() }));
 vi.mock('../memory/repository', () => ({ createAgentStore: () => ({}) }));
 
 vi.mock('../control/handoff-pause', () => ({
@@ -59,6 +87,9 @@ const entrada = {
 };
 
 beforeEach(() => {
+  // Por defecto, conversación de sobra: los tests que no hablan de la puerta
+  // no deberían tener que pensar en ella.
+  MENSAJES = 10;
   PAUSA = { result: 'ok', pause: 'applied' };
   PAUSAS.length = 0;
   AVISOS.length = 0;
@@ -136,5 +167,65 @@ describe('handoff — derivar pausa y avisa, y no le dice nada al cliente', () =
 
   it('calla dos horas, lo mismo que el detector de menús', async () => {
     expect(HANDOFF_PAUSE_MINUTES).toBe(120);
+  });
+});
+
+describe('handoff — la puerta: derivar exige conversación de verdad', () => {
+  it('en el primer mensaje NO deriva: no pausa, no avisa, no escribe nada', async () => {
+    // Es la forma de tres de los cuatro falsos positivos. El cliente no se
+    // queda sin respuesta: `handed: false` deja el turno vivo y el modelo
+    // redacta. Lo que no ocurre es la derivación.
+    MENSAJES = 1;
+
+    const res = await createHandoffPort().escalate(entrada);
+
+    expect(res).toEqual({ handed: false });
+    expect(PAUSAS).toEqual([]);
+    expect(AVISOS).toEqual([]);
+  });
+
+  it('justo por debajo del umbral tampoco', async () => {
+    MENSAJES = 3;
+    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: false });
+    expect(PAUSAS).toEqual([]);
+  });
+
+  it('con conversación suficiente, deriva', async () => {
+    MENSAJES = 4;
+    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: true });
+    expect(PAUSAS).toHaveLength(1);
+    expect(AVISOS).toHaveLength(1);
+  });
+
+  it('quien pide una persona con todas las letras NO espera turno', async () => {
+    // Y ni siquiera se cuenta: la petición explícita decide sola.
+    MENSAJES = 1;
+
+    const res = await createHandoffPort().escalate({
+      ...entrada,
+      inboundText: 'quiero hablar con una persona',
+    });
+
+    expect(res).toEqual({ handed: true });
+    expect(PAUSAS).toHaveLength(1);
+  });
+
+  it('si no se puede contar, NO deriva', async () => {
+    // Fail closed. Un contador ciego que deja pasar todo no es una puerta.
+    MENSAJES = null;
+
+    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: false });
+    expect(PAUSAS).toEqual([]);
+  });
+
+  it('pero una petición explícita cruza aunque la base no responda', async () => {
+    MENSAJES = null;
+
+    const res = await createHandoffPort().escalate({
+      ...entrada,
+      inboundText: 'pasame con el encargado por favor',
+    });
+
+    expect(res).toEqual({ handed: true });
   });
 });

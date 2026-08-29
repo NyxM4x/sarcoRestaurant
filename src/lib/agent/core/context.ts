@@ -300,10 +300,10 @@ function isAssistantVoice(actor: AgentMessageActor): boolean {
 /**
  * A partir de cuánto silencio se considera que la conversación se cortó.
  *
- * Cuarenta y cinco minutos, los mismos que `MENU_LOOP_WINDOW_MINUTES`, y no por
- * casualidad: las dos constantes contestan la MISMA pregunta —"¿esto sigue
- * siendo la misma conversación?"— y que divergieran obligaría a razonar dos
- * veces sobre lo mismo, con dos respuestas distintas conviviendo en el sistema.
+ * Cuarenta y cinco minutos. Contesta la misma pregunta que la ventana del
+ * detector de atasco —"¿esto sigue siendo la misma conversación?"— aunque los
+ * números ya no coincidan: aquel mide media hora porque cuenta el esfuerzo de
+ * un cliente trabado, y este cubre además la pausa de quien va y viene.
  */
 export const SESSION_GAP_MINUTES = 45;
 

@@ -164,10 +164,50 @@ describe('menú — cómo escribe la gente de verdad', () => {
     }
   });
 
-  it('solo se retira UN saludo: esto no es una búsqueda de subcadena', () => {
-    // Quitar palabras hasta que algo encaje abriría el menú con cualquier
-    // mensaje que mencione comer de pasada.
-    expect(isMenuIntent('hola buenas tardes disculpe quiero pedir')).toBe(false);
+  it('se retiran saludos ENCADENADOS, pero esto no es una búsqueda de subcadena', () => {
+    // Desde el 29-08-2026 se retiran varios saludos seguidos: nadie saluda con
+    // una sola palabra, y "hola buenas tardes disculpe quiero pedir" es un
+    // cliente queriendo pedir, no un caso raro.
+    expect(isMenuIntent('hola buenas tardes disculpe quiero pedir')).toBe(true);
+
+    // Lo que NO cambia, y es la razón de ser del detector: se retiran PREFIJOS
+    // de una lista cerrada, nunca palabras hasta que algo encaje. La intención
+    // mencionada en mitad de la frase sigue sin abrir el menú.
     expect(isMenuIntent('mi hermano dijo que quiero pedir')).toBe(false);
+  });
+});
+
+describe('isMenuIntent — el saludo encadenado (29-08-2026)', () => {
+  it('los dos mensajes reales que NO se reconocían', () => {
+    // Se retiraba UN saludo y se paraba, así que quedaba "zarco como va quiero
+    // pedir" y "buenas queria pedir": ninguno empieza por una frase de
+    // intención, y los dos acababan en el modelo.
+    expect(isMenuIntent('Hola Zarco cómo va quiero pedir')).toBe(true);
+    expect(isMenuIntent('Hola buenas quería pedir')).toBe(true);
+  });
+
+  it('el vocativo del negocio cuenta como saludo', () => {
+    for (const texto of [
+      'Zarco quiero pedir',
+      'don zarco quiero ordenar',
+      'que dice zarco quiero pedir',
+      'hola buenas noches don zarco quiero pedir',
+    ]) {
+      expect(isMenuIntent(texto), texto).toBe(true);
+    }
+  });
+
+  it('encadenar saludos NO convierte esto en una búsqueda de subcadena', () => {
+    // Se retiran PREFIJOS de una lista cerrada, no palabras hasta que algo
+    // encaje. Una frase que menciona la intención en medio sigue sin activar.
+    expect(isMenuIntent('mi amigo dijo que aca se puede pedir')).toBe(false);
+    expect(isMenuIntent('no quiero pedir todavia')).toBe(false);
+    expect(isMenuIntent('hola zarco como va, gracias por todo')).toBe(false);
+  });
+
+  it('un saludo a secas sigue sin abrir el menú', () => {
+    expect(isMenuIntent('hola')).toBe(false);
+    expect(isMenuIntent('hola buenas')).toBe(false);
+    expect(isMenuIntent('hola zarco como va')).toBe(false);
   });
 });

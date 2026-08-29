@@ -12,7 +12,6 @@ import { createGetMenuItemsTool, createSendMenuTool } from './tools/menu-tools';
 import { createAnswerDirectlyAction } from './tools/answer-directly';
 import { createRequestHumanAction } from './tools/request-human';
 import { createHandoffPort } from './handoff/service';
-import { escalateIfMenuLoop } from './handoff/menu-loop-service';
 import type { AgentTool } from './tools/registry';
 import { createAgentStore } from './memory/repository';
 import { handleHumanTakeover, humanTakeoverPauseMinutes } from './control/takeover';
@@ -141,16 +140,12 @@ function createAgentActions(): AgentTool[] {
 
   return [
     createSendMenuTool({
-      // El menú sale SIEMPRE primero: a quien lo pide no se le niega nunca. La
-      // comprobación del atasco va después y es contabilidad — si falla, el
-      // cliente ya tiene su menú y el turno terminó bien.
-      dispatch: async (input) => {
-        const result = await dispatchMenu(input, createMenuDispatchDeps());
-        if (result.result === 'sent') {
-          await escalateIfMenuLoop(input.customerPhone);
-        }
-        return result;
-      },
+      // La detección del atasco YA NO cuelga de aquí. Colgaba, y por eso solo
+      // veía al cliente que pedía el menú una y otra vez: el que se traba
+      // preguntando por el envío no aparecía nunca. Ahora corre una vez por
+      // entrega en el webhook y cuenta mensajes, no menús. Ver
+      // `handoff/stuck-customer.ts`.
+      dispatch: (input) => dispatchMenu(input, createMenuDispatchDeps()),
     }),
     createGetMenuItemsTool({
       async listForModel() {

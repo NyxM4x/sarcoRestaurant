@@ -8,9 +8,9 @@
  *
  * ── Lo que esta acción NO cubre, y quién lo cubre ───────────────────────────
  *
- * El cliente ATASCADO —el que recibe el menú una y otra vez y nunca consigue
- * pedir— no se detecta aquí. Se cuenta, en `handoff/menu-loop.ts`: tres menús
- * enviados en 45 minutos sin ningún pedido creado. Pedirle ese juicio al modelo
+ * El cliente ATASCADO —el que escribe una y otra vez y nunca consigue pedir— no
+ * se detecta aquí. Se cuenta, en `handoff/stuck-customer.ts`: seis mensajes
+ * suyos en 30 minutos sin ningún pedido creado. Pedirle ese juicio al modelo
  * salió mal en la primera prueba real: con una ventana de decisión que no dice
  * cuánto tiempo pasó entre mensajes, un "hola" nuevo se lee como la
  * continuación de una conversación trabada de hace horas, y la gente escribe

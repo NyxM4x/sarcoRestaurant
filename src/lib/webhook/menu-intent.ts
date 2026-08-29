@@ -42,9 +42,23 @@ export function normalizeIntentText(text: string): string {
  * que evita los falsos positivos— pero eso dejaba fuera a todo el que saluda
  * primero, que en WhatsApp es casi todo el mundo.
  *
- * Se retira UN saludo del principio y se vuelve a mirar. No se retira nada más:
- * quitar palabras hasta que algo encaje convertiría el detector en una búsqueda
- * de subcadena, que es justo lo que este módulo no hace.
+ * Se retiran los saludos ENCADENADOS del principio, y solo del principio.
+ * Quitar palabras hasta que algo encaje convertiría el detector en una búsqueda
+ * de subcadena, que es justo lo que este módulo no hace; retirar prefijos de
+ * una lista CERRADA es otra cosa, y es la que se hace aquí.
+ *
+ * ── Por qué se encadenan (29-08-2026) ───────────────────────────────────────
+ *
+ * Se retiraba UNO y se paraba. Con eso, dos mensajes reales de prueba no se
+ * reconocían y acababan en el modelo:
+ *
+ *   "Hola Zarco cómo va quiero pedir"  → quedaba "zarco como va quiero pedir"
+ *   "Hola buenas quería pedir"         → quedaba "buenas queria pedir"
+ *
+ * Nadie saluda con una sola palabra: se encadena el saludo, el vocativo y la
+ * fórmula de cortesía. Por eso entran también `zarco`, `don zarco`, `como va` y
+ * `que dice` — el nombre del negocio usado como vocativo es parte del saludo en
+ * este chat, no parte de la petición.
  */
 const SALUDOS: readonly string[] = [
   'hola',
@@ -56,20 +70,48 @@ const SALUDOS: readonly string[] = [
   'buen dia',
   'hey',
   'que tal',
+  'que dice',
+  'que hay',
+  'como va',
+  'como esta',
+  'como estas',
+  'zarco',
+  'don zarco',
   'disculpa',
   'disculpe',
   'por favor',
 ];
 
-/** Quita un saludo inicial, si lo hay. Devuelve el texto tal cual si no. */
+/**
+ * Cuántos saludos encadenados se retiran como mucho.
+ *
+ * Un tope, no un bucle abierto: sin él, una lista de saludos suficientemente
+ * larga acabaría comiéndose mensajes enteros palabra a palabra, que es
+ * exactamente la búsqueda de subcadena que este módulo evita. Cuatro cubre
+ * "hola buenas noches don zarco …", que ya es más de lo que escribe nadie.
+ */
+const MAX_SALUDOS_ENCADENADOS = 4;
+
+/** Quita los saludos iniciales encadenados. Devuelve el texto tal cual si no hay. */
 function sinSaludoInicial(norm: string): string {
   // Del más largo al más corto: "buenas noches" antes que "buenas", o quedaría
   // un "noches" suelto delante de la intención.
-  for (const saludo of [...SALUDOS].sort((a, b) => b.length - a.length)) {
-    if (norm === saludo) return '';
-    if (norm.startsWith(`${saludo} `)) return norm.slice(saludo.length + 1).trim();
+  const ordenados = [...SALUDOS].sort((a, b) => b.length - a.length);
+
+  let actual = norm;
+  for (let i = 0; i < MAX_SALUDOS_ENCADENADOS; i += 1) {
+    const antes = actual;
+    for (const saludo of ordenados) {
+      if (actual === saludo) return '';
+      if (actual.startsWith(`${saludo} `)) {
+        actual = actual.slice(saludo.length + 1).trim();
+        break;
+      }
+    }
+    // Ninguno encajó: ya no queda saludo que quitar.
+    if (actual === antes) break;
   }
-  return norm;
+  return actual;
 }
 
 /**
@@ -99,6 +141,17 @@ const PREFIX_PHRASES: readonly string[] = [
   'quiero un pedido',
   'hacer pedido',
   'hacer un pedido',
+  // El imperfecto de cortesía. En Bolivia "quería pedir" es MÁS frecuente que
+  // "quiero pedir" —suaviza la petición— y se quedaba fuera por un acento y
+  // dos letras. Salió en un flujo real el 29-08-2026: "Hola buenas quería
+  // pedir" no abría el menú.
+  'queria pedir',
+  'queria ordenar',
+  'queria hacer un pedido',
+  'quisiera pedir',
+  'quisiera ordenar',
+  'quisiera hacer un pedido',
+  'necesito pedir',
 ];
 
 /**

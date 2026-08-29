@@ -282,6 +282,69 @@ tocar nada.
 
 ---
 
+## 5e. Que derivar cueste más que contestar
+
+Cuarto falso positivo en dos días, y el que dejó ver el patrón entero. Tres
+flujos de prueba a las 02:39:
+
+```
+Hola Zarco cómo va quiero pedir   ← el detector de MENÚ no lo reconocía
+<link de Google Maps>
+Aquí cuánto cobra                 ← el detector de ENVÍO no lo reconocía
+                                  → el modelo deriva. Dos horas de silencio.
+```
+
+Los cuatro fallos comparten forma: una pregunta que el agente debía contestar,
+entre el mensaje 1 y el 3, sin una sola señal de queja. Y el detector de atasco
+no habría cazado ninguno: contaba **menús enviados**, y en estos flujos el menú
+salió una vez o ninguna.
+
+**Tres cambios, y ninguno es una instrucción al modelo** — ya se intentó dos
+veces por redacción y se midió que no funciona:
+
+1. **Una puerta antes de derivar** (`handoff/handoff-gate.ts`). El modelo no
+   puede derivar hasta que la conversación lleve **4 mensajes del cliente** en
+   6 h. Cuatro es el primer número que deja fuera los cuatro fallos observados,
+   y no uno más. Fail-closed: si no se puede contar, no se deriva. La mecánica
+   de rechazo ya existía — `handed: false` deja el turno vivo y el cliente
+   recibe respuesta normal.
+
+   **Excepción**: quien pide una persona con todas las letras cruza sin contar
+   nada (`handoff/explicit-request.ts`, verbo de contacto + sustantivo de
+   persona, mismo rigor que los otros detectores). No tiene que ganarse el
+   derecho intercambiando tres mensajes con un bot que ya le dijo que no.
+
+2. **El atasco se cuenta por mensajes** (`handoff/stuck-customer.ts`, antes
+   `menu-loop.ts`). 6 mensajes del cliente en 30 min sin pedido creado. El menú
+   era un proxy del esfuerzo del cliente y uno pobre: alguien puede pelearse
+   veinte mensajes sin volver a pedirlo. Contar mensajes SUBSUME el caso viejo,
+   así que no se pierde cobertura. Y corre ahora **una vez por entrega en el
+   webhook**, no colgado del despacho del menú, de modo que ve también a los
+   clientes que atendió el pipeline determinista.
+
+   El motivo pasa a `handoff_stuck_customer`; `handoff_menu_loop` se conserva en
+   las etiquetas de Telegram para que las filas viejas sigan siendo legibles.
+
+3. **Dos huecos de detección**, que es el arreglo más barato de todos: cada
+   mensaje que contesta un camino determinista es un mensaje que el modelo no
+   puede derivar por error.
+   - `isMenuIntent` retiraba **un** saludo y paraba. Ahora encadena hasta cuatro
+     y conoce el vocativo del negocio (`zarco`, `don zarco`, `como va`). Y
+     aprendió el **imperfecto de cortesía**: "quería pedir" es más frecuente que
+     "quiero pedir" en Bolivia y se quedaba fuera por un acento y dos letras.
+   - `isDeliveryQuoteIntent` gana la familia **DEIXIS**: `COSTE && (ENVIO ||
+     DEIXIS)`. "Aquí cuánto cobra" solo puede ser el envío; "cuánto cuesta el
+     trancapecho" no lleva deixis y sigue sin activarlo.
+
+Las seis frases literales de los tres flujos son tests ahora. Verificado tras el
+cambio: los cuatro mensajes que fallaban se resuelven por el camino determinista,
+sin llegar al modelo.
+
+**Evals tras el cambio** — sin regresión: selección hard gate 69/69 (`derivacion`
+12/12, `no-derivacion` 15/15), redacción hard gate 12/12.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.

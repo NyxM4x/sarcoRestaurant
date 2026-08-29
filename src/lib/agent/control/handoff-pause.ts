@@ -42,7 +42,7 @@ import type { AgentControlSource } from '@/types';
 import { pauseExpiryFrom } from './takeover';
 
 /** Qué disparó la pausa. Solo información estructural, para el historial. */
-export type HandoffTrigger = 'agent_action' | 'menu_loop' | 'payment_review';
+export type HandoffTrigger = 'agent_action' | 'stuck_customer' | 'payment_review';
 
 export interface PauseForHandoffInput {
   customerPhone: string;
