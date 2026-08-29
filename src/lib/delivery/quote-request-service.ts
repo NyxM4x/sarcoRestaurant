@@ -8,6 +8,7 @@ import { getDistanceByRoad } from './mapbox';
 import { feeForMeters } from './fee';
 import { readRainSurcharge } from './settings';
 import {
+  ASK_LOCATION_FOR_QUOTE_TEXT,
   buildQuoteText,
   hasQuoteQuota,
   isSamePoint,
@@ -176,6 +177,28 @@ async function leerLluvia(supabase: SupabaseClient): Promise<boolean> {
     return await readRainSurcharge(supabase);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Le pide la ubicación al que preguntó cuánto sale el envío. Nunca lanza.
+ *
+ * Un texto fijo y nada más: no mide, no consulta el ledger y no gasta cupo —
+ * todavía no hay ningún punto que medir. El cupo empieza a contar cuando llega
+ * el pin, que es cuando se paga por Mapbox.
+ */
+export async function askLocationForQuote(input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+}): Promise<{ ok: boolean }> {
+  try {
+    const enviado = await getKapsoClient().sendText(input.toDigits, ASK_LOCATION_FOR_QUOTE_TEXT, {
+      phoneNumberId: input.phoneNumberId ?? undefined,
+    });
+    return { ok: enviado.ok };
+  } catch {
+    log.warn('delivery_quote_prompt_failed');
+    return { ok: false };
   }
 }
 

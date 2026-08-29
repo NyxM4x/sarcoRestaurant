@@ -224,6 +224,64 @@ Archivos: `supabase/migrations/0027_delivery_quote_requests.sql`,
 
 ---
 
+## 5d. "¿Cuánto sale el envío?" no es una decisión del modelo
+
+Probando la cotización del 5c apareció el fallo peor de todos: **"hola como esta
+zarco cuanto me saldria delivery aqui" derivó la conversación a una persona en su
+PRIMER mensaje.** Sin queja, sin enojo y con el historial vacío — comprobado en
+`agent_messages`: esa frase es la primera fila.
+
+El modelo no se equivocó por capricho. Eligió la única casilla libre: no pedía el
+menú, el envío no es un producto que `get_menu_items` pueda buscar, y
+`answer_directly` se autoexcluía con *"no la uses para responder de memoria un
+precio"*. Quedaba `request_human`.
+
+**Se intentó arreglar con palabras. Dos veces. Las dos se midieron:**
+
+| Ronda | Qué se cambió | Resultado medido |
+|---|---|---|
+| 1 | `answer_directly` abre la puerta al envío; `request_human` lo prohíbe | derivó **3/3** |
+| 2 | fuera del prompt "eso tendría que confirmártelo una persona"; el delivery se describe como capacidad | **peor**: 0/3 en los cuatro casos |
+
+La conclusión no es "afinar la redacción". Es que con `toolChoice: 'required'` el
+modelo elige SIEMPRE algo, y "no tengo este dato" se parece más a "esto lo ve una
+persona" que a "contesto yo". Ninguna palabra cambia eso.
+
+**Lo que sí lo cambia:** la respuesta a esa pregunta es siempre la misma —pedir la
+ubicación—, y una respuesta fija no necesita un modelo que la elija.
+`webhook/delivery-quote-intent.ts` la reconoce con el mismo rigor que
+`isMenuIntent`: exige una palabra de COSTE **y** una de ENVÍO juntas, así que
+"cuánto cuesta el trancapecho" (coste sin envío) y "hacen delivery?" (envío sin
+coste) no la activan. Va después del detector de menú, de modo que no cambia
+ningún enrutado existente: solo recoge lo que hoy cae en el modelo.
+
+**La regla general, que vale más que este caso:** cada exclusión escrita en la
+descripción de una acción empuja casos hacia otra, y hay que saber hacia cuál.
+Una exclusión sin salida declarada acaba desaguando en la acción más cara del
+catálogo — aquí, dos horas de silencio.
+
+### El eval, que es lo que permitió saber todo esto
+
+Tenía dos bugs que lo hacían inútil, los dos arreglados:
+
+- `OPENAI_MODEL=` vacío en `.env.local` → `??` no cubre la cadena vacía → pedía
+  un modelo sin nombre y **las 111 llamadas fallaban**. El único síntoma era un
+  `modelo=` en blanco en la cabecera del informe.
+- Su modelo por defecto era `gpt-4.1-mini` mientras producción corre
+  `gpt-4o-mini`. Decía medir Production y medía otra cosa. Ahora importa
+  `OPENAI_DEFAULT_MODEL` del adaptador en vez de copiar el literal.
+
+Además el informe distingue ya el status HTTP (`model.http_429` en vez de
+`model.http_error`) y la concurrencia bajó a 2: con 4 salían entre 5 y 9 respuestas
+429 por tirada que ensuciaban la lectura sin falsear el resultado.
+
+**Estado medido el 29-08-2026 con `gpt-4o-mini`:** hard gate 69/69. `broad` 30/30,
+`factual` 15/15, `no-derivacion` 15/15, `contaminado` 3/3. El único fallo
+semántico que queda es `general-05` (report-only), que fallaba idéntico antes de
+tocar nada.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.

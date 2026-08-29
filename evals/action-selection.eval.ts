@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { buildSelectionContext, type ContextMessage } from '@/lib/agent/core/context';
 import type { AgentModelInput, AgentToolDefinition } from '@/lib/agent/core/model';
-import { createOpenAiModel, OPENAI_RESPONSES_URL } from '@/lib/agent/openai/adapter';
+import {
+  createOpenAiModel,
+  OPENAI_DEFAULT_MODEL,
+  OPENAI_RESPONSES_URL,
+} from '@/lib/agent/openai/adapter';
 import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from '@/lib/agent/business/prompt';
 import { createAnswerDirectlyAction } from '@/lib/agent/tools/answer-directly';
 import { createGetMenuItemsTool, createSendMenuTool } from '@/lib/agent/tools/menu-tools';
@@ -35,13 +39,34 @@ import { createRequestHumanAction, REQUEST_HUMAN } from '@/lib/agent/tools/reque
  * Ni la clave ni el prompt completo se imprimen nunca.
  */
 
-const apiKey = process.env.OPENAI_API_KEY ?? '';
-// El modelo de Production. Se puede sobrescribir por entorno para comparar.
-const model = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
+const apiKey = (process.env.OPENAI_API_KEY ?? '').trim();
+
+/**
+ * El modelo de Production, sobreescribible por entorno para comparar.
+ *
+ * `OPENAI_DEFAULT_MODEL` viene del adaptador y NO se copia como literal: cuando
+ * estaba escrito a mano decía `gpt-4.1-mini` mientras producción corría
+ * `gpt-4o-mini`, así que el eval afirmaba medir lo que corre de verdad y medía
+ * otra cosa. Una divergencia así no falla: da números buenos del modelo
+ * equivocado, que es peor.
+ *
+ * Y se comprueba VACÍO, no solo ausente. `??` deja pasar la cadena vacía, y un
+ * `OPENAI_MODEL=` sin valor en `.env.local` —que es como suele quedar— pedía un
+ * modelo sin nombre: las 111 tiradas caían en `http_error` y el informe las
+ * enseñaba como si el modelo hubiera elegido mal.
+ */
+const model = (process.env.OPENAI_MODEL ?? '').trim() || OPENAI_DEFAULT_MODEL;
 /** Tiradas por caso: la selección es probabilística, una sola no dice nada. */
 const REPETICIONES = Number(process.env.EVAL_REPETICIONES ?? '3');
-/** Peticiones en vuelo. Ni una a una (lento) ni todas (429). */
-const CONCURRENCIA = 4;
+/**
+ * Peticiones en vuelo. Ni una a una (lento) ni todas (429).
+ *
+ * Bajó de 4 a 2 el 29-08-2026: con 4 aparecían entre 5 y 9 respuestas 429 por
+ * tirada, repartidas al azar. No falseaban el resultado —un 429 nunca cuenta
+ * como acierto— pero ensuciaban el informe justo donde se lee, y obligaban a
+ * mirar dos veces para distinguir "el modelo eligió mal" de "no contestó".
+ */
+const CONCURRENCIA = 2;
 
 type Accion = 'send_menu' | 'get_menu_items' | 'answer_directly' | 'request_human';
 type Categoria =
@@ -300,33 +325,21 @@ const CASOS: readonly Caso[] = [
     inbound: 'hola',
     esperado: 'answer_directly',
   },
-  {
-    id: 'noderiv-06',
-    categoria: 'no-derivacion',
-    // LITERAL, del 29-08-2026: derivó la conversación en su primer mensaje.
-    inbound: 'hola como esta zarco cuanto me saldria delivery aqui',
-    esperado: 'answer_directly',
-  },
-  {
-    id: 'noderiv-07',
-    categoria: 'no-derivacion',
-    inbound: 'cuanto sale el envio?',
-    esperado: 'answer_directly',
-  },
-  {
-    id: 'noderiv-08',
-    categoria: 'no-derivacion',
-    inbound: 'cuanto me cobran por el delivery hasta el 5to anillo?',
-    esperado: 'answer_directly',
-  },
-  {
-    id: 'noderiv-09',
-    categoria: 'no-derivacion',
-    // La misma pregunta con el menú ya enviado: sigue sin ser una derivación.
-    historial: [cliente('que tienen?'), menuEnviado()],
-    inbound: 'y cuanto sale que me lo traigan',
-    esperado: 'answer_directly',
-  },
+  // ── Las preguntas por el COSTE DEL ENVÍO ya no están aquí ────────────────
+  //
+  // Estuvieron, y el modelo las falló: `request_human` 3 de 3 ante "hola como
+  // esta zarco cuanto me saldria delivery aqui", con DOS redacciones distintas
+  // del prompt y de las descripciones. La segunda tanda de ajustes lo dejó peor
+  // que la primera.
+  //
+  // No es un problema de palabras. Es que la respuesta a esa pregunta es
+  // siempre la misma —pedir la ubicación—, y una respuesta fija no necesita que
+  // un modelo la elija. Desde 0027 las reconoce `webhook/delivery-quote-intent.ts`
+  // y nunca llegan a la ronda de selección, así que medirlas aquí sería medir un
+  // camino que producción no usa.
+  //
+  // Sus casos viven ahora en `delivery-quote-intent.test.ts`, donde se
+  // comprueban gratis y siempre, sin depender de cómo amaneció el modelo.
 ];
 
 /**
@@ -453,7 +466,15 @@ async function seleccionar(caso: Caso): Promise<Resultado> {
   });
 
   if (!respuesta.ok) {
-    return { caso, elegida: null, error: `model.${respuesta.error}` };
+    // El STATUS se conserva, igual que hace `run.ts` en producción. Sin él,
+    // un 429 por concurrencia y un 500 del proveedor se leen los dos como
+    // "model.http_error", y el informe no distingue un problema nuestro de uno
+    // suyo — que es la diferencia entre bajar CONCURRENCIA y esperar.
+    const detalle =
+      respuesta.error === 'http_error' && respuesta.status !== undefined
+        ? `model.http_${respuesta.status}`
+        : `model.${respuesta.error}`;
+    return { caso, elegida: null, error: detalle };
   }
   const llamadas = respuesta.toolCalls ?? [];
   if (llamadas.length !== 1) {

@@ -9,6 +9,7 @@ import {
   type EnsureLocationRequest,
   type QuoteDynamicDelivery,
   type QuoteStandaloneLocation,
+  type AskLocationForQuote,
   type SendMenuCta,
   type SendMenuCtaInput,
   type WebhookEventStore,
@@ -1401,6 +1402,73 @@ describe('handleKapsoWebhook — cotización de una ubicación suelta', () => {
 
   it('sin la dependencia, el webhook se comporta como antes', async () => {
     const res = await callStandalone(locationMessage({ context: undefined }));
+    expect(res.outcome).toBe('processed');
+  });
+});
+
+// ── "¿Cuánto sale el envío?" (0027) ─────────────────────────────────────────
+
+describe('handleKapsoWebhook — la pregunta por el envío no llega al modelo', () => {
+  function fakeAsk(ok = true) {
+    const calls: Array<{ toDigits: string; sourceMessageId: string }> = [];
+    const fn: AskLocationForQuote = async (input) => {
+      calls.push(input);
+      return { ok };
+    };
+    return { fn, calls };
+  }
+
+  function callAsk(body: string, ask?: AskLocationForQuote, cta = NEVER_SEND_CTA) {
+    const raw = messageBody({ id: 'wamid.TXT_1', type: 'text', from: '59170000001', text: { body } });
+    return handleKapsoWebhook({
+      rawBody: raw,
+      headers: headers(raw),
+      secret: SECRET,
+      store: new FakeStore(),
+      confirmOrder: NOOP_CONFIRM,
+      ensureLocationRequest: NOOP_ENSURE,
+      attachOrderLocation: NOOP_ATTACH,
+      sendMenuCta: cta,
+      askLocationForQuote: ask,
+    });
+  }
+
+  it('el mensaje real que derivó una conversación ahora se atiende aquí', async () => {
+    const ask = fakeAsk();
+    const res = await callAsk('hola como esta zarco cuanto me saldria delivery aqui', ask.fn);
+
+    expect(res.outcome).toBe('processed');
+    expect(ask.calls).toHaveLength(1);
+    expect(ask.calls[0]).toMatchObject({ toDigits: '59170000001', sourceMessageId: 'wamid.TXT_1' });
+  });
+
+  it('una pregunta por el precio de un PRODUCTO sigue yendo al agente', async () => {
+    // El falso positivo que hay que evitar: si esto se activara, "cuánto cuesta
+    // el trancapecho" contestaría pidiendo la ubicación en vez del precio.
+    const ask = fakeAsk();
+    await callAsk('cuanto cuesta el trancapecho?', ask.fn);
+
+    expect(ask.calls).toEqual([]);
+  });
+
+  it('la intención de MENÚ sigue ganando cuando aparecen las dos', async () => {
+    // "quiero pedir, cuánto sale el envío" es alguien que quiere pedir. El CTA
+    // manda, y este detector solo recoge lo que hoy cae en el modelo.
+    const ask = fakeAsk();
+    const cta = { calls: 0 };
+    const sendCta: SendMenuCta = async () => {
+      cta.calls += 1;
+      return { result: 'sent', deliveryId: 'del-cta', wamid: 'wamid.CTA' };
+    };
+
+    await callAsk('quiero pedir cuanto sale el envio', ask.fn, sendCta);
+
+    expect(cta.calls).toBe(1);
+    expect(ask.calls).toEqual([]);
+  });
+
+  it('sin la dependencia, la pregunta vuelve a caer en el agente', async () => {
+    const res = await callAsk('cuanto sale el envio?');
     expect(res.outcome).toBe('processed');
   });
 });

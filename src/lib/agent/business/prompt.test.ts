@@ -43,7 +43,7 @@ describe('prompt — hechos con respaldo', () => {
     // todas las letras para que no lo intente.
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Los pedidos NO se arman por chat contigo/);
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no lo anotes, no lo confirmes/);
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/nunca das un monto de envío/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no haces es decir el monto de tu cabeza/);
   });
 
   it('tampoco le repite el pedido al cliente: repetirlo se lee como confirmarlo', () => {
@@ -343,7 +343,16 @@ describe('prompt — cuando no sabe', () => {
   });
 
   it('pide ofrecer una salida real, no dejar al cliente en el aire', () => {
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/ofrece algo que sí exista/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/ofrece el camino que SÍ existe/);
+  });
+
+  it('no saber algo NO es motivo para derivar a una persona', () => {
+    // Antes el prompt ofrecía "eso tendría que confirmártelo una persona del
+    // equipo" como salida al no saber. Medido con el eval real, esa frase era
+    // la que convertía "¿cuánto sale el envío?" —un dato que el agente no
+    // tiene— en una derivación con dos horas de silencio detrás.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/NO es motivo para pasar la conversación a una persona/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).not.toContain('Eso tendría que confirmártelo una persona');
   });
 });
 
@@ -359,9 +368,13 @@ describe('prompt — no promete un traspaso que no existe', () => {
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/nunca que ya la avisaste/);
   });
 
-  it('deja escrita la fórmula que sí es cierta', () => {
-    expect(DON_ZARCO_SYSTEM_PROMPT).toContain(
-      'Eso tendría que confirmártelo una persona del',
+  it('reserva la persona para lo que de verdad la necesita', () => {
+    // La fórmula "eso tendría que confirmártelo una persona del equipo" se
+    // quitó: era cierta, pero funcionaba como imán de derivaciones ante
+    // cualquier dato que el agente no tuviera. Lo que queda escrito es cuándo
+    // SÍ hace falta una persona, que es lo que no se puede confundir.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(
+      /reserva para una queja, un reclamo o alguien que pide hablar con el equipo/,
     );
   });
 

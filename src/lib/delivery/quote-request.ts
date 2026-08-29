@@ -158,6 +158,21 @@ export const QUOTE_FAILED_TEXT =
   'Armá tu pedido en el menú y al confirmarlo te lo cotizamos ahí mismo.';
 
 /**
+ * La respuesta a "¿cuánto me sale el envío?" cuando todavía no mandó el pin.
+ *
+ * Es una respuesta COMPLETA, no un rodeo: sin la ubicación no existe ninguna
+ * cifra que dar —la tarifa depende de la distancia— así que pedirla es
+ * exactamente lo que hay que hacer. Dice también que no hace falta armar el
+ * pedido antes, que es lo que el cliente teme cuando pregunta esto.
+ *
+ * Sale por el camino determinista, sin pasar por el modelo. Ver
+ * `webhook/delivery-quote-intent.ts` para las dos veces que se intentó al revés.
+ */
+export const ASK_LOCATION_FOR_QUOTE_TEXT =
+  'Para decirte cuánto sale el envío necesito tu ubicación 📍 Compartila con el ' +
+  'botón de WhatsApp y te la cotizo al toque, sin que tengas que armar el pedido antes.';
+
+/**
  * Cupo agotado. NO se le niega el dato: se le manda por el camino que además
  * termina en un pedido.
  *

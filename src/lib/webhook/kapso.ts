@@ -5,6 +5,7 @@ import { toEnvelopes, type WebhookEnvelope } from './envelopes';
 import { isAgentEligibleContent } from '@/lib/agent/core/run';
 import { isReactionType } from '@/lib/kapso/channel/reaction';
 import { parseLocationMessage, parseStandaloneLocation } from '@/lib/flow/location-message';
+import { isDeliveryQuoteIntent } from './delivery-quote-intent';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isMenuIntent } from './menu-intent';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
@@ -155,6 +156,23 @@ export type QuoteDynamicDelivery = (orderId: string) => Promise<unknown>;
  * medición reciente del mismo punto), tarifa con `feeForMeters` y le contesta.
  * NUNCA lanza. Opcional: sin ella el comportamiento es el de antes.
  */
+/**
+ * Petición de ubicación para cotizar, cuando el cliente pregunta el precio del
+ * envío ANTES de mandar su pin (0027).
+ *
+ * La respuesta es un texto fijo, así que no hay nada que elegir — y el modelo
+ * elegía mal: medido con el eval real, derivaba a una persona 3 de cada 3 veces
+ * ante "cuanto me saldria delivery aqui". Ver `delivery-quote-intent.ts`.
+ *
+ * Opcional: sin ella, esas preguntas siguen cayendo en el turno del agente,
+ * que es el comportamiento previo.
+ */
+export type AskLocationForQuote = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  sourceMessageId: string;
+}) => Promise<{ ok: boolean }>;
+
 export type QuoteStandaloneLocation = (input: {
   /** Teléfono del cliente, solo dígitos. */
   customerPhone: string;
@@ -257,6 +275,8 @@ export interface HandleKapsoWebhookParams {
    * responde a nuestra petición se sigue descartando en silencio.
    */
   quoteStandaloneLocation?: QuoteStandaloneLocation;
+  /** 0027: "¿cuánto sale el envío?" antes de que mande el pin. */
+  askLocationForQuote?: AskLocationForQuote;
   /**
    * Store de reconciliación outbound (Fase 5.2D.5C). Opcional: si no se inyecta,
    * los eventos salientes de Kapso se ignoran con 200 (comportamiento previo),
@@ -431,6 +451,7 @@ async function processMessage(
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
     quoteStandaloneLocation?: QuoteStandaloneLocation;
+    askLocationForQuote?: AskLocationForQuote;
   },
 ): Promise<Record<string, unknown>> {
   const { message, conversationPhone, from } = ctx;
@@ -477,6 +498,28 @@ async function processMessage(
     // `duplicate` = este WAMID ya se procesó, así que no es un fallo del
     // webhook: el evento queda procesado y no sale un segundo CTA.
     return { ok: true, handled: 'menu_cta', result: sent.result };
+  }
+
+  // "¿Cuánto sale el envío?" (0027). Va DESPUÉS del menú a propósito: quien
+  // escribe "quiero pedir, cuánto sale el envío" quiere pedir, y el CTA sigue
+  // ganando. Aquí solo se recogen los mensajes que HOY caen en el modelo — y
+  // que el modelo resuelve derivándolos a una persona.
+  if (
+    deps.askLocationForQuote &&
+    menuIntentBody !== null &&
+    isDeliveryQuoteIntent(menuIntentBody)
+  ) {
+    const toDigits = normalizePhone(from ?? conversationPhone ?? '');
+    const sourceMessageId = typeof message?.id === 'string' ? message.id : null;
+    // Sin destinatario o sin WAMID no se inventa nada: cae al camino de antes.
+    if (toDigits && sourceMessageId) {
+      const pedida = await deps.askLocationForQuote({
+        toDigits,
+        phoneNumberId: ctx.phoneNumberId,
+        sourceMessageId,
+      });
+      return { ok: pedida.ok, handled: 'delivery_quote_prompt', result: pedida.ok ? 'sent' : 'failed' };
+    }
   }
 
   // Ubicación entrante (Fase 3.3B): se comprueba antes que nfm_reply porque
@@ -765,6 +808,7 @@ async function processEnvelopes(
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
     quoteStandaloneLocation?: QuoteStandaloneLocation;
+    askLocationForQuote?: AskLocationForQuote;
   },
 ): Promise<EnvelopeResult[]> {
   const results: EnvelopeResult[] = [];
@@ -1340,6 +1384,7 @@ async function runBusiness(
       sendMenuCta,
       quoteDynamicDelivery: params.quoteDynamicDelivery,
       quoteStandaloneLocation: params.quoteStandaloneLocation,
+      askLocationForQuote: params.askLocationForQuote,
     });
 
     // ── Comprobantes de pago ─────────────────────────────────────────────────
