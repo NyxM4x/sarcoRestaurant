@@ -10,6 +10,7 @@ interface FakeOptions {
   decideThrows?: boolean;
   phone?: string | null;
   phoneThrows?: boolean;
+  deliveryType?: 'delivery' | 'pickup' | null;
   sendOk?: boolean;
   sendThrows?: boolean;
   noticeThrows?: boolean;
@@ -33,9 +34,14 @@ function fake(opts: FakeOptions = {}) {
           } as RpcDecisionRow)
         : opts.row;
     },
-    async getCustomerPhone() {
+    async getOrderContact() {
       if (opts.phoneThrows) throw new Error('boom');
-      return opts.phone === undefined ? '59170000000' : opts.phone;
+      return {
+        customerPhone: opts.phone === undefined ? '59170000000' : opts.phone,
+        // Los tests que no hablan del tipo de entrega no deberían tener que
+        // pensar en él: sin tipo, el aviso sale a secas, como antes.
+        deliveryType: opts.deliveryType ?? null,
+      };
     },
   } as unknown as ProofsDataSource;
 
@@ -317,5 +323,54 @@ describe('tras decidir, el agente se calla', () => {
     const sinPausa: DecideDeps = { source: deps.source, sendText: deps.sendText };
     const res = await decidePaymentAttempt('a1', 'accept', sinPausa);
     expect(res.ok).toBe(true);
+  });
+});
+
+describe('el aviso de pago aceptado dice qué pasa AHORA', () => {
+  it('delivery: le anuncia la llamada del repartidor', async () => {
+    const { deps, enviados } = fake({ deliveryType: 'delivery' });
+    await decidePaymentAttempt('a1', 'accept', deps);
+
+    expect(enviados[0].text).toContain('Pago confirmado ✅');
+    expect(enviados[0].text).toMatch(/te llamará cuando llegue/i);
+  });
+
+  it('recojo: le dice que lo esperamos, sin prometer una hora', async () => {
+    // La cocina acaba de empezar: darle un plazo sería inventarlo.
+    const { deps, enviados } = fake({ deliveryType: 'pickup' });
+    await decidePaymentAttempt('a1', 'accept', deps);
+
+    expect(enviados[0].text).toMatch(/te esperamos/i);
+    expect(enviados[0].text).not.toMatch(/\d+\s*(minutos|min)/i);
+  });
+
+  it('los dos avisos son distintos, y no se cruzan', async () => {
+    // Es el fallo que esto arregla: a quien iba a recoger se le dejaba
+    // esperando una moto que nunca iba a salir.
+    const d = fake({ deliveryType: 'delivery' });
+    await decidePaymentAttempt('a1', 'accept', d.deps);
+    const p = fake({ deliveryType: 'pickup' });
+    await decidePaymentAttempt('a1', 'accept', p.deps);
+
+    expect(d.enviados[0].text).not.toBe(p.enviados[0].text);
+    expect(d.enviados[0].text).not.toMatch(/recogerlo/i);
+    expect(p.enviados[0].text).not.toMatch(/delivery|repartidor/i);
+  });
+
+  it('sin tipo de entrega se manda el aviso a secas', async () => {
+    // No se rellena lo que no consta: antes que arriesgar decirle que lo espere
+    // en la puerta cuando iba a pasar a buscarlo, se dice solo lo que es cierto.
+    const { deps, enviados } = fake({ deliveryType: null });
+    await decidePaymentAttempt('a1', 'accept', deps);
+
+    expect(enviados[0].text).toBe('Pago confirmado ✅. Tu pedido está siendo preparado.');
+  });
+
+  it('un RECHAZO ignora el tipo de entrega', async () => {
+    // Todavía no hay nada que esperar ni que recoger.
+    const { deps, enviados } = fake({ deliveryType: 'delivery' });
+    await decidePaymentAttempt('a1', 'reject', deps);
+
+    expect(enviados[0].text).not.toMatch(/te llamará|te esperamos/i);
   });
 });

@@ -106,9 +106,17 @@ export async function decidePaymentAttempt(
   const orderId = row.order_id ?? null;
   let customerPhone: string | null = null;
   try {
-    customerPhone = orderId ? await deps.source.getCustomerPhone(orderId) : null;
+    const contacto = orderId
+      ? await deps.source.getOrderContact(orderId)
+      : { customerPhone: null, deliveryType: null };
+    customerPhone = contacto.customerPhone;
     if (customerPhone) {
-      const res = await deps.sendText(customerPhone, paymentDecisionText(decision));
+      // El tipo de entrega decide qué pasa DESPUÉS del pago, y es lo único que
+      // el cliente todavía no sabe: si esperar una llamada o pasar a buscarlo.
+      const res = await deps.sendText(
+        customerPhone,
+        paymentDecisionText(decision, contacto.deliveryType),
+      );
       notification = res.ok ? 'sent' : 'failed';
     }
   } catch {

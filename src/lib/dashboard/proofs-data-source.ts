@@ -1,4 +1,5 @@
 import 'server-only';
+import type { DeliveryType } from '@/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import type { PaymentAttempt, PaymentProof } from '@/types';
@@ -92,7 +93,15 @@ export interface ProofsDataSource {
   /** Referencia de almacenamiento de un comprobante (endpoint de archivos). */
   getProofStorage(proofId: string): Promise<ProofStorageRef | null>;
   /** Teléfono del cliente de un pedido. Se lee EN SERVIDOR, nunca del navegador. */
-  getCustomerPhone(orderId: string): Promise<string | null>;
+  /**
+   * A quién avisar y CÓMO lo recibe. Las dos cosas salen de la misma fila, así
+   * que van juntas: el aviso de pago aceptado dice algo distinto según sea
+   * delivery o recojo, y separarlo en dos consultas sería pagar dos veces por
+   * leer el mismo pedido.
+   */
+  getOrderContact(
+    orderId: string,
+  ): Promise<{ customerPhone: string | null; deliveryType: DeliveryType | null }>;
   /** ÚNICO camino de escritura del estado de revisión. */
   decide(attemptId: string, decision: ReviewDecision): Promise<RpcDecisionRow | null>;
 }
@@ -173,14 +182,18 @@ export function createSupabaseProofsDataSource(
       };
     },
 
-    async getCustomerPhone(orderId) {
+    async getOrderContact(orderId) {
       const { data, error } = await client
         .from('orders')
-        .select('customer_phone')
+        .select('customer_phone, delivery_type')
         .eq('id', orderId)
         .limit(1);
       if (error) throw new Error('customer_phone_failed');
-      return (data ?? [])[0]?.customer_phone ?? null;
+      const fila = (data ?? [])[0];
+      return {
+        customerPhone: fila?.customer_phone ?? null,
+        deliveryType: (fila?.delivery_type as DeliveryType | null) ?? null,
+      };
     },
 
     async decide(attemptId, decision) {

@@ -148,16 +148,30 @@ function AttemptBlock({
 
   return (
     <>
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span
-          className={`rounded px-2 py-1 text-sm font-bold ring-1 ${TONE_CLASSES[attempt.tone]}`}
-        >
-          {attempt.statusLabel}
-        </span>
-        <span className="text-xs font-medium text-zinc-500">
-          {attempt.proofCount} {attempt.proofCount === 1 ? 'comprobante' : 'comprobantes'}
-        </span>
-      </div>
+      {/*
+        El estado se dice SOLO cuando ya no hay nada que decidir.
+ 
+        Con los botones delante, "Pendiente de revisión" no aporta: lo mismo que
+        dicen CONFIRMAR y RECHAZAR con más claridad, y encima no cambia al abrir
+        el comprobante, así que se lee como un estado que no responde. Un cartel
+        que repite lo evidente y no reacciona enseña a ignorar los carteles.
+ 
+        Decidido, en cambio, es el único sitio donde consta si se aceptó o se
+        rechazó, y ahí sí se muestra.
+ 
+        El recuento de comprobantes se quitó entero: casi siempre es uno, y "1
+        comprobante" ocupa una línea de un ticket que se mira a un metro para
+        decir algo que la lista de abajo ya enseña.
+      */}
+      {!mostrarAcciones && (
+        <div className="mt-1.5">
+          <span
+            className={`rounded px-2 py-1 text-sm font-bold ring-1 ${TONE_CLASSES[attempt.tone]}`}
+          >
+            {attempt.statusLabel}
+          </span>
+        </div>
+      )}
 
       {attempt.proofs.length > 0 && (
         <ul className="mt-2 space-y-1.5">
