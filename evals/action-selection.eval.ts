@@ -300,6 +300,33 @@ const CASOS: readonly Caso[] = [
     inbound: 'hola',
     esperado: 'answer_directly',
   },
+  {
+    id: 'noderiv-06',
+    categoria: 'no-derivacion',
+    // LITERAL, del 29-08-2026: derivó la conversación en su primer mensaje.
+    inbound: 'hola como esta zarco cuanto me saldria delivery aqui',
+    esperado: 'answer_directly',
+  },
+  {
+    id: 'noderiv-07',
+    categoria: 'no-derivacion',
+    inbound: 'cuanto sale el envio?',
+    esperado: 'answer_directly',
+  },
+  {
+    id: 'noderiv-08',
+    categoria: 'no-derivacion',
+    inbound: 'cuanto me cobran por el delivery hasta el 5to anillo?',
+    esperado: 'answer_directly',
+  },
+  {
+    id: 'noderiv-09',
+    categoria: 'no-derivacion',
+    // La misma pregunta con el menú ya enviado: sigue sin ser una derivación.
+    historial: [cliente('que tienen?'), menuEnviado()],
+    inbound: 'y cuanto sale que me lo traigan',
+    esperado: 'answer_directly',
+  },
 ];
 
 /**

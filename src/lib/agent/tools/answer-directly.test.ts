@@ -61,3 +61,26 @@ describe('answer_directly — una decisión, no una herramienta', () => {
     });
   });
 });
+
+describe('answer_directly — el catálogo no puede dejar preguntas sin puerta', () => {
+  /**
+   * Regresión del 29-08-2026. La descripción excluía "un precio" a secas, el
+   * envío no es un producto que `get_menu_items` pueda buscar, y con
+   * `toolChoice: 'required'` el modelo tiene que elegir SIEMPRE algo: la única
+   * casilla libre ante "cuánto me saldría el delivery" era `request_human`.
+   * Dos horas de silencio por preguntar cuánto cuesta que te lo lleven.
+   */
+  const descripcion = () => createAnswerDirectlyAction().definition.description;
+
+  it('la exclusión de precios se limita a los PRODUCTOS del menú', () => {
+    expect(descripcion()).toMatch(/PRODUCTO del menú/);
+    // "un precio" a secas es lo que cerraba la puerta.
+    expect(descripcion()).not.toMatch(/de memoria un precio/);
+  });
+
+  it('nombra el costo del envío como algo que SÍ se contesta hablando', () => {
+    const d = descripcion();
+    expect(d).toMatch(/env[íi]o|delivery/i);
+    expect(d).toMatch(/ubicaci[óo]n/i);
+  });
+});

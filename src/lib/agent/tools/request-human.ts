@@ -20,6 +20,20 @@
  * queja, "quiero hablar con alguien"— lo juzga el modelo; lo que se puede
  * CONTAR se cuenta.
  *
+ * ── Ni la acción a la que se cae lo que no encaja en otra ───────────────────
+ *
+ * El 29-08-2026 esta acción derivó una conversación en su PRIMER mensaje: "hola
+ * como esta zarco cuanto me saldria delivery aqui". No hubo queja, ni historial,
+ * ni nada que leer — el modelo simplemente se quedó sin puerta, porque
+ * `answer_directly` se excluía a sí misma ante cualquier "precio" y el envío no
+ * es un producto que `get_menu_items` pueda buscar.
+ *
+ * Con `toolChoice: 'required'` el modelo elige SIEMPRE una acción, así que la
+ * que no tiene exclusiones claras se convierte en el desagüe del catálogo. Por
+ * eso esta descripción enumera lo que NO se deriva con tanto cuidado como lo que
+ * sí: aquí una elección de más no es una respuesta rara, son dos horas de
+ * silencio para alguien que solo preguntaba un precio.
+ *
  * ── Por qué cierra el turno, igual que `send_menu` ──────────────────────────
  *
  * La acción pausa la conversación. Si el turno siguiera hasta la ronda de
@@ -80,7 +94,12 @@ export function createRequestHumanAction(port: HandoffPort): AgentTool {
         'estas", "quiero ordenar") o un cliente que pide a menudo son una ' +
         'conversación normal empezando, no un problema. Que alguien quiera ' +
         'pedir o te dicte su pedido tampoco se deriva: eso es send_menu, ' +
-        'aunque lo repita.',
+        'aunque lo repita. Y una pregunta que no sabes contestar NO se deriva: ' +
+        'se dice que no lo sabes, con answer_directly. En particular, cuánto ' +
+        'sale el envío o el delivery nunca es motivo para derivar — se contesta ' +
+        'pidiéndole la ubicación, que el sistema la cotiza solo. Ante la duda ' +
+        'entre derivar y contestar, CONTESTA: derivar te deja mudo dos horas, ' +
+        'y una respuesta imperfecta se arregla con el mensaje siguiente.',
       parameters: NO_ARGUMENTS,
     },
     // Silencia al agente, y eso es un efecto real aunque no salga ningún

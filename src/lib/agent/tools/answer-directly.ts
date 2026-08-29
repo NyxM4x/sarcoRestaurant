@@ -41,6 +41,21 @@ export const ANSWER_DIRECTLY = 'answer_directly';
  * La descripción es lo ÚNICO que el modelo lee para saber cuándo usarla, así
  * que dice para qué sirve y, sobre todo, para qué no: es la salida de las
  * conversaciones normales, nunca el atajo para no mandar el menú.
+ *
+ * ── Por qué la exclusión de precios dice "PRODUCTO del menú" ────────────────
+ *
+ * Porque decía solo "un precio", y el 29-08-2026 eso derivó una conversación en
+ * su primer mensaje. Ante "hola como esta zarco cuanto me saldria delivery
+ * aqui", el modelo se quedó sin puerta: no pedía el menú, el envío no es un
+ * producto que `get_menu_items` pueda buscar, y esta acción se autoexcluía por
+ * la palabra "precio". La única casilla libre era `request_human` — y el
+ * cliente se llevó dos horas de silencio por preguntar cuánto cuesta que se lo
+ * lleven.
+ *
+ * La lección no es "afinar palabras": es que con `toolChoice: 'required'` el
+ * modelo SIEMPRE elige algo, así que cada exclusión que se escribe aquí empuja
+ * casos hacia otra acción. Hay que saber hacia cuál. Una exclusión sin salida
+ * declarada acaba en la acción más cara que haya en el catálogo.
  */
 export function createAnswerDirectlyAction(): AgentTool {
   return {
@@ -51,11 +66,13 @@ export function createAnswerDirectlyAction(): AgentTool {
         'Úsala cuando la respuesta no necesita datos del menú ni mandarlo: ' +
         'saludos, agradecimientos, horarios, dónde están, quién eres, ' +
         'conversación normal, o cuando no tienes la información y hay que ' +
-        'decirlo. NO la uses para escaparte de mandar el menú: si el cliente ' +
+        'decirlo. También cuando preguntan cuánto sale el envío o el delivery: ' +
+        'no das el monto, le pides que comparta su ubicación y el sistema se lo ' +
+        'cotiza. NO la uses para escaparte de mandar el menú: si el cliente ' +
         'quiere ver qué hay, qué opciones existen o qué contiene una categoría, ' +
         'eso es send_menu, y contestarlo hablando sería enumerarle el catálogo ' +
-        'en el chat. Tampoco la uses para responder de memoria un precio o si ' +
-        'existe un producto: eso es get_menu_items.',
+        'en el chat. Tampoco la uses para responder de memoria el precio de un ' +
+        'PRODUCTO del menú ni si existe: eso es get_menu_items.',
       parameters: NO_ARGUMENTS,
     },
     // Sin `execute` a propósito: no hay nada que ejecutar. Ver el encabezado.

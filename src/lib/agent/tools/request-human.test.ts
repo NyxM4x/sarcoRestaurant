@@ -82,6 +82,17 @@ describe('request_human — el contrato con el núcleo', () => {
     expect(d).toMatch(/varios mensajes cortos/);
     expect(d).toContain('send_menu');
   });
+
+  it('la descripción excluye la pregunta por el costo del envío', () => {
+    // El fallo del 29-08-2026: "hola como esta zarco cuanto me saldria delivery
+    // aqui" derivó la conversación en su PRIMER mensaje. No había queja ni
+    // historial — el modelo se quedó sin puerta y cayó en la única que quedaba.
+    // Con `toolChoice: 'required'` esta acción es el desagüe del catálogo si no
+    // dice en voz alta lo que no le toca.
+    const d = createRequestHumanAction(puerto(true)).definition.description;
+    expect(d).toMatch(/env[íi]o o el delivery nunca es motivo para derivar/);
+    expect(d).toMatch(/pregunta que no sabes contestar NO se deriva/);
+  });
 });
 
 describe('request_human — qué pasa al ejecutarla', () => {
