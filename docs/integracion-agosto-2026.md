@@ -233,12 +233,23 @@ Archivos: `supabase/migrations/0027_delivery_quote_requests.sql`,
 
 ### Pendiente
 
-- **Migraciones sin aplicar**: `0025` (análisis), `0026` (numeración diaria) y
-  `0027` (cotizaciones sueltas). Sin la `0026` los pedidos siguen en
-  `ORD-000021`. La `0027` es segura de desplegar antes de aplicarla: sin la
-  tabla, el ledger no responde, la cotización se aborta sin escribir ni enviar
-  nada y el pin suelto vuelve a caer en el silencio de siempre. Aplicarla es lo
-  que enciende la función.
+- **Migraciones: las tres aplicadas** (`0025` análisis, `0026` numeración diaria,
+  `0027` cotizaciones sueltas). Verificado contra la base el 29-08-2026 con la
+  query de objetos de más abajo, no de memoria: esta lista decía "sin aplicar"
+  durante días después de que dejara de ser verdad, porque nadie la actualiza al
+  correr una migración. Antes de creerte esta línea, vuelve a comprobarlo.
+
+  ```sql
+  select
+    (select count(*) = 6 from information_schema.columns
+       where table_schema = 'public' and table_name = 'payment_proofs'
+         and column_name in ('analysis_verdict','analysis_reasons','analysis_amount',
+                             'analysis_reference','analysis_model','analyzed_at'))
+      as m0025_analisis,
+    (to_regclass('public.order_daily_counters') is not null
+       and to_regproc('public.next_order_number') is not null) as m0026_numeracion,
+    (to_regclass('public.delivery_quote_requests') is not null) as m0027_cotizaciones;
+  ```
 - **Sin correr todavía**: `npm run eval:selection`. Se intentó y **las 69
   llamadas fallaron con HTTP 401**: la `OPENAI_API_KEY` de `.env.local` está
   revocada o es incorrecta. No se pudo medir nada, ni lo nuevo ni lo viejo.
