@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { businessHoursClock } from '@/lib/agent/business/facts';
 import type { MenuSendReason } from '@/lib/menu/dispatch';
+import type { MenuCtaContext } from '@/lib/menu/cta-context';
 
 /**
  * Construcción de mensajes salientes de Kapso — módulo puro.
@@ -181,7 +182,43 @@ export const MENU_CTA_BODY_TEXT =
  * frío suele ser un primer contacto. Repetirlo en las demás gasta líneas de un
  * mensaje que se lee de un vistazo.
  */
-export function menuCtaBodyText(reason: MenuSendReason): string {
+export function menuCtaBodyText(
+  reason: MenuSendReason,
+  context: MenuCtaContext | null = null,
+): string {
+  // El CONTEXTO manda sobre el motivo cuando consta, porque es más específico:
+  // el motivo dice con qué autoridad se manda el menú, y el contexto qué
+  // acababa de preguntar el cliente. Contestar a lo segundo es lo que convierte
+  // este mensaje en una respuesta y no solo en un botón.
+  //
+  // El reenvío es la excepción y va antes: a quien dice "no me llegó" el
+  // problema no fue de comprensión, y explicarle otra vez cómo se pide sería
+  // tratarlo de torpe por muy bien clasificada que esté su frase anterior.
+  if (context !== null && reason !== 'explicit_resend') {
+    switch (context) {
+      // Preguntó un precio. El menú los tiene todos, y esa es la respuesta.
+      case 'price':
+        return (
+          'Los precios están todos ahí dentro 👇 Tocá el botón, mirá lo que ' +
+          'quieras y armá tu pedido con el total a la vista.'
+        );
+      // Preguntó por el envío. No se le da un monto —depende de su ubicación—
+      // pero sí dónde y cuándo lo va a ver, que es lo que quería saber.
+      case 'delivery':
+        return (
+          'Armá tu pedido acá 👇 Al confirmarlo compartís tu ubicación y te ' +
+          'sale el costo del envío sumado al total, antes de pagar.'
+        );
+      // Dictó su pedido. Se le reconoce lo que quiere y se le explica la
+      // ventaja, nunca la regla: "no puedo" suena a muro y no ayuda a nadie.
+      case 'dictated':
+        return (
+          'Armálo vos mismo acá 👇 Elegís lo tuyo, ves el total al momento y ' +
+          'el pedido entra completo, sin que se pierda nada por el camino.'
+        );
+    }
+  }
+
   switch (reason) {
     // "No me llegó", "mandámelo de nuevo": el problema fue técnico, no de
     // comprensión. Explicarle otra vez cómo se pide sería tratarlo de torpe.

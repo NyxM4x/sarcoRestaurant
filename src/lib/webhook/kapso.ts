@@ -6,6 +6,7 @@ import { isAgentEligibleContent } from '@/lib/agent/core/run';
 import { isReactionType } from '@/lib/kapso/channel/reaction';
 import { parseLocationMessage, parseStandaloneLocation } from '@/lib/flow/location-message';
 import { isDeliveryQuoteIntent } from './delivery-quote-intent';
+import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isMenuIntent } from './menu-intent';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
@@ -124,6 +125,11 @@ export interface SendMenuCtaInput {
    * partir de qué detector disparó, nunca un parámetro que venga de fuera.
    */
   reason: MenuSendReason;
+  /**
+   * De qué venía hablando el cliente. Solo elige el copy que acompaña al botón,
+   * y por eso NO se persiste: no es un hecho del envío. Ver `menu/cta-context.ts`.
+   */
+  ctaContext?: MenuCtaContext | null;
 }
 
 /**
@@ -501,6 +507,10 @@ async function processMessage(
       // El trigger de QA se distingue de la petición real del cliente: misma
       // acción, distinta procedencia, y en el ledger se ve cuál fue cuál.
       reason: isMenuTriggerMessage(message) ? 'qa_trigger' : 'explicit_request',
+      // El botón contesta lo que acababa de preguntar: es el único mensaje que
+      // sale cuando se manda el menú, así que desaprovecharlo cuesta un turno
+      // entero de conversación.
+      ctaContext: classifyMenuCtaContext(menuIntentBody),
     });
 
     if (sent.result === 'failed' || sent.result === 'send_unknown') {

@@ -573,8 +573,17 @@ describe('dispatch — esta fase no toca OpenAI', () => {
     expect(source).not.toContain('agent/core/model');
     expect(source).not.toContain('function_call');
     expect(source).not.toContain('tools');
-    // Sus dependencias son ledger, sesión, envío y memoria. Nada más.
-    expect(source.match(/^import .*/gm)).toEqual([
+    // Sus dependencias de RUNTIME son ledger, sesión, envío y memoria. Nada más.
+    //
+    // El `import type` del contexto del CTA no cuenta y no puede contar: se
+    // borra al compilar, no arrastra código y solo nombra el enum que viaja
+    // hasta el borde para elegir el copy. Lo que esta lista protege es que este
+    // módulo no gane la capacidad de llamar a nadie, no que no pueda nombrar un
+    // tipo.
+    const runtime = (source.match(/^import .*/gm) ?? []).filter(
+      (linea) => !linea.startsWith('import type '),
+    );
+    expect(runtime).toEqual([
       "import { classifyKapsoSendFailure } from '@/lib/kapso/send-outcome';",
     ]);
   });

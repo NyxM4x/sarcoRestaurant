@@ -6,6 +6,7 @@ import {
 } from './registry';
 import { isExplicitMenuRequest } from '@/lib/agent/business/menu-request';
 import type { DispatchMenuResult, MenuSendReason } from '@/lib/menu/dispatch';
+import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
 
 /**
  * Las dos primeras herramientas de negocio — módulo PURO (Fase 6D.2F.5B).
@@ -98,6 +99,8 @@ export interface MenuDispatchPort {
     sourceMessageId: string;
     phoneNumberId: string | null;
     reason: MenuSendReason;
+    /** De qué venía hablando el cliente; solo elige el copy del botón. */
+    ctaContext?: MenuCtaContext | null;
   }): Promise<DispatchMenuResult>;
 }
 
@@ -169,6 +172,10 @@ export function createSendMenuTool(dispatcher: MenuDispatchPort): AgentTool {
         sourceMessageId: context.sourceMessageId,
         phoneNumberId: context.phoneNumberId,
         reason,
+        // El botón es el ÚNICO mensaje que sale cuando el menú se manda —el
+        // turno cierra en silencio—, así que su texto es la única oportunidad
+        // de contestar lo que el cliente acababa de preguntar.
+        ctaContext: classifyMenuCtaContext(context.inboundText),
       });
 
       // `duplicate` significa que ESTE mismo mensaje del cliente ya provocó un

@@ -56,11 +56,11 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
       // `menu_sessions`: se envía por el número por el que llegó.
       // El copy se resuelve AQUÍ, en el borde: `dispatchMenu` decide que hay que
       // mandar el menú y por qué; qué palabras acompañan al botón es del canal.
-      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason }) =>
+      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason, ctaContext }) =>
         getKapsoClient().sendMenuCtaUrl(customerPhone, {
           phoneNumberId: from,
           menuUrl,
-          bodyText: menuCtaBodyText(reason),
+          bodyText: menuCtaBodyText(reason, ctaContext ?? null),
         }),
     },
 
@@ -73,13 +73,14 @@ export const sendMenuCtaMessage: SendMenuCta = async ({
   phoneNumberId,
   sourceMessageId,
   reason,
+  ctaContext,
 }) => {
   if (!sourceMessageId) {
     throw new Error('sendMenuCta: sourceMessageId required for idempotence');
   }
 
   return dispatchMenu(
-    { customerPhone: toDigits, sourceMessageId, phoneNumberId, reason },
+    { customerPhone: toDigits, sourceMessageId, phoneNumberId, reason, ctaContext },
     createMenuDispatchDeps(),
   );
 };

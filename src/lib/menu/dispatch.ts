@@ -1,4 +1,5 @@
 import { classifyKapsoSendFailure } from '@/lib/kapso/send-outcome';
+import type { MenuCtaContext } from './cta-context';
 
 /**
  * SHARED MENU DISPATCH — módulo PURO (Fase 6D.2F.5A).
@@ -125,6 +126,12 @@ export interface MenuSendPort {
     menuUrl: string;
     phoneNumberId: string;
     /**
+     * De qué venía hablando el cliente. Elige el copy con más precisión que el
+     * motivo y, a diferencia de él, NO se persiste: no es un hecho del envío,
+     * es una lectura del mensaje anterior. Ver `menu/cta-context.ts`.
+     */
+    ctaContext?: MenuCtaContext | null;
+    /**
      * Por qué se manda. Decide QUÉ TEXTO acompaña al botón — no a quién ni con
      * qué enlace.
      *
@@ -165,6 +172,8 @@ export interface MenuDispatchDeps {
 }
 
 export interface DispatchMenuInput {
+  /** De qué venía hablando el cliente; solo elige el copy. No se persiste. */
+  ctaContext?: MenuCtaContext | null;
   /** Dígitos ya normalizados. */
   customerPhone: string;
   /** WAMID REAL del entrante. Sin él no hay idempotencia posible. */
@@ -220,6 +229,7 @@ export async function dispatchMenu(
     customerPhone: input.customerPhone,
     menuUrl: sessionUrl,
     phoneNumberId: effectivePhoneNumberId,
+    ctaContext: input.ctaContext ?? null,
     reason: input.reason,
   });
 
