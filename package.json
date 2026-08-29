@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "eval:selection": "vitest run --config vitest.eval.config.ts"
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "eval:selection": "vitest run --config vitest.eval.config.ts evals/action-selection.eval.ts",
+    "eval:grounded": "vitest run --config vitest.eval.config.ts evals/grounded-answer.eval.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1118.0",

@@ -1,5 +1,19 @@
 # Eval set — comportamiento grounded
 
+> **AUTOMATIZADO desde el 29-08-2026.** Estos casos ya no se pasan a mano:
+> viven en `evals/grounded-answer.eval.ts` y se corren con
+> `npm run eval:grounded`. El aislamiento que esta guía pedía —"un endpoint
+> interno de eval que ejecute el turno con un contexto sintético"— resultó no
+> hacer falta: la ronda de redacción es una llamada al modelo con el prompt real
+> y un historial, y el historial se fabrica en el propio eval. Cada caso corre
+> limpio, sin arrastrar el anterior, así que todo lo que este documento explica
+> sobre ordenarlos para convivir con el contexto compartido ya no aplica.
+>
+> Lo que sigue vigente, y por eso el documento no se borra: **el criterio**. Qué
+> conducta se espera en cada caso, cuáles son bloqueantes y por qué, y qué
+> cuenta como tono de marca frente a una afirmación factual. El eval codifica
+> ese criterio; aquí está el razonamiento que lo sostiene.
+
 Casos para medir si el agente **afirma cosas que no sabe**. Se ejecutan contra
 el **modelo real**, a mano o en un runner aparte.
 
