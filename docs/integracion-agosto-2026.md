@@ -345,6 +345,43 @@ sin llegar al modelo.
 
 ---
 
+## 5f. Volumen no es atasco: la alerta que saltó en un pedido pagado
+
+El detector de 5e disparó sobre este flujo, que terminó **cobrado**:
+
+```
+Hola don Zarco quiero pedir · 2 lomitos quería · Si envíeme 2 lomitos
+→ pedido #1 creado · ubicación · ubicación corregida · comprobante
+→ 🙋 "No consigue hacer su pedido"
+```
+
+**Un bug de verdad, y viejo.** La RPC del checkout web
+(`0003_web_checkout.sql`) inserta `orders.source_message_id` en **NULL**, y el
+detector cruzaba justamente por ese campo para preguntar "¿pidió algo?". Ningún
+pedido hecho desde el menú contaba jamás como progreso. El detector anterior
+tenía el mismo cruce y no se notó porque exigía tres menús enviados; al bajar el
+listón a mensajes, el fallo latente salió a la luz.
+
+El cruce bueno es `menu_sessions`, cuyo `customer_phone` sí está normalizado y al
+que el pedido apunta por `menu_session_id`. Se conservan además el cruce por
+WAMID (los pedidos que entran por el Flow sí lo llevan) y se añade el
+**comprobante de pago**: quien mandó uno llegó hasta el final.
+
+**Y un error de diseño.** Aunque el cruce hubiera funcionado, contar mensajes a
+secas es medir volumen, no atasco: un pedido normal —saludo, intento, ubicación,
+comprobante— gasta seis o siete mensajes sin nada anómalo. Cien pedidos, cien
+alertas falsas, y a la tercera nadie mira el grupo.
+
+Contar pasa a ser lo ÚLTIMO que se hace, detrás de dos puertas:
+
+1. **¿Hay progreso?** Pedido creado o comprobante recibido → no está atascado.
+2. **¿Recibió el menú?** Sin la herramienta en la mano no se le puede reprochar
+   no usarla; avisar aquí sería avisar por cada conversación que arranca.
+3. **Solo entonces, el volumen**, y el umbral sube de 6 a **8**: margen
+   deliberado por encima de lo que gasta un pedido completo.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.

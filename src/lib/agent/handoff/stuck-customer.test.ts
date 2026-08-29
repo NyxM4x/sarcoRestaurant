@@ -8,53 +8,71 @@ import {
 /**
  * El cliente que no consigue pedir.
  *
- * Antes se contaban MENÚS enviados (tres en 45 min). El 29-08-2026 se probaron
- * tres conversaciones en las que el cliente se trababa de verdad —preguntando
- * el precio del envío, mandando un link de Google Maps en vez del pin— y en
- * ninguna llegó a pedir el menú tres veces: el detector no habría saltado ni
- * una. El menú era un proxy del esfuerzo del cliente, y uno pobre.
+ * Dos versiones anteriores fallaron por el mismo motivo de fondo: medían
+ * VOLUMEN y lo confundían con atasco. La segunda saltó en un pedido que
+ * terminó pagado — saludo, dos intentos, ubicación, ubicación corregida y
+ * comprobante suman seis mensajes sin nada anómalo. Cien pedidos así son cien
+ * alertas falsas, y a la tercera nadie mira el grupo.
  */
 
-describe('isStuckCustomer — cuándo hay que avisar a una persona', () => {
-  it('por debajo del umbral no molesta a nadie', () => {
-    expect(isStuckCustomer({ messages: STUCK_CUSTOMER_MESSAGES - 1, hasOrder: false })).toBe(
-      false,
-    );
+/** Un cliente atascado de manual: recibió el menú y no llegó a nada. */
+const ATASCADO = { messages: STUCK_CUSTOMER_MESSAGES, menusSent: 2, hasProgress: false };
+
+describe('isStuckCustomer — el caso que hay que detectar', () => {
+  it('con el menú en la mano, muchos mensajes y ningún avance: avisa', () => {
+    expect(isStuckCustomer(ATASCADO)).toBe(true);
   });
 
-  it('en el umbral, avisa', () => {
-    expect(isStuckCustomer({ messages: STUCK_CUSTOMER_MESSAGES, hasOrder: false })).toBe(true);
+  it('y por encima del umbral también', () => {
+    expect(isStuckCustomer({ ...ATASCADO, messages: 30 })).toBe(true);
+  });
+});
+
+describe('isStuckCustomer — las dos puertas que van ANTES de contar', () => {
+  it('cualquier avance lo descarta, por muchos mensajes que haya', () => {
+    // Es la puerta que estaba rota: se cruzaba por `orders.source_message_id`
+    // y el checkout web lo inserta NULL, así que ningún pedido hecho desde el
+    // menú contaba como progreso.
+    expect(isStuckCustomer({ messages: 40, menusSent: 5, hasProgress: true })).toBe(false);
   });
 
-  it('y por encima también', () => {
-    expect(isStuckCustomer({ messages: STUCK_CUSTOMER_MESSAGES + 12, hasOrder: false })).toBe(
-      true,
-    );
+  it('sin menú recibido no está atascado: está empezando', () => {
+    // Sin la herramienta en la mano no se le puede reprochar no usarla, y
+    // avisar aquí sería avisar por cada conversación que arranca.
+    expect(isStuckCustomer({ ...ATASCADO, menusSent: 0 })).toBe(false);
   });
 
-  it('un solo pedido lo descarta entero, por muchos mensajes que haya', () => {
-    // Quien ya pidió una vez sabe usar el sistema. Si sigue escribiendo es por
-    // otra cosa, y confundirlo con un atasco despierta a alguien por un buen
-    // cliente — que es la forma más rápida de que dejen de mirar las alertas.
-    expect(isStuckCustomer({ messages: 40, hasOrder: true })).toBe(false);
+  it('el orden importa: el progreso manda sobre todo lo demás', () => {
+    expect(isStuckCustomer({ messages: 99, menusSent: 9, hasProgress: true })).toBe(false);
+  });
+});
+
+describe('isStuckCustomer — el flujo REAL que disparó una alerta falsa', () => {
+  it('un pedido que llega a pagarse NO es un atasco', () => {
+    // 29-08-2026, 03:24. "Hola don Zarco quiero pedir", "2 lomitos quería",
+    // "Si envíeme 2 lomitos", ubicación, ubicación, comprobante. Seis
+    // mensajes, menú enviado tres veces, pedido #1 creado y pagado.
+    expect(isStuckCustomer({ messages: 6, menusSent: 3, hasProgress: true })).toBe(false);
   });
 
-  it('una conversación vacía tampoco es un atasco', () => {
-    expect(isStuckCustomer({ messages: 0, hasOrder: false })).toBe(false);
+  it('y aunque el progreso no constara, seis mensajes ya no bastan', () => {
+    // Defensa en profundidad: el umbral deja margen por encima de lo que gasta
+    // un pedido normal, para que un fallo del cruce no vuelva a ser una alerta.
+    expect(isStuckCustomer({ messages: 6, menusSent: 3, hasProgress: false })).toBe(false);
+    expect(isStuckCustomer({ messages: 7, menusSent: 3, hasProgress: false })).toBe(false);
   });
 });
 
 describe('stuck-customer — los umbrales dicen algo, no son números sueltos', () => {
-  it('el umbral SUBSUME el caso viejo de los tres menús', () => {
-    // Tres menús implican al menos tres mensajes del cliente pidiéndolos, así
-    // que el detector nuevo no puede exigir menos que aquel o perdería
-    // cobertura sin que nadie lo notase.
-    expect(STUCK_CUSTOMER_MESSAGES).toBeGreaterThanOrEqual(3);
+  it('el umbral deja margen sobre un pedido completo', () => {
+    // Un pedido normal gasta seis o siete mensajes. Si alguien baja esto a esa
+    // altura, vuelve la alerta por cada venta.
+    expect(STUCK_CUSTOMER_MESSAGES).toBeGreaterThan(7);
   });
 
   it('la ventana cubre una conversación, no una jornada', () => {
-    // Media hora: si fuera de horas, dos conversaciones distintas del mismo
-    // cliente se sumarían y el "atasco" sería en realidad un buen día.
+    // Si fuera de horas, dos conversaciones distintas del mismo cliente se
+    // sumarían y el "atasco" sería en realidad un buen día.
     expect(STUCK_WINDOW_MINUTES).toBeLessThanOrEqual(45);
     expect(STUCK_WINDOW_MINUTES).toBeGreaterThanOrEqual(15);
   });

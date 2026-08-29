@@ -8,43 +8,46 @@
  * migración justamente porque es silencioso — nadie reclama, solo deja de
  * pedir.
  *
- * Pero deja una huella perfectamente contable: **muchos mensajes suyos y ni un
- * pedido creado**. Eso no hay que interpretarlo, se cuenta. Cero tokens, cero
- * llamadas a OpenAI, y el mismo resultado cada vez.
+ * Pero deja una huella contable, y contar no cuesta tokens.
  *
- * ── Antes se contaban MENÚS, y era demasiado estrecho ──────────────────────
+ * ── Volumen NO es atasco (29-08-2026) ──────────────────────────────────────
  *
- * La primera versión disparaba con tres menús enviados en 45 minutos sin
- * pedido. Sonaba razonable y no cubría la realidad: el 29-08-2026 se probaron
- * tres conversaciones en las que el cliente se trababa —preguntando el precio
- * del envío, mandando un link de Google Maps en vez del pin— y en ninguna
- * llegó a pedir el menú tres veces. El detector no habría saltado ni una vez.
+ * La primera versión contaba menús enviados; la segunda, mensajes del cliente
+ * a secas. Las dos estaban mal, y la segunda saltó en un pedido que terminó
+ * PAGADO:
  *
- * El menú era un proxy del esfuerzo del cliente, y un proxy pobre: alguien
- * puede pelearse veinte mensajes con el bot sin volver a pedirlo. Lo que mide
- * el atasco de verdad es cuánto escribió sin conseguir nada.
+ *   "Hola don Zarco quiero pedir" · "2 lomitos quería" · "Si envíeme 2
+ *   lomitos" · ubicación · ubicación · comprobante  →  seis mensajes, alerta.
  *
- * Contar mensajes además SUBSUME el caso viejo —tres menús implican al menos
- * tres mensajes suyos— así que no se pierde cobertura, se gana. Y desaparece
- * el segundo umbral, que era la garantía de que los dos acabaran divergiendo.
+ * Ese cliente hizo todo bien. Un pedido normal —saludo, intento, menú,
+ * ubicación, comprobante— gasta seis o siete mensajes sin ningún problema, así
+ * que un contador a secas dispara una alerta falsa por cada pedido que entra.
+ * Cien pedidos, cien alertas, y a la tercera nadie mira el grupo.
  *
- * ── Por qué el cruce con pedidos va por WAMID y no por teléfono ────────────
+ * ── Las tres condiciones, y por qué las tres ───────────────────────────────
  *
- * Lo natural sería buscar los pedidos de ese teléfono. No sirve:
- * `orders.customer_phone` NO está normalizado —el propio código aplica
- * `normalizePhone` cada vez que lo compara—, así que una consulta directa
- * fallaría en silencio y este detector diría "no ha pedido nunca" de un
- * cliente que pidió tres veces.
+ * Contar es lo ÚLTIMO que se hace, no lo primero:
  *
- * ── Por qué esto NO es un castigo ──────────────────────────────────────────
+ *   1. HAY PROGRESO → no está atascado, se acabó. Un pedido creado o un
+ *      comprobante enviado son pruebas de que el sistema le funcionó.
+ *   2. NO RECIBIÓ EL MENÚ → no está atascado, está empezando. Sin la
+ *      herramienta en la mano no se le puede reprochar no usarla, y avisar
+ *      aquí sería avisar por cada conversación que arranca.
+ *   3. Solo entonces, el VOLUMEN. Ocho mensajes con el menú delante y sin un
+ *      solo avance es alguien peleándose con algo.
  *
- * No se le niega nada a nadie ni se le deja de contestar. Lo que hace este
- * detector es avisar a una persona mientras la conversación sigue, porque a
- * los seis mensajes sin pedido el problema ya no lo va a resolver el séptimo.
+ * El orden importa: son tres puertas, y las dos primeras son las que impiden
+ * que un cliente productivo llegue nunca a la tercera.
  */
 
-/** Mensajes del cliente que hacen falta para avisar a una persona. */
-export const STUCK_CUSTOMER_MESSAGES = 6;
+/**
+ * Mensajes del cliente que hacen falta para avisar a una persona.
+ *
+ * Ocho y no seis: un pedido completo —saludo, dos intentos, ubicación,
+ * ubicación corregida, comprobante— llega a seis o siete sin nada anómalo, y
+ * ese margen es justo el que hay que dejar por encima.
+ */
+export const STUCK_CUSTOMER_MESSAGES = 8;
 
 /** Cuánto atrás se mira. Cubre una conversación, no una jornada entera. */
 export const STUCK_WINDOW_MINUTES = 30;
@@ -52,18 +55,30 @@ export const STUCK_WINDOW_MINUTES = 30;
 export interface StuckCustomerInput {
   /** Mensajes que escribió el cliente dentro de la ventana. */
   messages: number;
-  /** ¿Alguno de esos mensajes acabó en un pedido creado? */
-  hasOrder: boolean;
+  /**
+   * Menús que le llegaron. Cero significa que todavía no tiene la herramienta:
+   * es una conversación empezando, no un atasco.
+   */
+  menusSent: number;
+  /**
+   * ¿Consta algún avance real? Un pedido creado o un comprobante recibido.
+   *
+   * Es la puerta que faltaba funcionando: se cruzaba por
+   * `orders.source_message_id`, y el checkout web lo inserta NULL, así que
+   * ningún pedido hecho desde el menú contaba jamás como progreso.
+   */
+  hasProgress: boolean;
 }
 
 /**
  * ¿Este cliente lleva rato sin conseguir pedir?
  *
- * Un solo pedido creado en la ventana lo descarta entero: quien ya pidió una
- * vez sabe usar el sistema, y si sigue escribiendo es por otra cosa.
- * Confundir eso con un atasco despertaría a alguien por un buen cliente.
+ * Cualquier progreso lo descarta entero: quien pidió o pagó sabe usar el
+ * sistema, y confundir eso con un atasco despierta a alguien por un buen
+ * cliente — que es la forma más rápida de que dejen de mirar las alertas.
  */
 export function isStuckCustomer(input: StuckCustomerInput): boolean {
-  if (input.hasOrder) return false;
+  if (input.hasProgress) return false;
+  if (input.menusSent < 1) return false;
   return input.messages >= STUCK_CUSTOMER_MESSAGES;
 }

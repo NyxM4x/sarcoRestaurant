@@ -24,6 +24,75 @@ import { HANDOFF_PAUSE_MINUTES } from './service';
  * webhook por una consulta de contabilidad no lo sería.
  */
 
+/** Cuánto atrás cuenta un avance. Más ancho que la ventana de mensajes. */
+const AVANCE_WINDOW_HOURS = 24;
+
+/**
+ * ¿Consta algún AVANCE de este cliente? `null` = no se pudo averiguar.
+ *
+ * Tres caminos, y hacen falta los tres porque un pedido puede nacer de dos
+ * sitios distintos y un pago deja su propia huella:
+ *
+ *   1. Pedido desde el MENÚ WEB → `orders.menu_session_id` apunta a una sesión
+ *      cuyo `customer_phone` sí está normalizado. Es el camino que faltaba: la
+ *      RPC del checkout inserta `source_message_id` en NULL, así que cruzarlo
+ *      por ahí no encontraba nunca nada.
+ *   2. Pedido por el FLOW → ese sí lleva el WAMID del mensaje del cliente.
+ *   3. COMPROBANTE recibido → se cruza por el WAMID de la imagen. Quien mandó
+ *      un comprobante llegó hasta el final; llamarlo atascado es absurdo.
+ *
+ * Se mira 24 h atrás y no los 30 minutos de la ventana de mensajes: un pedido
+ * hecho hace una hora sigue siendo prueba de que el sistema le funciona.
+ */
+async function tieneAvance(
+  supabase: SupabaseClient,
+  customerPhone: string,
+  wamids: readonly string[],
+): Promise<boolean | null> {
+  const desde = new Date(Date.now() - AVANCE_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+
+  // 1. Pedidos nacidos de una sesión de menú de este teléfono.
+  const { data: sesiones, error: errorSesiones } = await supabase
+    .from('menu_sessions')
+    .select('id')
+    .eq('customer_phone', customerPhone)
+    .gte('created_at', desde)
+    .limit(20);
+  if (errorSesiones) return null;
+
+  const sessionIds = (sesiones ?? []).map((s) => (s as { id: string }).id);
+  if (sessionIds.length > 0) {
+    const { data: pedidos, error } = await supabase
+      .from('orders')
+      .select('id')
+      .in('menu_session_id', sessionIds)
+      .limit(1);
+    if (error) return null;
+    if ((pedidos ?? []).length > 0) return true;
+  }
+
+  if (wamids.length === 0) return false;
+
+  // 2. Pedidos que sí llevan el WAMID (los que entran por el Flow).
+  const { data: porWamid, error: errorWamid } = await supabase
+    .from('orders')
+    .select('id')
+    .in('source_message_id', wamids)
+    .limit(1);
+  if (errorWamid) return null;
+  if ((porWamid ?? []).length > 0) return true;
+
+  // 3. Comprobantes de pago.
+  const { data: comprobantes, error: errorProof } = await supabase
+    .from('payment_proofs')
+    .select('id')
+    .in('source_message_id', wamids)
+    .limit(1);
+  if (errorProof) return null;
+
+  return (comprobantes ?? []).length > 0;
+}
+
 /**
  * ¿Hay que avisar al equipo por este cliente? Nunca lanza.
  *
@@ -66,21 +135,38 @@ export async function escalateIfStuck(
       .map((m) => (m as { provider_message_id: string | null }).provider_message_id)
       .filter((w): w is string => typeof w === 'string' && w !== '');
 
-    // ¿Alguno de esos mensajes acabó en un pedido? El cruce va por WAMID
-    // porque `orders.customer_phone` no está normalizado y compararlo daría
-    // falsos negativos — diría que no pidió nunca alguien que pidió tres veces.
-    let hasOrder = false;
-    if (wamids.length > 0) {
-      const { data: pedidos, error: errorPedidos } = await supabase
-        .from('orders')
-        .select('id')
-        .in('source_message_id', wamids)
-        .limit(1);
-      if (errorPedidos) return;
-      hasOrder = (pedidos ?? []).length > 0;
-    }
+    // ── ¿Consta algún AVANCE? ────────────────────────────────────────────
+    //
+    // El cruce iba SOLO por `orders.source_message_id`, y el checkout web lo
+    // inserta NULL (ver la RPC de 0003): ningún pedido hecho desde el menú
+    // contaba como progreso, así que la puerta nunca cerraba. El 29-08-2026
+    // eso disparó una alerta sobre un pedido que acabó pagado.
+    //
+    // El camino bueno es `menu_sessions`, cuyo `customer_phone` SÍ está
+    // normalizado —lo escribe el webhook con los mismos dígitos— y al que el
+    // pedido apunta por `menu_session_id`. El cruce por WAMID se conserva
+    // además, porque un pedido que entra por el Flow sí lo lleva.
+    const hasProgress = await tieneAvance(supabase, customerPhone, wamids);
+    if (hasProgress === null) return;
 
-    if (!isStuckCustomer({ messages: mensajes.length, hasOrder })) return;
+    // Menús que le llegaron. Sin ninguno no está atascado: está empezando.
+    const { count: menusSent, error: errorMenus } = await supabase
+      .from('menu_send_deliveries')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_phone', customerPhone)
+      .eq('status', 'sent')
+      .gte('completed_at', desde);
+    if (errorMenus) return;
+
+    if (
+      !isStuckCustomer({
+        messages: mensajes.length,
+        menusSent: menusSent ?? 0,
+        hasProgress,
+      })
+    ) {
+      return;
+    }
 
     const store = createAgentStore(supabase);
     const pausa = await pauseAgentForHandoff(
