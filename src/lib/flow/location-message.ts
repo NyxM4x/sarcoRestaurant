@@ -50,3 +50,49 @@ export function parseLocationMessage(
 
   return { ok: true, data: parsed.data };
 }
+
+// ── Un pin que NO responde a nada (0027) ────────────────────────────────────
+
+/**
+ * El mismo mensaje, sin exigir `contextId`.
+ *
+ * `parseLocationMessage` pide el contexto porque su trabajo es CORRELACIONAR:
+ * sin el wamid de la petición no hay pedido al que adjuntar el GPS, y adivinarlo
+ * sería peor que fallar. Esa exigencia sigue intacta.
+ *
+ * Pero tiene un efecto que nadie eligió: un cliente que manda su ubicación con
+ * el botón normal de WhatsApp —sin responder a nada— produce `invalid_shape` y
+ * se queda sin respuesta. No es un mensaje malformado; es un mensaje distinto,
+ * con una intención distinta: quiere saber cuánto le sale el envío.
+ *
+ * Este parser es para ese caso, y por eso no acepta lo que el otro rechazaría
+ * por razones reales: unas coordenadas fuera de rango o un mensaje sin id
+ * siguen siendo inválidos aquí también.
+ */
+export const standaloneLocationSchema = locationMessageSchema.omit({ contextId: true });
+
+export type StandaloneLocationData = z.infer<typeof standaloneLocationSchema>;
+
+export type StandaloneLocationParseResult =
+  | { ok: true; data: StandaloneLocationData }
+  | { ok: false; reason: 'not_location' | 'invalid_shape' };
+
+/** Detecta un `type = "location"` y valida sus coordenadas, sin pedir contexto. */
+export function parseStandaloneLocation(
+  message: Record<string, unknown> | undefined,
+): StandaloneLocationParseResult {
+  if (!message || message.type !== 'location') return { ok: false, reason: 'not_location' };
+
+  const location = rec(message.location);
+
+  const parsed = standaloneLocationSchema.safeParse({
+    messageId: message.id,
+    latitude: location?.latitude,
+    longitude: location?.longitude,
+    address: location?.address,
+    name: location?.name,
+  });
+  if (!parsed.success) return { ok: false, reason: 'invalid_shape' };
+
+  return { ok: true, data: parsed.data };
+}

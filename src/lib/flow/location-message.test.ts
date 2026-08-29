@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseLocationMessage } from './location-message';
+import { parseLocationMessage, parseStandaloneLocation } from './location-message';
 
 function locationMessage(overrides: Record<string, unknown> = {}) {
   return {
@@ -94,5 +94,54 @@ describe('parseLocationMessage', () => {
   it('location ausente por completo -> invalid_shape', () => {
     const res = parseLocationMessage(locationMessage({ location: undefined }));
     expect(res).toEqual({ ok: false, reason: 'invalid_shape' });
+  });
+});
+
+describe('parseStandaloneLocation — el pin que no responde a nada', () => {
+  it('acepta una ubicación SIN contexto', () => {
+    // El caso real: el cliente comparte su ubicación con el botón normal de
+    // WhatsApp. Antes esto era `invalid_shape` y nadie le contestaba.
+    const res = parseStandaloneLocation(locationMessage({ context: undefined }));
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data).toEqual({
+        messageId: 'wamid.LOC_MSG_1',
+        latitude: -17.7833,
+        longitude: -63.1821,
+        address: 'Av. Siempre Viva 123',
+        name: 'Casa',
+      });
+    }
+  });
+
+  it('no arrastra el contexto aunque venga', () => {
+    // Su trabajo no es correlacionar. Si algún día alguien usa este dato para
+    // buscar un pedido, que no lo saque de aquí.
+    const res = parseStandaloneLocation(locationMessage());
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data).not.toHaveProperty('contextId');
+  });
+
+  it('relaja el contexto, NO la validación de lo que importa', () => {
+    // Unas coordenadas imposibles o un mensaje sin id siguen siendo inválidos:
+    // se cotizaría sobre un punto que no existe y se cobraría por medirlo.
+    for (const roto of [
+      { context: undefined, location: { latitude: 999, longitude: -63.1 } },
+      { context: undefined, location: { latitude: -17.78, longitude: -999 } },
+      { context: undefined, location: { latitude: '-17.78', longitude: -63.1 } },
+      { context: undefined, location: undefined },
+      { context: undefined, id: '' },
+    ]) {
+      expect(parseStandaloneLocation(locationMessage(roto)).ok).toBe(false);
+    }
+  });
+
+  it('sigue exigiendo que sea una ubicación', () => {
+    expect(parseStandaloneLocation({ type: 'text', text: { body: 'hola' } })).toEqual({
+      ok: false,
+      reason: 'not_location',
+    });
+    expect(parseStandaloneLocation(undefined)).toEqual({ ok: false, reason: 'not_location' });
   });
 });

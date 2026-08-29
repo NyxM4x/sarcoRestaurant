@@ -382,3 +382,128 @@ describe('tarifa de lluvia — se consulta al cotizar', () => {
     expect(res).toMatchObject({ result: 'out_of_coverage' });
   });
 });
+
+// ── Reuso de una medición reciente (0027) ───────────────────────────────────
+
+describe('quoteDynamicOrder — no se paga dos veces por medir el mismo punto', () => {
+  /**
+   * El cliente que pregunta "¿cuánto me sale el envío?" antes de pedir hace que
+   * midamos el mismo trayecto dos veces: una al cotizarle suelto y otra al
+   * confirmar su pedido con el mismo pin. La segunda no aporta nada —la
+   * distancia por carretera no cambia en los minutos que tarda en armar el
+   * pedido— y cuesta otra llamada de pago.
+   */
+  function conReuso(
+    reused: number | null | (() => Promise<never>),
+    distances: MapboxDistanceResult[] = [],
+  ) {
+    const rec = { mapbox: 0, consultas: [] as Array<{ dest: unknown; phone: string }> };
+    const cola = [...distances];
+    const deps: QuoteOrchestratorDeps = {
+      async loadForQuote() {
+        return order();
+      },
+      async findReusedDistanceMeters(destination, customerPhone) {
+        rec.consultas.push({ dest: destination, phone: customerPhone });
+        if (typeof reused === 'function') return reused();
+        return reused;
+      },
+      async getDistanceMeters() {
+        rec.mapbox += 1;
+        const next = cola.shift();
+        if (!next) throw new Error('llamada a Mapbox no esperada');
+        return next;
+      },
+      async applyQuote() {
+        return { result: 'applied' };
+      },
+      async markQuoteResult() {
+        return { result: 'applied' };
+      },
+      async sendOutOfCoverageMessage() {},
+      async dispatchConfirmation() {},
+    };
+    return { deps, rec };
+  }
+
+  it('con una medición reutilizable NO se llama a Mapbox', async () => {
+    const { deps, rec } = conReuso(3_200);
+
+    const out = await quoteDynamicOrder(deps, ORDER_ID);
+
+    expect(out.result).toBe('quoted');
+    expect(rec.mapbox).toBe(0);
+  });
+
+  it('la tarifa sale de la distancia reutilizada, no de otra cosa', async () => {
+    // 3.200 m cae en el tramo "3.1 – 4 km", que son 13 Bs. Si el reuso
+    // devolviera un número y luego se tarifara sobre otro, esto lo vería.
+    const applies: number[] = [];
+    const { deps } = conReuso(3_200);
+    const espia: QuoteOrchestratorDeps = {
+      ...deps,
+      async applyQuote(_id, _metros, amount) {
+        applies.push(amount);
+        return { result: 'applied' };
+      },
+    };
+
+    await quoteDynamicOrder(espia, ORDER_ID);
+
+    expect(applies).toEqual([13]);
+  });
+
+  it('se consulta con el punto del pedido y su teléfono', async () => {
+    const { deps, rec } = conReuso(3_200);
+
+    await quoteDynamicOrder(deps, ORDER_ID);
+
+    expect(rec.consultas).toEqual([
+      { dest: { lat: -17.8405, lng: -63.1818 }, phone: '59170000000' },
+    ]);
+  });
+
+  it('sin nada que reutilizar se mide como siempre', async () => {
+    const { deps, rec } = conReuso(null, [{ ok: true, distanceMeters: 3_200 }]);
+
+    const out = await quoteDynamicOrder(deps, ORDER_ID);
+
+    expect(out.result).toBe('quoted');
+    expect(rec.mapbox).toBe(1);
+  });
+
+  it('si la consulta de reuso revienta, se mide: el pedido no se queda sin precio', async () => {
+    const { deps, rec } = conReuso(
+      async () => {
+        throw new Error('supabase caído');
+      },
+      [{ ok: true, distanceMeters: 3_200 }],
+    );
+
+    const out = await quoteDynamicOrder(deps, ORDER_ID);
+
+    expect(out.result).toBe('quoted');
+    expect(rec.mapbox).toBe(1);
+  });
+
+  it('una distancia corrupta en el ledger no se tarifa: se vuelve a medir', async () => {
+    // Fail-closed. Un decimal o un negativo en la fila significa medir de nuevo,
+    // nunca cobrar sobre un número que `feeForMeters` rechazaría.
+    for (const basura of [3_200.5, -1]) {
+      const { deps, rec } = conReuso(basura, [{ ok: true, distanceMeters: 3_200 }]);
+      await quoteDynamicOrder(deps, ORDER_ID);
+      expect(rec.mapbox).toBe(1);
+    }
+  });
+
+  it('sin el puerto de reuso el comportamiento es el de antes', async () => {
+    const { deps, rec } = conReuso(null, [{ ok: true, distanceMeters: 3_200 }]);
+    const sinPuerto: QuoteOrchestratorDeps = { ...deps };
+    delete sinPuerto.findReusedDistanceMeters;
+
+    const out = await quoteDynamicOrder(sinPuerto, ORDER_ID);
+
+    expect(out.result).toBe('quoted');
+    expect(rec.mapbox).toBe(1);
+  });
+});

@@ -45,6 +45,22 @@ export interface QuoteOrchestratorDeps {
    * conoce el origen (RESTAURANT_LAT/LNG) y el token; aquí solo llega el destino.
    */
   getDistanceMeters(destination: { lat: number; lng: number }): Promise<MapboxDistanceResult>;
+  /**
+   * Distancia ya medida para este mismo punto, si la hay (0027).
+   *
+   * Existe porque el cliente que pregunta "¿cuánto me sale el envío?" antes de
+   * pedir hace que midamos DOS veces el mismo trayecto: una al cotizarle suelto
+   * y otra al confirmar su pedido con el mismo pin. La segunda medición no
+   * aporta nada —la distancia por carretera hasta unas coordenadas no cambia en
+   * los minutos que tarda en armar el pedido— y cuesta otra llamada de pago.
+   *
+   * Devuelve metros, o `null` si no hay nada reutilizable o la consulta falla.
+   * Opcional: sin este puerto siempre se mide, que es el comportamiento previo.
+   */
+  findReusedDistanceMeters?(
+    destination: { lat: number; lng: number },
+    customerPhone: string,
+  ): Promise<number | null>;
   /** `apply_delivery_quote(order, distance, amount)`. */
   applyQuote(
     orderId: string,
@@ -125,6 +141,28 @@ function validDestination(order: QuoteOrderRow): { lat: number; lng: number } | 
   return { lat, lng };
 }
 
+/**
+ * Distancia reutilizable para este punto, o `null`. Nunca lanza: un fallo del
+ * puerto significa medir, no dejar el pedido sin cotizar.
+ */
+async function reusedDistance(
+  deps: QuoteOrchestratorDeps,
+  destination: { lat: number; lng: number },
+  customerPhone: string,
+): Promise<number | null> {
+  if (!deps.findReusedDistanceMeters) return null;
+  try {
+    const metros = await deps.findReusedDistanceMeters(destination, customerPhone);
+    // Se exige un entero no negativo: `feeForMeters` rechazaría cualquier otra
+    // cosa, y prefiero medir de nuevo a tarifar sobre una fila corrupta.
+    return typeof metros === 'number' && Number.isInteger(metros) && metros >= 0
+      ? metros
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Ejecuta un efecto best-effort sin propagar (mensajes/alertas nunca tumban la cotización). */
 async function safe(fn: () => Promise<void>): Promise<void> {
   try {
@@ -174,7 +212,16 @@ export async function quoteDynamicOrder(
     if (!destination) return { result: 'skipped', reason: 'missing_gps' };
 
     // 1. Distancia real por calle (con 1 reintento para transitorios).
-    const distance = await distanceWithRetry(deps, destination);
+    //
+    // Antes de medir se mira si ya la medimos: el cliente que cotizó el envío
+    // hace cinco minutos y ahora confirma con el mismo pin no necesita que le
+    // preguntemos otra vez a Mapbox lo mismo. Best-effort — si la consulta
+    // falla, se mide como siempre.
+    const reusados = await reusedDistance(deps, destination, order.customer_phone);
+    const distance: MapboxDistanceResult =
+      reusados !== null
+        ? { ok: true, distanceMeters: reusados }
+        : await distanceWithRetry(deps, destination);
     if (!distance.ok) {
       await deps.markQuoteResult(orderId, 'failed', null);
       if (distance.error === 'http_401' || distance.error === 'http_403') {

@@ -4,7 +4,7 @@ import { extractMessageContext, parseNfmReply } from '@/lib/flow/nfm';
 import { toEnvelopes, type WebhookEnvelope } from './envelopes';
 import { isAgentEligibleContent } from '@/lib/agent/core/run';
 import { isReactionType } from '@/lib/kapso/channel/reaction';
-import { parseLocationMessage } from '@/lib/flow/location-message';
+import { parseLocationMessage, parseStandaloneLocation } from '@/lib/flow/location-message';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isMenuIntent } from './menu-intent';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
@@ -142,6 +142,29 @@ export type SendMenuCta = (input: SendMenuCtaInput) => Promise<DispatchMenuResul
 export type QuoteDynamicDelivery = (orderId: string) => Promise<unknown>;
 
 /**
+ * Cotización de envío para un pin que NO responde a ninguna petición nuestra.
+ *
+ * Hasta 0027 ese mensaje moría aquí: el parser exige `context.id` para poder
+ * correlacionar con `orders.location_request_message_id`, y un pin mandado con
+ * el botón normal de WhatsApp no lo trae. Se descartaba como `invalid_shape`,
+ * el clasificador lo daba por atendido y el agente ni lo veía. Resultado:
+ * silencio absoluto al cliente que quería saber cuánto le sale el envío antes
+ * de decidir si pide.
+ *
+ * La implementación real es server-only: mide con Mapbox (o reutiliza una
+ * medición reciente del mismo punto), tarifa con `feeForMeters` y le contesta.
+ * NUNCA lanza. Opcional: sin ella el comportamiento es el de antes.
+ */
+export type QuoteStandaloneLocation = (input: {
+  /** Teléfono del cliente, solo dígitos. */
+  customerPhone: string;
+  /** WAMID del pin. Es la clave de idempotencia del ledger. */
+  sourceMessageId: string;
+  coords: { lat: number; lng: number };
+  phoneNumberId: string | null;
+}) => Promise<{ result: string }>;
+
+/**
  * Fallo real al enviar la solicitud de ubicación: el caller marca el evento
  * `failed` (reintentable) y responde 500. El mensaje solo lleva el código de
  * error tipado (nunca teléfono, API keys ni bodies).
@@ -229,6 +252,11 @@ export interface HandleKapsoWebhookParams {
    * server-only y nunca lanza.
    */
   quoteDynamicDelivery?: QuoteDynamicDelivery;
+  /**
+   * Cotización de un pin suelto (0027). Opcional: sin ella, una ubicación que no
+   * responde a nuestra petición se sigue descartando en silencio.
+   */
+  quoteStandaloneLocation?: QuoteStandaloneLocation;
   /**
    * Store de reconciliación outbound (Fase 5.2D.5C). Opcional: si no se inyecta,
    * los eventos salientes de Kapso se ignoran con 200 (comportamiento previo),
@@ -402,6 +430,7 @@ async function processMessage(
     attachOrderLocation: AttachOrderLocation;
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
+    quoteStandaloneLocation?: QuoteStandaloneLocation;
   },
 ): Promise<Record<string, unknown>> {
   const { message, conversationPhone, from } = ctx;
@@ -453,14 +482,43 @@ async function processMessage(
   // Ubicación entrante (Fase 3.3B): se comprueba antes que nfm_reply porque
   // `location` no es un mensaje `interactive`.
   if (message?.type === 'location') {
+    const phoneDigits = normalizePhone(conversationPhone ?? from ?? '');
+
+    /**
+     * Cotización de un pin que no adjunta a ningún pedido (0027).
+     *
+     * Se llega aquí por dos caminos distintos que significan lo mismo para el
+     * cliente —"mandé mi ubicación y nadie me dijo nada"—: que el pin no
+     * responda a nada (sin `context.id`), o que responda a una petición que ya
+     * no tiene pedido detrás.
+     */
+    const cotizarSuelta = async (): Promise<Record<string, unknown> | null> => {
+      if (!deps.quoteStandaloneLocation) return null;
+      const suelta = parseStandaloneLocation(message);
+      if (!suelta.ok) return null;
+      if (!phoneDigits) return null;
+
+      const cotizacion = await deps.quoteStandaloneLocation({
+        customerPhone: phoneDigits,
+        sourceMessageId: suelta.data.messageId,
+        coords: { lat: suelta.data.latitude, lng: suelta.data.longitude },
+        phoneNumberId: ctx.phoneNumberId,
+      });
+      return { ok: true, handled: 'delivery_quote', result: cotizacion.result };
+    };
+
     const parsedLocation = parseLocationMessage(message);
     if (!parsedLocation.ok) {
+      // Un pin sin `context.id` NO es un payload roto: es alguien preguntando
+      // cuánto le sale el envío. Antes de rechazarlo se intenta cotizar.
+      const cotizada = await cotizarSuelta();
+      if (cotizada) return cotizada;
+
       // 'not_location' no debería ocurrir aquí (ya filtramos por type), pero se
       // trata igual que un payload inválido: no reintentar.
       return { ok: false, handled: 'location', result: 'invalid', reason: parsedLocation.reason };
     }
 
-    const phoneDigits = normalizePhone(conversationPhone ?? from ?? '');
     const attach = await attachOrderLocation({
       contextId: parsedLocation.data.contextId,
       customerPhoneDigits: phoneDigits,
@@ -487,6 +545,14 @@ async function processMessage(
       deps.quoteDynamicDelivery
     ) {
       await deps.quoteDynamicDelivery(attach.order.id);
+    }
+
+    // El pin respondía a una petición nuestra, pero ya no hay pedido detrás: el
+    // cliente reutilizó un botón viejo, o el pedido se fue. Su ubicación sigue
+    // siendo una pregunta legítima, así que se cotiza en vez de callar.
+    if (attach.result === 'not_found') {
+      const cotizada = await cotizarSuelta();
+      if (cotizada) return cotizada;
     }
 
     return locationBody(attach);
@@ -698,6 +764,7 @@ async function processEnvelopes(
     attachOrderLocation: AttachOrderLocation;
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
+    quoteStandaloneLocation?: QuoteStandaloneLocation;
   },
 ): Promise<EnvelopeResult[]> {
   const results: EnvelopeResult[] = [];
@@ -1272,6 +1339,7 @@ async function runBusiness(
       attachOrderLocation,
       sendMenuCta,
       quoteDynamicDelivery: params.quoteDynamicDelivery,
+      quoteStandaloneLocation: params.quoteStandaloneLocation,
     });
 
     // ── Comprobantes de pago ─────────────────────────────────────────────────

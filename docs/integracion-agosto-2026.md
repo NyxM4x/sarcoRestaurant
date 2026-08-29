@@ -179,6 +179,51 @@ atendido; derivar de más lo deja dos horas sin nadie.
 
 ---
 
+## 5c. Cotizar el envío antes de que exista un pedido (0027)
+
+**El agujero**, encontrado probando el 29-08-2026: un cliente preguntó por el
+delivery, mandó su ubicación con el botón normal de WhatsApp y **no recibió
+nada**. No era una pausa —`agent_conversations` decía `active`—, era el diseño:
+
+- `parseLocationMessage` exige `context.id` para poder correlacionar con
+  `orders.location_request_message_id`. Un pin que no responde a nuestra
+  petición no lo trae, así que salía `invalid_shape`.
+- El clasificador del webhook da por atendido todo lo que no declina
+  explícitamente, así que el mensaje **nunca llegaba al agente**.
+
+Nadie contestaba, y nadie tenía previsto contestar.
+
+**Lo que se añade.** Un pin suelto ahora se cotiza y se responde, por el camino
+determinista. No pasa por el modelo porque no hay nada que interpretar: la
+tarifa es `feeForMeters` (una tabla de metros a bolivianos) y la distancia la
+mide Mapbox. Se atiende también el pin que responde a un botón viejo cuyo pedido
+ya no existe (`attach → not_found`). Lo que **no** cambia es el camino de
+siempre: mientras haya pedido detrás, el GPS se adjunta como hasta ahora.
+
+**El cupo: 2 pines sueltos por teléfono cada 12 h.** Cada medición es una llamada
+de pago. La cotización del **checkout no cuenta nunca** y corre siempre: es la de
+un pedido real, y bloquearla sería castigar al cliente por haber preguntado
+antes. Así, el viaje completo —pregunta, se anima, arma el pedido— gasta **una**
+unidad de cupo, no dos.
+
+**Y una llamada en vez de dos.** Si el cliente confirma su pedido con el mismo
+pin que ya cotizó, `quoteDynamicOrder` reutiliza la distancia guardada en vez de
+volver a preguntar. La tolerancia es de 10 m —el temblor del GPS al reenviar
+"ubicación actual" desde el mismo sitio—, muy por debajo del tramo más estrecho
+del tarifario, que mide un kilómetro. El puerto es opcional y best-effort: si
+falla, se mide.
+
+Ningún desenlace es mudo. Cotizado, fuera de cobertura, cupo agotado y Mapbox
+caído tienen cada uno su texto — reproducir el silencio en las ramas de error
+sería absurdo en un flujo que existe para eliminarlo.
+
+Archivos: `supabase/migrations/0027_delivery_quote_requests.sql`,
+`src/lib/delivery/quote-request.ts` (puro), `quote-request-service.ts` (wiring),
+`parseStandaloneLocation` en `src/lib/flow/location-message.ts`, y el enganche en
+`src/lib/webhook/kapso.ts`.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.
@@ -188,8 +233,12 @@ atendido; derivar de más lo deja dos horas sin nadie.
 
 ### Pendiente
 
-- **Migraciones sin aplicar**: `0025` (análisis) y `0026` (numeración diaria).
-  Sin la `0026` los pedidos siguen en `ORD-000021`.
+- **Migraciones sin aplicar**: `0025` (análisis), `0026` (numeración diaria) y
+  `0027` (cotizaciones sueltas). Sin la `0026` los pedidos siguen en
+  `ORD-000021`. La `0027` es segura de desplegar antes de aplicarla: sin la
+  tabla, el ledger no responde, la cotización se aborta sin escribir ni enviar
+  nada y el pin suelto vuelve a caer en el silencio de siempre. Aplicarla es lo
+  que enciende la función.
 - **Sin correr todavía**: `npm run eval:selection`. Se intentó y **las 69
   llamadas fallaron con HTTP 401**: la `OPENAI_API_KEY` de `.env.local` está
   revocada o es incorrecta. No se pudo medir nada, ni lo nuevo ni lo viejo.

@@ -13,7 +13,9 @@ import {
 } from '@/lib/orders/notifications/service';
 import { dispatchSingleNotification } from '@/lib/orders/notifications/web-notify';
 import type { DeliveryPricing, DeliveryQuoteStatus, DeliveryType, OrderStatus } from '@/types';
+import { normalizePhone } from '@/lib/phone';
 import { getDeliveryConfig } from './config';
+import { findReusableDistanceMeters } from './quote-request-service';
 import { getDistanceByRoad, type MapboxDistanceResult } from './mapbox';
 import {
   quoteDynamicOrder,
@@ -106,6 +108,21 @@ export function createQuoteOrchestratorDeps(
         customer_phone: String(row.customer_phone ?? ''),
         phone_number_id: phoneNumberId,
       };
+    },
+
+    /**
+     * Reuso de una medición reciente del mismo punto (0027).
+     *
+     * El teléfono se normaliza AQUÍ y no en el ledger: `orders.customer_phone`
+     * guarda lo que llegó del checkout —con `+`, espacios o guiones—, mientras
+     * que `delivery_quote_requests.customer_phone` son dígitos, como
+     * `agent_conversations`. Comparar los dos crudos no encontraría nunca nada
+     * y el reuso quedaría muerto sin que fallara ningún test.
+     */
+    async findReusedDistanceMeters(destination, customerPhone): Promise<number | null> {
+      const digitos = normalizePhone(customerPhone);
+      if (!digitos) return null;
+      return findReusableDistanceMeters(supabase, digitos, destination);
     },
 
     async getDistanceMeters(destination): Promise<MapboxDistanceResult> {

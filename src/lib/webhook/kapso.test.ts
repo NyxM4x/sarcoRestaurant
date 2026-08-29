@@ -8,6 +8,7 @@ import {
   type ConfirmOrder,
   type EnsureLocationRequest,
   type QuoteDynamicDelivery,
+  type QuoteStandaloneLocation,
   type SendMenuCta,
   type SendMenuCtaInput,
   type WebhookEventStore,
@@ -1296,6 +1297,110 @@ describe('handleKapsoWebhook — cotización dinámica (6D.2C)', () => {
       sendMenuCta: NEVER_SEND_CTA,
       // sin quoteDynamicDelivery
     });
+    expect(res.outcome).toBe('processed');
+  });
+});
+
+// ── El pin que no responde a nada (0027) ────────────────────────────────────
+
+describe('handleKapsoWebhook — cotización de una ubicación suelta', () => {
+  /**
+   * El fallo real, del 29-08-2026: un cliente preguntó por el delivery, mandó
+   * su ubicación con el botón normal de WhatsApp y NO recibió nada. El parser
+   * exige `context.id` para poder correlacionar con el pedido, y sin él
+   * descartaba el mensaje como `invalid_shape`; el clasificador lo daba por
+   * atendido, así que el agente tampoco llegaba a verlo. Silencio absoluto,
+   * justo al cliente que estaba decidiendo si pedir.
+   */
+  function fakeStandaloneQuote(result = 'quoted') {
+    const calls: Array<{
+      customerPhone: string;
+      sourceMessageId: string;
+      coords: { lat: number; lng: number };
+      phoneNumberId: string | null;
+    }> = [];
+    const fn: QuoteStandaloneLocation = async (input) => {
+      calls.push(input);
+      return { result };
+    };
+    return { fn, calls };
+  }
+
+  function callStandalone(
+    message: Record<string, unknown>,
+    quote?: QuoteStandaloneLocation,
+    attachResult: AttachLocationResult = ATTACHED_RESULT,
+  ) {
+    const raw = messageBody(message);
+    return handleKapsoWebhook({
+      rawBody: raw,
+      headers: headers(raw),
+      secret: SECRET,
+      store: new FakeStore(),
+      confirmOrder: NOOP_CONFIRM,
+      ensureLocationRequest: NOOP_ENSURE,
+      attachOrderLocation: async () => attachResult,
+      sendMenuCta: NEVER_SEND_CTA,
+      quoteStandaloneLocation: quote,
+    });
+  }
+
+  it('un pin SIN contexto se cotiza en vez de descartarse', async () => {
+    const quote = fakeStandaloneQuote();
+    const res = await callStandalone(locationMessage({ context: undefined }), quote.fn);
+
+    expect(res.outcome).toBe('processed');
+    expect(quote.calls).toHaveLength(1);
+    expect(quote.calls[0]).toMatchObject({
+      // El teléfono de la CONVERSACIÓN, igual que en el camino de adjuntar: si
+      // los dos no coincidieran, el ledger de cotizaciones y el pedido hablarían
+      // de clientes distintos y el reuso nunca encontraría nada.
+      customerPhone: '59170000000',
+      sourceMessageId: 'wamid.LOC_MSG_1',
+      coords: { lat: -17.7833, lng: -63.1821 },
+    });
+  });
+
+  it('el pin que SÍ responde a nuestra petición sigue adjuntándose, no cotizándose', async () => {
+    // La regresión que hay que evitar: si la cotización suelta se comiera este
+    // caso, el GPS dejaría de llegar al pedido y el checkout se quedaría sin
+    // dirección. El camino viejo manda mientras haya pedido detrás.
+    const quote = fakeStandaloneQuote();
+    const res = await callStandalone(locationMessage(), quote.fn);
+
+    expect(res.outcome).toBe('processed');
+    expect(quote.calls).toEqual([]);
+  });
+
+  it('un contexto que ya no tiene pedido detrás también se cotiza', async () => {
+    // El cliente respondió a un botón viejo. Su ubicación sigue siendo una
+    // pregunta legítima aunque el pedido ya no exista.
+    const quote = fakeStandaloneQuote();
+    await callStandalone(locationMessage(), quote.fn, { result: 'not_found' });
+
+    expect(quote.calls).toHaveLength(1);
+  });
+
+  it('un pedido de otro teléfono NO se cotiza: eso no es una pregunta, es un cruce', async () => {
+    const quote = fakeStandaloneQuote();
+    await callStandalone(locationMessage(), quote.fn, { result: 'phone_mismatch' });
+
+    expect(quote.calls).toEqual([]);
+  });
+
+  it('unas coordenadas imposibles no se cotizan', async () => {
+    // El parser suelto relaja el contexto, NO la validación de lo que importa.
+    const quote = fakeStandaloneQuote();
+    await callStandalone(
+      locationMessage({ context: undefined, location: { latitude: 999, longitude: -63.1 } }),
+      quote.fn,
+    );
+
+    expect(quote.calls).toEqual([]);
+  });
+
+  it('sin la dependencia, el webhook se comporta como antes', async () => {
+    const res = await callStandalone(locationMessage({ context: undefined }));
     expect(res.outcome).toBe('processed');
   });
 });

@@ -13,6 +13,7 @@ import { createSupabaseOutboundStore } from '@/lib/orders/notifications/service'
 import { createAgentChannel } from '@/lib/agent/service';
 import { intakePaymentProof } from '@/lib/payment-proof/intake-service';
 import { quoteDynamicDeliveryForOrder } from '@/lib/delivery/quote-service';
+import { quoteStandaloneLocation } from '@/lib/delivery/quote-request-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
   acceptKapsoWebhook,
@@ -73,6 +74,8 @@ export async function POST(request: Request): Promise<Response> {
       sendMenuCta: sendMenuCtaMessage,
       // Fase 6D.2C: cotización de delivery dinámico tras guardar el GPS.
       quoteDynamicDelivery: quoteDynamicDeliveryForOrder,
+      // 0027: cotización de un pin suelto, antes de que exista ningún pedido.
+      quoteStandaloneLocation: (input) => quoteStandaloneLocation(input),
       // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
       outbound: createSupabaseOutboundStore(supabase),
       // Fase 6D.2F.2B: historial del cliente + human takeover.
