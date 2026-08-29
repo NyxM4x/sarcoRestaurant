@@ -1,7 +1,5 @@
 import 'server-only';
-import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { getKapsoClient } from '@/lib/kapso/client';
 import { notifyHandoff } from '@/lib/alerts/handoff-notice-service';
 import { createAgentStore } from '../memory/repository';
 import { pauseAgentForHandoff } from '../control/handoff-pause';
@@ -11,40 +9,37 @@ import type { HandoffPort } from '../tools/request-human';
 /**
  * Derivar una conversación a una persona — cableado server-only.
  *
- * Une las tres cosas que tienen que pasar, en este orden y por este motivo:
+ * Son dos cosas, en este orden y por este motivo:
  *
- *   1. PAUSAR   — primero, para que nadie más hable encima.
- *   2. AVISAR   — al equipo, best-effort.
- *   3. RESPONDER— al cliente, con un texto fijo y verdadero.
+ *   1. PAUSAR — primero, para que nadie más hable encima.
+ *   2. AVISAR — al equipo, best-effort.
  *
- * ── Por qué el orden importa ────────────────────────────────────────────────
+ * La pausa va antes que el aviso. Si fuera al revés y algo fallara por el
+ * camino, el agente seguiría contestando a un cliente que ya pidió hablar con
+ * una persona — que es exactamente el daño que esto evita.
  *
- * La pausa va antes que el aviso y que la respuesta. Si fuera al final y algo
- * fallara por el camino, el agente seguiría contestando a un cliente que ya
- * pidió hablar con una persona — que es exactamente el daño que esto evita.
+ * ── Por qué el cliente NO recibe nada ───────────────────────────────────────
  *
- * Y el mensaje al cliente sale por el transporte directo, no por el puerto de
- * envío del core: ese lo frenaría la pausa que acabamos de poner. No es una
- * trampa, es la regla ya escrita en `pause-gate.ts` — las comunicaciones
- * determinísticas del sistema siguen saliendo aunque haya un humano al mando.
+ * Hasta esta entrega salía un acuse ("Esto lo tiene que ver una persona del
+ * equipo"). Se quitó, y no por ahorrar un mensaje: ese acuse es una promesa
+ * implícita de atención que puede no cumplirse esa noche. Un cliente al que
+ * nadie contesta después de habérselo anunciado se siente ignorado; uno al que
+ * simplemente deja de responderle un bot vuelve a escribir, o llama.
+ *
+ * Es además lo que ya hacía el detector de menús (`menu-loop-service.ts`), que
+ * pausa y avisa sin decirle nada a nadie. Los dos caminos de derivación se
+ * comportan igual, y no hay que recordar cuál de ellos habla.
+ *
+ * Lo que sí sale, siempre, es la alerta a Telegram. La derivación es un aviso
+ * AL EQUIPO, no un mensaje al cliente.
  */
-
-/**
- * Lo que se le dice al cliente. Constante y deliberadamente MODESTA.
- *
- * No dice "ya avisé", no promete un plazo y no da a nadie por enterado. Así es
- * verdad aunque Telegram esté caído, aunque nadie mire el grupo esa noche y
- * aunque el equipo esté cerrando caja. Prometer una respuesta que no llega hace
- * más daño que no prometer nada.
- */
-export const HANDOFF_ACK_TEXT = 'Esto lo tiene que ver una persona del equipo 🙌';
 
 /** Minutos que calla el agente tras derivar. */
 export const HANDOFF_PAUSE_MINUTES = 120;
 
 export function createHandoffPort(): HandoffPort {
   return {
-    async escalate({ customerPhone, sourceMessageId, phoneNumberId, inboundText }) {
+    async escalate({ customerPhone, sourceMessageId, inboundText }) {
       const store = createAgentStore(getSupabaseAdmin());
 
       const pausa = await pauseAgentForHandoff(
@@ -59,31 +54,24 @@ export function createHandoffPort(): HandoffPort {
         store,
       );
 
-      // Este mismo mensaje ya derivó: no se avisa dos veces ni se le repite al
-      // cliente que lo verá una persona. Se cierra el turno igual, porque para
-      // él la derivación ya ocurrió.
-      if (pausa.result === 'ok' && pausa.pause === 'already_applied') {
-        return { handed: true };
-      }
+      // La pausa no se pudo escribir: la conversación NO quedó derivada. Se
+      // dice tal cual, y el turno sigue hasta la ronda de redacción — es el
+      // único caso en que el cliente recibe algo, y es el correcto.
+      if (pausa.result !== 'ok') return { handed: false };
 
-      // Best-effort y nunca lanza: el cliente ya está a la espera de una
-      // persona, con aviso o sin él.
+      // Este mismo mensaje ya derivó: no se avisa dos veces al equipo. Para el
+      // cliente la derivación ya ocurrió, así que el turno cierra igual.
+      if (pausa.pause === 'already_applied') return { handed: true };
+
+      // Best-effort y nunca lanza: la conversación ya está pausada, con aviso o
+      // sin él. Un fallo de Telegram no puede devolverle la voz al agente.
       await notifyHandoff({
         customerPhone,
         reason: PAUSE_REASON_HANDOFF_REQUESTED,
         lastMessage: inboundText,
       });
 
-      try {
-        const enviado = await getKapsoClient().sendText(customerPhone, HANDOFF_ACK_TEXT, {
-          phoneNumberId: phoneNumberId ?? undefined,
-        });
-        return { handed: enviado.ok };
-      } catch {
-        // Sin `error.message`: el transporte puede traer detalle del proveedor.
-        log.warn('agent.handoff_ack_failed');
-        return { handed: false };
-      }
+      return { handed: true };
     },
   };
 }

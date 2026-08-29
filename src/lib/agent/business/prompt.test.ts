@@ -68,11 +68,20 @@ describe('prompt — hechos con respaldo', () => {
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/la cocina empieza cuando el pago está confirmado/);
   });
 
-  it('ante la frustración no insiste con el menú', () => {
-    // Repetir el botón a quien ya lo recibió y sigue sin poder pedir es lo que
-    // convierte a un cliente atascado en un cliente perdido.
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no necesita\s+el menú otra vez/);
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Necesita a una persona/);
+  it('ante la frustración no repite la explicación', () => {
+    // Volver a explicarle por qué el pedido se arma en el menú a quien ya lo
+    // oyó una vez es lo que convierte a un cliente atascado en uno perdido.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/sin volver a explicarle por qué/);
+  });
+
+  it('no le pide al agente que juzgue si hace falta una persona', () => {
+    // Ese juicio se le quitó a propósito: con una ventana de decisión que no
+    // dice cuánto tiempo pasó entre mensajes, el modelo derivaba conversaciones
+    // recién empezadas. Quien detecta el atasco es `menu-loop.ts`, contando
+    // menús enviados sin pedido — y el prompt tiene que decirlo, o el agente
+    // vuelve a cargar con la decisión.
+    expect(DON_ZARCO_SYSTEM_PROMPT).not.toMatch(/Necesita a una persona/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/el equipo se entera solo/);
   });
 
   it('manda consultar la herramienta en vez de contestar de memoria (6D.2F.5B)', () => {

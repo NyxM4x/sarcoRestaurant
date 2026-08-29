@@ -5,6 +5,7 @@ import { createOpenAiModel, OPENAI_RESPONSES_URL } from '@/lib/agent/openai/adap
 import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from '@/lib/agent/business/prompt';
 import { createAnswerDirectlyAction } from '@/lib/agent/tools/answer-directly';
 import { createGetMenuItemsTool, createSendMenuTool } from '@/lib/agent/tools/menu-tools';
+import { createRequestHumanAction, REQUEST_HUMAN } from '@/lib/agent/tools/request-human';
 
 /**
  * EVAL DE SELECCIÓN DE ACCIÓN contra el modelo REAL (Fase 6D.2F.5B.1).
@@ -42,8 +43,15 @@ const REPETICIONES = Number(process.env.EVAL_REPETICIONES ?? '3');
 /** Peticiones en vuelo. Ni una a una (lento) ni todas (429). */
 const CONCURRENCIA = 4;
 
-type Accion = 'send_menu' | 'get_menu_items' | 'answer_directly';
-type Categoria = 'broad' | 'factual' | 'general' | 'referencia' | 'contaminado';
+type Accion = 'send_menu' | 'get_menu_items' | 'answer_directly' | 'request_human';
+type Categoria =
+  | 'broad'
+  | 'factual'
+  | 'general'
+  | 'referencia'
+  | 'contaminado'
+  | 'derivacion'
+  | 'no-derivacion';
 
 interface Caso {
   id: string;
@@ -88,6 +96,25 @@ const menuEnviado = (): ContextMessage => ({
   messageTimestamp: ts(),
   automationAction: 'send_menu',
 });
+
+/**
+ * Conversación trabada de hace horas y, encima, un "hola" nuevo.
+ *
+ * Es LITERALMENTE el turno que falló en la primera prueba real de
+ * `request_human`: el agente leyó el saludo como la continuación del atasco y
+ * derivó una conversación que acababa de empezar. Se construye aparte porque
+ * hace falta saltar el reloj para que `buildSelectionContext` inserte su
+ * marcador de silencio — que es justo lo que se está probando.
+ */
+const HISTORIAL_TRAS_SILENCIO: ContextMessage[] = (() => {
+  const antes = [
+    cliente('quiero un trancapecho y una coca de dos litros'),
+    menuEnviado(),
+    cliente('no puedo con eso, mandamelo asi nomas'),
+  ];
+  reloj += 4 * 60; // cuatro horas sin escribirse
+  return [...antes, cliente('hola')];
+})();
 
 /** La frase real de los cuatro salientes de IA del 16-08-2026. */
 const CTA_FALSO =
@@ -191,6 +218,88 @@ const CASOS: readonly Caso[] = [
     inbound: 'Que opciones tiene ?',
     esperado: 'send_menu',
   },
+
+  // DERIVAR → request_human. Solo lo que hay que LEER: enfado, queja, o pedir
+  // a una persona con todas las letras.
+  {
+    id: 'deriv-01',
+    categoria: 'derivacion',
+    inbound: 'quiero hablar con una persona',
+    esperado: 'request_human',
+  },
+  {
+    id: 'deriv-02',
+    categoria: 'derivacion',
+    inbound: 'pagué hace una hora y no me llega nada',
+    esperado: 'request_human',
+  },
+  {
+    id: 'deriv-03',
+    categoria: 'derivacion',
+    inbound: 'me llegó frío y falta la gaseosa, quiero que me devuelvan la plata',
+    esperado: 'request_human',
+  },
+  {
+    id: 'deriv-04',
+    categoria: 'derivacion',
+    historial: [cliente('mi pedido no llegó'), asistente('Entiendo, dejame ver qué pasó')],
+    inbound: 'esto es un desastre, hace dos horas que espero',
+    esperado: 'request_human',
+  },
+
+  // NO DERIVAR → cualquier cosa menos request_human. El grupo que se añade
+  // después de que la primera prueba real derivara un "hola".
+  {
+    id: 'noderiv-01',
+    categoria: 'no-derivacion',
+    // La ráfaga con la que saluda media Bolivia. Son cuatro mensajes, no cuatro
+    // problemas.
+    historial: [cliente('hola'), cliente('zarco'), cliente('como esta')],
+    inbound: 'quiero ordenar',
+    esperado: 'send_menu',
+  },
+  {
+    id: 'noderiv-02',
+    categoria: 'no-derivacion',
+    historial: [cliente('hola'), cliente('buenas')],
+    inbound: 'hola',
+    esperado: 'answer_directly',
+  },
+  {
+    id: 'noderiv-03',
+    categoria: 'no-derivacion',
+    // Dictar el pedido, y repetirlo. Es insistencia, sí, pero la respuesta
+    // sigue siendo el menú: derivar aquí es lo que dejaba al cliente mudo.
+    historial: [
+      cliente('mandame un trancapecho'),
+      menuEnviado(),
+      cliente('y una coca de dos litros'),
+      menuEnviado(),
+    ],
+    inbound: 'mandame eso porfa, un trancapecho y una coca',
+    esperado: 'send_menu',
+  },
+  {
+    id: 'noderiv-04',
+    categoria: 'no-derivacion',
+    // El cliente que pide todos los días acumula historial. Escribir seguido no
+    // es un síntoma de nada.
+    historial: [
+      cliente('buenas'),
+      menuEnviado(),
+      cliente('ya pedí, gracias'),
+      asistente('¡Gracias a vos! Cualquier cosa me avisás.'),
+    ],
+    inbound: 'buenas, otra vez yo',
+    esperado: 'answer_directly',
+  },
+  {
+    id: 'noderiv-05',
+    categoria: 'no-derivacion',
+    historial: HISTORIAL_TRAS_SILENCIO,
+    inbound: 'hola',
+    esperado: 'answer_directly',
+  },
 ];
 
 /**
@@ -218,7 +327,34 @@ const ACCIONES_CON_RESPALDO: readonly Accion[] = ['send_menu', 'get_menu_items']
  * dura empujaría a afinarlos con palabras, que es lo que esta arquitectura evita.
  */
 function esHardGate(caso: Caso): boolean {
+  // `no-derivacion` bloquea siempre. Derivar de más no cuesta "una respuesta
+  // rara": deja al cliente DOS HORAS sin que nadie le conteste, por haber
+  // saludado. Es el fallo más caro del catálogo y el que ya ocurrió una vez.
+  if (caso.categoria === 'no-derivacion') return true;
   return ACCIONES_CON_RESPALDO.includes(caso.esperado);
+}
+
+/**
+ * ¿Esta tirada cuenta como acierto?
+ *
+ * En `no-derivacion` lo que se mide NO es que salga la acción esperada, sino
+ * que no salga `request_human`. Si ante "hola, otra vez yo" el modelo manda el
+ * menú en vez de contestar, el cliente sigue atendido y el negocio sigue
+ * funcionando; lo intolerable es una sola cosa, y es la que se mide.
+ *
+ * Un fallo del modelo (`elegida: null`) nunca es acierto, ni siquiera aquí: sin
+ * selección utilizable el turno muere fail-closed y el cliente tampoco recibe
+ * nada.
+ */
+function etiquetaEsperado(caso: Caso): string {
+  // Decir "esperado=answer_directly" en un caso que en realidad solo exige NO
+  // derivar haría leer mal el informe: parecería un fallo lo que no lo es.
+  return caso.categoria === 'no-derivacion' ? `no-${REQUEST_HUMAN}` : caso.esperado;
+}
+
+function acierta(caso: Caso, elegida: string | null): boolean {
+  if (caso.categoria === 'no-derivacion') return elegida !== null && elegida !== REQUEST_HUMAN;
+  return elegida === caso.esperado;
 }
 
 // ── Las acciones REALES, con los puertos cegados ────────────────────────────
@@ -232,6 +368,10 @@ function definicionesReales(): AgentToolDefinition[] {
     createSendMenuTool({ dispatch: trampa('dispatchMenu') }),
     createGetMenuItemsTool({ listForModel: trampa('listForModel') }),
     createAnswerDirectlyAction(),
+    // La cuarta acción de producción. Sin ella el eval medía un catálogo que ya
+    // no existe: no podía ver ni que se deriva de menos, ni —lo que pasó de
+    // verdad— que se deriva de más.
+    createRequestHumanAction({ escalate: trampa('escalate') }),
   ].map((a) => a.definition);
 }
 
@@ -339,24 +479,24 @@ describe('eval — selección de acción con el modelo real', () => {
 
       for (const caso of CASOS) {
         const rs = porCaso.get(caso.id) ?? [];
-        const aciertos = rs.filter((r) => r.elegida === caso.esperado).length;
+        const aciertos = rs.filter((r) => acierta(caso, r.elegida)).length;
         const acc = porCategoria.get(caso.categoria) ?? { ok: 0, total: 0 };
         acc.ok += aciertos;
         acc.total += rs.length;
         porCategoria.set(caso.categoria, acc);
 
-        for (const r of rs) if (r.elegida !== caso.esperado) fallos.push(r);
+        for (const r of rs) if (!acierta(caso, r.elegida)) fallos.push(r);
 
         const marca = aciertos === rs.length ? 'OK  ' : 'FALLA';
         const puerta = esHardGate(caso) ? 'HARD  ' : 'report';
         const elegidas = rs.map((r) => r.error ?? r.elegida).join(', ');
         lineas.push(
           `${marca} ${puerta} ${caso.id.padEnd(14)} ${caso.categoria.padEnd(12)} ` +
-            `${aciertos}/${rs.length}  esperado=${caso.esperado}  obtenido=[${elegidas}]`,
+            `${aciertos}/${rs.length}  esperado=${etiquetaEsperado(caso)}  obtenido=[${elegidas}]`,
         );
       }
 
-      const totalOk = resultados.filter((r) => r.elegida === r.caso.esperado).length;
+      const totalOk = resultados.filter((r) => acierta(r.caso, r.elegida)).length;
 
       console.log('\n══ EVAL DE SELECCIÓN DE ACCIÓN ══');
       console.log(`modelo=${model}  casos=${CASOS.length}  repeticiones=${REPETICIONES}  ejecuciones=${resultados.length}`);
@@ -373,9 +513,9 @@ describe('eval — selección de acción con el modelo real', () => {
       );
 
       const duros = resultados.filter((r) => esHardGate(r.caso));
-      const durosOk = duros.filter((r) => r.elegida === r.caso.esperado);
+      const durosOk = duros.filter((r) => acierta(r.caso, r.elegida));
       const blandos = resultados.filter((r) => !esHardGate(r.caso));
-      const blandosOk = blandos.filter((r) => r.elegida === r.caso.esperado);
+      const blandosOk = blandos.filter((r) => acierta(r.caso, r.elegida));
       console.log(
         `\nHARD GATE (acción con respaldo) ${durosOk.length}/${duros.length}` +
           `   ·   report-only ${blandosOk.length}/${blandos.length}`,
@@ -386,7 +526,7 @@ describe('eval — selección de acción con el modelo real', () => {
         for (const f of fallos) {
           console.log(
             `  ${esHardGate(f.caso) ? 'HARD  ' : 'report'} ${f.caso.id.padEnd(14)} ` +
-              `esperado=${f.caso.esperado.padEnd(15)} eligió=${f.error ?? f.elegida}`,
+              `esperado=${etiquetaEsperado(f.caso).padEnd(18)} eligió=${f.error ?? f.elegida}`,
           );
         }
       }

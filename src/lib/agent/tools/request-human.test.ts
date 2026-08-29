@@ -9,6 +9,13 @@ const contexto = {
   inboundText: 'pagué y no me llega nada',
 };
 
+/** Lo que el puerto recibe de verdad: el `phoneNumberId` ya no viaja. */
+const loQueRecibeElPuerto = {
+  customerPhone: contexto.customerPhone,
+  sourceMessageId: contexto.sourceMessageId,
+  inboundText: contexto.inboundText,
+};
+
 function puerto(handed: boolean, capturado: unknown[] = []): HandoffPort {
   return {
     async escalate(input) {
@@ -19,11 +26,16 @@ function puerto(handed: boolean, capturado: unknown[] = []): HandoffPort {
 }
 
 describe('request_human — el contrato con el núcleo', () => {
-  it('declara que produce un efecto visible y que CIERRA el turno', () => {
-    // Las dos banderas juntas son el diseño, no un detalle: la acción pausa la
-    // conversación, así que si el turno siguiera hasta la ronda de redacción, la
-    // barrera pre-send encontraría la pausa activa y el cliente se quedaría sin
-    // recibir NADA — callado por el mismo mecanismo que pidió ayuda para él.
+  it('declara que produce un efecto y que CIERRA el turno', () => {
+    // Las dos banderas juntas son el diseño, no un detalle. Y siguen valiendo
+    // ahora que el cliente no recibe ningún acuse:
+    //
+    //   · el efecto es SILENCIAR al agente, que es real y no se revisa: por eso
+    //     el core comprueba la pausa antes de ejecutar (barrera 2A) y no
+    //     re-deriva una conversación que ya atiende una persona;
+    //   · y el turno cierra aquí porque, si siguiera a redactar, la barrera
+    //     pre-send encontraría la pausa recién puesta y el run moriría en
+    //     `skipped_paused` habiendo pagado una llamada más al modelo para nada.
     const tool = createRequestHumanAction(puerto(true));
     expect(tool.producesUserVisibleEffect).toBe(true);
     expect(tool.effectCompletesTurn).toBe(true);
@@ -54,6 +66,22 @@ describe('request_human — el contrato con el núcleo', () => {
     expect(d).toContain('get_menu_items');
     expect(d).toContain('answer_directly');
   });
+
+  it('la descripción NO le pide al modelo que juzgue al cliente atascado', () => {
+    // Es la regresión de esta entrega. La cláusula que había —"cuando lleva
+    // varios mensajes trabado sin poder pedir"— derivó una conversación en su
+    // primer "hola": el modelo decide sobre una ventana de 12 mensajes que no
+    // dice cuánto tiempo pasó entre ellos, así que un saludo nuevo se lee como
+    // la continuación de la conversación trabada de ayer.
+    //
+    // El atasco se CUENTA en `menu-loop.ts` (tres menús en 45 min sin pedido).
+    // Aquí solo queda lo que hay que LEER.
+    const d = createRequestHumanAction(puerto(true)).definition.description;
+    expect(d).not.toContain('trabado');
+    expect(d).not.toMatch(/dictar|dictándote/);
+    expect(d).toMatch(/varios mensajes cortos/);
+    expect(d).toContain('send_menu');
+  });
 });
 
 describe('request_human — qué pasa al ejecutarla', () => {
@@ -61,7 +89,16 @@ describe('request_human — qué pasa al ejecutarla', () => {
     const capturado: unknown[] = [];
     const tool = createRequestHumanAction(puerto(true, capturado));
     await tool.execute!(contexto);
-    expect(capturado).toEqual([contexto]);
+    expect(capturado).toEqual([loQueRecibeElPuerto]);
+  });
+
+  it('no le pasa al puerto de dónde salía el mensaje: ya no manda ninguno', async () => {
+    // El `phoneNumberId` solo servía para enviar el acuse al cliente. Sin acuse
+    // no hace falta, y dejarlo en el contrato invitaría a volver a usarlo.
+    const capturado: Record<string, unknown>[] = [];
+    const tool = createRequestHumanAction(puerto(true, capturado));
+    await tool.execute!(contexto);
+    expect(capturado[0]).not.toHaveProperty('phoneNumberId');
   });
 
   it('derivado con éxito → el turno cierra en silencio', async () => {
@@ -70,9 +107,10 @@ describe('request_human — qué pasa al ejecutarla', () => {
     expect(res).toEqual({ result: { handed: true }, userVisibleEffectConfirmed: true });
   });
 
-  it('si no se pudo avisar al cliente, el turno NO cierra en falso', async () => {
-    // El equipo ya fue alertado por su lado. Cerrar como éxito dejaría al
-    // cliente sin nada y sin rastro de que faltó algo.
+  it('si la derivación no llegó a ocurrir, el turno NO cierra en falso', async () => {
+    // `handed: false` es ahora "no se pudo ni pausar". Cerrar como éxito
+    // dejaría al cliente sin respuesta Y sin nadie atendiéndole: el silencio
+    // solo se justifica cuando de verdad hay una derivación detrás.
     const tool = createRequestHumanAction(puerto(false));
     const res = await tool.execute!(contexto);
     expect(res).toEqual({ result: { handed: false }, userVisibleEffectConfirmed: false });

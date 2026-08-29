@@ -10,6 +10,8 @@ import {
   CONTEXT_MAX_MESSAGES,
   CONTEXT_WINDOW_HOURS,
   SELECTION_CONTEXT_MAX_MESSAGES,
+  SESSION_GAP_MINUTES,
+  sessionGapLine,
   type ContextMessage,
 } from './context';
 
@@ -986,5 +988,141 @@ describe('contexto — imágenes', () => {
 
   it('sin imagen y sin texto no se inventa un entrante vacío', () => {
     expect(buildSelectionContext([], { inboundText: '' })).toEqual([]);
+  });
+});
+
+// ── El silencio entre mensajes (marcadores de sesión) ───────────────────────
+
+/** Un instante a N minutos del arranque, para escribir huecos legibles. */
+function enMinuto(minutos: number): string {
+  return new Date(Date.parse('2026-08-15T10:00:00.000Z') + minutos * 60_000).toISOString();
+}
+
+describe('context — cuánto tiempo pasó también es un hecho', () => {
+  it('por debajo del umbral no hay marcador: eso es una conversación seguida', () => {
+    expect(sessionGapLine(enMinuto(0), enMinuto(SESSION_GAP_MINUTES - 1))).toBeNull();
+  });
+
+  it('justo en el umbral sí lo hay', () => {
+    expect(sessionGapLine(enMinuto(0), enMinuto(SESSION_GAP_MINUTES))).toBe(
+      'Evento del canal: pasaron 45 minutos sin mensajes.',
+    );
+  });
+
+  it('cuenta en minutos, horas o días según el tamaño del hueco', () => {
+    expect(sessionGapLine(enMinuto(0), enMinuto(119))).toContain('119 minutos');
+    expect(sessionGapLine(enMinuto(0), enMinuto(120))).toContain('2 horas');
+    expect(sessionGapLine(enMinuto(0), enMinuto(47 * 60))).toContain('47 horas');
+    expect(sessionGapLine(enMinuto(0), enMinuto(48 * 60))).toContain('2 días');
+    expect(sessionGapLine(enMinuto(0), enMinuto(72 * 60))).toContain('3 días');
+  });
+
+  it('nunca escribe un singular en plural', () => {
+    // Los cortes de unidad están puestos para que la cuenta empiece siempre en
+    // dos. Si alguien los mueve, esto lo dice antes que un cliente.
+    for (let m = SESSION_GAP_MINUTES; m <= 4 * 24 * 60; m += 7) {
+      expect(sessionGapLine(enMinuto(0), enMinuto(m))).not.toMatch(/\b1 (minutos|horas|días)\b/);
+    }
+  });
+
+  it('redondea hacia abajo: dice de menos, nunca de más', () => {
+    expect(sessionGapLine(enMinuto(0), enMinuto(170))).toContain('2 horas');
+  });
+
+  it('una fecha ilegible o un par desordenado no inventan un silencio', () => {
+    expect(sessionGapLine('no-es-una-fecha', enMinuto(600))).toBeNull();
+    expect(sessionGapLine(enMinuto(0), 'tampoco')).toBeNull();
+    expect(sessionGapLine(enMinuto(600), enMinuto(0))).toBeNull();
+  });
+});
+
+describe('context — la decisión sabe si esto sigue siendo la misma conversación', () => {
+  it('la ráfaga con la que la gente saluda NO produce ningún marcador', () => {
+    // El caso real: cuatro mensajes sueltos en menos de un minuto. Es una
+    // conversación empezando, no un cliente insistiendo.
+    const historia = [
+      msg({ content: 'hola', messageTimestamp: enMinuto(0) }),
+      msg({ content: 'zarco', messageTimestamp: enMinuto(0.2) }),
+      msg({ content: 'como esta', messageTimestamp: enMinuto(0.5) }),
+      msg({ content: 'quiero ordenar', messageTimestamp: enMinuto(0.9) }),
+    ];
+
+    const contexto = buildSelectionContext(historia, { inboundText: 'quiero ordenar' });
+
+    expect(contexto.filter((m) => texto(m.content).includes('sin mensajes'))).toEqual([]);
+    expect(contexto).toHaveLength(4);
+  });
+
+  it('el marcador va justo antes del mensaje que llegó tarde', () => {
+    // Es el turno que falló en producción: una conversación trabada de hace
+    // horas y, encima, un "hola" nuevo. Sin esta línea los dos se leen pegados.
+    const historia = [
+      msg({ content: 'quiero un trancapecho y una coca', messageTimestamp: enMinuto(0) }),
+      msg({
+        actor: 'ai',
+        role: 'assistant',
+        content: 'Te dejo el menú para que lo armes ahí',
+        messageTimestamp: enMinuto(1),
+      }),
+      msg({ content: 'hola', messageTimestamp: enMinuto(300) }),
+    ];
+
+    const contexto = buildSelectionContext(historia, { inboundText: 'hola' });
+
+    expect(contexto).toEqual([
+      { role: 'user', content: 'quiero un trancapecho y una coca' },
+      { role: 'assistant', content: 'Te dejo el menú para que lo armes ahí' },
+      { role: 'system', content: 'Evento del canal: pasaron 4 horas sin mensajes.' },
+      { role: 'user', content: 'hola' },
+    ]);
+  });
+
+  it('el silencio se mide entre lo que VIAJA, no entre filas', () => {
+    // El sticker de en medio no llega al modelo, así que tampoco puede partir
+    // el hueco: si contara, el marcador desaparecería y el modelo vería dos
+    // mensajes separados por una hora como si fueran seguidos.
+    const historia = [
+      msg({ content: 'hola', messageTimestamp: enMinuto(0) }),
+      msg({ content: null, contentType: 'unknown', messageTimestamp: enMinuto(30) }),
+      msg({ content: 'sigo esperando', messageTimestamp: enMinuto(60) }),
+    ];
+
+    const contexto = buildSelectionContext(historia, { inboundText: 'sigo esperando' });
+
+    expect(contexto).toEqual([
+      { role: 'user', content: 'hola' },
+      { role: 'system', content: 'Evento del canal: pasaron 60 minutos sin mensajes.' },
+      { role: 'user', content: 'sigo esperando' },
+    ]);
+  });
+
+  it('los marcadores NO gastan cupo de mensajes', () => {
+    // `maxMessages` cuenta MENSAJES. Si los marcadores compitieran por los
+    // mismos huecos, un cliente que escribe cada hora perdería la mitad de su
+    // conversación para hacer sitio a las líneas que hablan de ella.
+    const historia = [
+      msg({ content: 'uno', messageTimestamp: enMinuto(0) }),
+      msg({ content: 'dos', messageTimestamp: enMinuto(120) }),
+      msg({ content: 'tres', messageTimestamp: enMinuto(240) }),
+    ];
+
+    const contexto = buildSelectionContext(historia, { inboundText: 'tres', maxMessages: 3 });
+
+    expect(contexto.filter((m) => m.role === 'user')).toHaveLength(3);
+    expect(contexto.filter((m) => texto(m.content).includes('sin mensajes'))).toHaveLength(2);
+  });
+
+  it('el contexto de REDACCIÓN sigue sin marcadores', () => {
+    // El falso positivo se produce al decidir. Meterlos también aquí cambiaría
+    // el tono de todas las respuestas sin haberlo medido.
+    const historia = [
+      msg({ content: 'hola', messageTimestamp: enMinuto(0) }),
+      msg({ content: 'hola?', messageTimestamp: enMinuto(600) }),
+    ];
+
+    expect(buildWorkingContext(historia)).toEqual([
+      { role: 'user', content: 'hola' },
+      { role: 'user', content: 'hola?' },
+    ]);
   });
 });

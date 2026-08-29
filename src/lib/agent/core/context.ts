@@ -298,6 +298,67 @@ function isAssistantVoice(actor: AgentMessageActor): boolean {
 }
 
 /**
+ * A partir de cuánto silencio se considera que la conversación se cortó.
+ *
+ * Cuarenta y cinco minutos, los mismos que `MENU_LOOP_WINDOW_MINUTES`, y no por
+ * casualidad: las dos constantes contestan la MISMA pregunta —"¿esto sigue
+ * siendo la misma conversación?"— y que divergieran obligaría a razonar dos
+ * veces sobre lo mismo, con dos respuestas distintas conviviendo en el sistema.
+ */
+export const SESSION_GAP_MINUTES = 45;
+
+/**
+ * Cortes de unidad. Están donde están para que el plural siempre sea correcto:
+ * a los 120 minutos la cuenta en horas empieza en "2 horas", y a las 48 horas la
+ * de días empieza en "2 días". Nunca sale "1 horas". Moverlos hacia abajo
+ * obligaría a escribir el singular.
+ */
+const GAP_HORAS_DESDE_MINUTOS = 120;
+const GAP_DIAS_DESDE_HORAS = 48;
+
+/**
+ * La línea que marca un silencio largo entre dos mensajes. `null` si no lo hubo.
+ *
+ * ── Qué problema resuelve ───────────────────────────────────────────────────
+ *
+ * La ronda de decisión ve hasta doce mensajes de las últimas 24 h y no tiene
+ * NINGUNA noción del tiempo transcurrido entre ellos: para el modelo, un mensaje
+ * de anoche y el de hace diez segundos están igual de pegados. Con eso delante,
+ * un "hola" nuevo se lee como la continuación de la conversación trabada de
+ * ayer — y eso fue exactamente lo que derivó una conversación recién empezada a
+ * una persona en la primera prueba real de `request_human`.
+ *
+ * ── Es un HECHO, no una instrucción ─────────────────────────────────────────
+ *
+ * Misma regla que `automationEventLine`: dice lo que pasó y se calla lo demás.
+ * No dice "es una conversación nueva", ni "empieza de cero", ni "no derives".
+ * Qué significa un silencio de tres horas depende de lo que el cliente escriba
+ * ahora, y eso lo decide el turno actual — no una frase que arrastramos.
+ *
+ * El redondeo va hacia abajo a propósito: "pasaron 2 horas" cuando pasaron 2 h
+ * 50 min es impreciso pero cierto; "3 horas" cuando fueron 2 h 31 min no lo es.
+ */
+export function sessionGapLine(previous: string, current: string): string | null {
+  const desde = new Date(previous).getTime();
+  const hasta = new Date(current).getTime();
+  // Una fecha ilegible o un par desordenado no producen marcador: inventar un
+  // silencio que no consta es peor que no contarlo.
+  if (Number.isNaN(desde) || Number.isNaN(hasta)) return null;
+
+  const minutos = Math.floor((hasta - desde) / 60_000);
+  if (minutos < SESSION_GAP_MINUTES) return null;
+
+  const cuanto =
+    minutos < GAP_HORAS_DESDE_MINUTOS
+      ? `${minutos} minutos`
+      : Math.floor(minutos / 60) < GAP_DIAS_DESDE_HORAS
+        ? `${Math.floor(minutos / 60)} horas`
+        : `${Math.floor(minutos / 1440)} días`;
+
+  return `Evento del canal: pasaron ${cuanto} sin mensajes.`;
+}
+
+/**
  * Índice del ÚLTIMO saliente escrito (IA o persona). `-1` si no hay ninguno.
  *
  * Es el único cuyo texto sobrevive a la ronda de decisión. Ver
@@ -361,6 +422,9 @@ export interface SelectionContextOptions {
  *   · EL ÚLTIMO saliente escrito —de la IA o de una persona—, con su texto real.
  *   · Los salientes escritos ANTERIORES, como evento: que hubo respuesta y de
  *     quién, nunca con qué palabras.
+ *   · Los SILENCIOS largos, como evento (ver `sessionGapLine`). Sin ellos, la
+ *     ventana no dice si estos doce mensajes son de los últimos dos minutos o
+ *     de dos días, y esa diferencia cambia la decisión.
  *   · El entrante actual, siempre el último y siempre presente.
  *
  * ── Por qué el último saliente SÍ conserva su texto ─────────────────────────
@@ -395,8 +459,18 @@ export interface SelectionContextOptions {
  * la capacidad que hace falta es la misma— y redactar la respuesta sí recibe el
  * contexto normal completo.
  *
+ * ── El hueco que los marcadores de silencio no cubren ───────────────────────
+ *
+ * El entrante se empuja al final desde `options`, sin timestamp, así que si la
+ * persistencia llegó tarde y NO está en el historial, el silencio que lo precede
+ * no se marca. Es el caso raro —normalmente el entrante ya viene en las filas y
+ * su marcador sale solo— y cerrarlo obligaría a meterle un reloj a un módulo
+ * puro. No compensa.
+ *
  * Esto NO cambia `agent_messages` ni el contexto de redacción. Es una vista más
- * sobre las mismas filas.
+ * sobre las mismas filas: la de redacción no lleva marcadores, porque el falso
+ * positivo se produce al DECIDIR y cambiarla movería el tono de todo lo demás
+ * sin haberlo medido.
  */
 export function buildSelectionContext(
   messages: readonly ContextMessage[],
@@ -407,28 +481,52 @@ export function buildSelectionContext(
   // Por POSICIÓN, nunca por contenido: aquí no hay nada que mire las palabras.
   const antecedente = lastAssistantIndex(visible);
 
-  const projected = visible
-    .map((m, i): AgentModelMessage | null => {
-      if (m.actor === 'customer') {
-        // Misma política que el contexto de redacción, y por la misma razón: si
-        // las dos ventanas no coincidieran en qué cuenta como palabras del
-        // cliente, la ronda de decisión podría elegir capacidad leyendo una
-        // frase que Kapso redactó por una reacción.
-        return isCustomerConversationalText(m) ? { role: 'user', content: m.content } : null;
-      }
-      // El último saliente escrito conserva su texto: es lo que resuelve "sí",
-      // "dale" y "y esa cuánto cuesta?".
-      if (i === antecedente) {
-        return { role: 'assistant', content: m.content as string };
-      }
-      const evento =
-        m.actor === 'automation'
-          ? automationEventLine(m.automationAction)
-          : assistantEventLine(m.actor);
-      return evento === null ? null : { role: 'system', content: evento };
-    })
-    .filter((m): m is AgentModelMessage => m !== null)
-    .slice(-max);
+  const proyectar = (m: ContextMessage, esAntecedente: boolean): AgentModelMessage | null => {
+    if (m.actor === 'customer') {
+      // Misma política que el contexto de redacción, y por la misma razón: si
+      // las dos ventanas no coincidieran en qué cuenta como palabras del
+      // cliente, la ronda de decisión podría elegir capacidad leyendo una
+      // frase que Kapso redactó por una reacción.
+      return isCustomerConversationalText(m) ? { role: 'user', content: m.content } : null;
+    }
+    // El último saliente escrito conserva su texto: es lo que resuelve "sí",
+    // "dale" y "y esa cuánto cuesta?".
+    if (esAntecedente) {
+      return { role: 'assistant', content: m.content as string };
+    }
+    const evento =
+      m.actor === 'automation'
+        ? automationEventLine(m.automationAction)
+        : assistantEventLine(m.actor);
+    return evento === null ? null : { role: 'system', content: evento };
+  };
+
+  // Cada proyectado conserva SU instante, para poder medir el silencio después
+  // del recorte.
+  const proyectados: { readonly msg: AgentModelMessage; readonly at: string }[] = [];
+  for (let i = 0; i < visible.length; i += 1) {
+    const m = visible[i];
+    const proyectado = proyectar(m, i === antecedente);
+    if (proyectado !== null) proyectados.push({ msg: proyectado, at: m.messageTimestamp });
+  }
+
+  const recortado = proyectados.slice(-max);
+
+  // Los marcadores se insertan DESPUÉS del recorte, y por eso no gastan cupo:
+  // `max` cuenta mensajes, y un silencio no es un mensaje. Si compitieran por
+  // los mismos doce huecos, una conversación espaciada —alguien que escribe
+  // cada hora— perdería la mitad de sus mensajes reales para hacer sitio a las
+  // líneas que hablan de ellos.
+  //
+  // El silencio se mide entre lo que de verdad VIAJA, nunca entre filas: un
+  // sticker descartado no parte una conversación, y contarlo pondría el
+  // marcador en un hueco que el modelo no puede ver.
+  const projected: AgentModelMessage[] = [];
+  for (let i = 0; i < recortado.length; i += 1) {
+    const hueco = i === 0 ? null : sessionGapLine(recortado[i - 1].at, recortado[i].at);
+    if (hueco !== null) projected.push({ role: 'system', content: hueco });
+    projected.push(recortado[i].msg);
+  }
 
   // El entrante actual va SIEMPRE, y va último. Normalmente ya viene en el
   // historial —se persiste antes del turno— y entonces esto no añade nada. Pero

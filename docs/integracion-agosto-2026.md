@@ -114,18 +114,20 @@ los filtros del panel.
 | `1379ac8` | **`request_human`**: cuarta acción del agente |
 | `b5497f2` | **Prompt**: encuadre del cambio, flujo de Recojo, frustración |
 | `d162cc7` | **Detector de cliente atascado**, sin tokens |
+| (esta entrega) | **La derivación calla en vez de anunciarse**, y deja de dispararse con un saludo |
 
 ### Lo que más te puede afectar
 
 **Una cuarta acción en el catálogo del agente.** `request_human` se suma a
 `send_menu` / `get_menu_items` / `answer_directly`. Sigue tu contrato:
 `NO_ARGUMENTS`, y `producesUserVisibleEffect: true` + `effectCompletesTurn: true`
-— manda ella misma un texto fijo y cierra el turno.
+— pausa, avisa al equipo y cierra el turno **sin enviarle nada al cliente**.
 
-> Se intentó primero dejar que el modelo redactara el «te paso con una persona».
-> **No funciona**: la acción pausa la conversación y la barrera pre-send la
-> encontraría activa, así que el turno moriría en `skipped_paused` y el cliente
-> se quedaría sin nada — callado por el mismo mecanismo que pidió ayuda para él.
+> El efecto que declara no es un mensaje: es SILENCIAR al agente. Por eso sigue
+> necesitando la barrera 2A —para no derivar una conversación que ya atiende una
+> persona— y sigue cerrando el turno: si siguiera a redactar, la barrera
+> pre-send encontraría la pausa recién puesta y el run moriría en
+> `skipped_paused` habiendo pagado una llamada más al modelo.
 
 **La primera pausa que pone el sistema y no una persona.**
 `src/lib/agent/control/handoff-pause.ts` es el llamador que le faltaba a
@@ -142,6 +144,41 @@ decisión.
 
 ---
 
+## 5b. La derivación, corregida tras la primera prueba real
+
+Se probó en WhatsApp y falló en dos sitios distintos, los dos arreglados aquí.
+
+**1 · Le anunciaba la derivación al cliente.** `request_human` enviaba «Esto lo
+tiene que ver una persona del equipo 🙌» y acto seguido enmudecía dos horas. Ese
+acuse es una promesa de atención que puede no cumplirse esa noche. Ahora derivar
+es exactamente lo que ya hacía el detector de menús: **pausar y avisar a
+Telegram, sin decirle nada al cliente**. Fuera `HANDOFF_ACK_TEXT`, fuera el
+import de Kapso y fuera `phoneNumberId` del puerto.
+
+**2 · Se disparaba con un «hola».** Dos causas, y las dos hacían falta:
+
+- La descripción de la herramienta pedía juzgar al «cliente que lleva varios
+  mensajes trabado sin poder pedir». Ese juicio se le quitó: el atasco se
+  **cuenta** en `handoff/menu-loop.ts` (tres menús en 45 min sin pedido) y el
+  modelo se queda solo con lo que hay que **leer** — queja, enojo, pedir a una
+  persona. La viñeta del prompt que decía «Necesita a una persona» se sustituyó
+  en el mismo sentido.
+- La ronda de decisión veía doce mensajes de 24 h **sin saber cuánto tiempo pasó
+  entre ellos**, así que un saludo nuevo se leía como la continuación del atasco
+  de ayer. `buildSelectionContext` inserta ahora una línea de hecho —«Evento del
+  canal: pasaron 4 horas sin mensajes.»— a partir de `SESSION_GAP_MINUTES = 45`,
+  los mismos 45 del detector de menús porque contestan la misma pregunta. Los
+  marcadores se insertan DESPUÉS del recorte y por eso no gastan cupo: `max`
+  cuenta mensajes. El contexto de redacción no los lleva.
+
+El eval pasa a cablear las **cuatro** acciones —antes medía un catálogo que ya no
+existía— y gana dos categorías: `derivacion` y `no-derivacion`. Esta última es
+hard gate y su criterio no es «acertó la acción» sino «no eligió
+`request_human`»: si ante «otra vez yo» manda el menú, el cliente sigue
+atendido; derivar de más lo deja dos horas sin nadie.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.
@@ -153,9 +190,11 @@ decisión.
 
 - **Migraciones sin aplicar**: `0025` (análisis) y `0026` (numeración diaria).
   Sin la `0026` los pedidos siguen en `ORD-000021`.
-- **Sin correr**: `npm run eval:selection`. Añadir una cuarta acción es lo más
-  arriesgado de todo esto y solo el eval contra el modelo real dice si degradó
-  la elección de `send_menu`. Cuesta tokens de verdad, por eso no se lanzó.
+- **Sin correr todavía**: `npm run eval:selection`. Se intentó y **las 69
+  llamadas fallaron con HTTP 401**: la `OPENAI_API_KEY` de `.env.local` está
+  revocada o es incorrecta. No se pudo medir nada, ni lo nuevo ni lo viejo.
+  Hace falta una clave válida y volver a lanzarlo: es lo único que dice si la
+  descripción nueva quita el falso positivo sin degradar `send_menu`.
 - **Tu recovery cron sigue sin desplegar** (lo dice tu propio doc). Mientras
   tanto, `WEBHOOK_ASYNC_ACK` no debería encenderse: sin despertador, un evento
   que se caiga a mitad queda huérfano.
