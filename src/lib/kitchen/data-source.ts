@@ -49,10 +49,23 @@ const MAX_BOARD_ROWS = 200;
  */
 const KITCHEN_ATTEMPT_COLUMNS =
   'id,order_id,review_status,opened_at,reviewed_at,created_at,updated_at';
+/**
+ * Las tres columnas del análisis van JUNTAS, y hace falta que estén las tres.
+ *
+ * Faltaban `analysis_verdict` y `analysis_reasons` (29-08-2026). Con solo el
+ * `analysis_status`, `toAnalysisView` encontraba el 'done' y se quedaba sin
+ * veredicto que leer, así que devolvía `null` y el aviso del ticket NO se
+ * pintaba nunca: el análisis detectaba el comprobante falso, lo escribía en la
+ * base, y en la única pantalla donde alguien iba a decidir no aparecía nada.
+ *
+ * El panel del encargado sí las pedía, y por eso el fallo era invisible desde
+ * ahí. Si alguien vuelve a tocar esta lista, el test de columnas la contrasta
+ * contra lo que la vista lee de verdad.
+ */
 const KITCHEN_PROOF_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
-  'capture_status,received_at,analysis_status';
+  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons';
 
 export function createSupabaseKitchenDataSource(
   client: SupabaseClient = getSupabaseAdmin(),

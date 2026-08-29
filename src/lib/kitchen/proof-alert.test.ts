@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { proofAlertOf } from './proof-alert';
 import type { PaymentView, ProofView } from '@/lib/dashboard/attempt-review';
 
@@ -107,5 +108,52 @@ describe('aviso del análisis en el ticket', () => {
       hasPendingReview: false,
     };
     expect(proofAlertOf(suelto)?.tone).toBe('red');
+  });
+});
+
+describe('el aviso necesita que la CONSULTA traiga sus datos', () => {
+  /**
+   * El fallo del 29-08-2026, y la razón de que este test mire un string.
+   *
+   * El análisis detectó un comprobante falso —cuenta, titular y banco distintos—
+   * y lo escribió en la base. `proofAlertOf` sabía pintarlo. Y en el ticket no
+   * apareció nada, porque la consulta de cocina pedía `analysis_status` pero no
+   * el veredicto ni los motivos: `toAnalysisView` encontraba el 'done', se
+   * quedaba sin veredicto y devolvía null.
+   *
+   * Ninguna prueba de lógica podía cazarlo: la lógica estaba bien. Lo que
+   * faltaba era el dato, y eso solo se ve mirando la lista de columnas contra
+   * lo que la vista lee de verdad.
+   */
+  const fuente = readFileSync(new URL('./data-source.ts', import.meta.url), 'utf8');
+
+  /**
+   * Solo la LISTA de columnas, no el archivo.
+   *
+   * La primera versión de este test miraba el fuente entero y se disparaba con
+   * la frase de un comentario que precisamente explica qué NO se pide. Un test
+   * que confunde una explicación con el código que explica no protege nada.
+   */
+  const columnas = (() => {
+    const m = fuente.match(/const KITCHEN_PROOF_COLUMNS\s*=([\s\S]*?);/);
+    if (!m) throw new Error('no se encontró KITCHEN_PROOF_COLUMNS');
+    // Fuera comillas, `+` de la concatenación y espacios: queda la lista limpia.
+    return m[1]
+      .replace(/['+\s]/g, '')
+      .split(',')
+      .filter((c) => c !== '');
+  })();
+
+  it('la consulta de cocina pide las tres columnas del análisis', () => {
+    for (const columna of ['analysis_status', 'analysis_verdict', 'analysis_reasons']) {
+      expect(columnas, columna).toContain(columna);
+    }
+  });
+
+  it('y sigue sin pedir dónde vive el archivo', () => {
+    // Lo que nunca debe salir hacia el navegador. Añadir columnas no puede
+    // convertirse en añadirlas todas.
+    expect(columnas).not.toContain('storage_key');
+    expect(columnas).not.toContain('storage_namespace');
   });
 });
