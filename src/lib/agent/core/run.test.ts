@@ -893,13 +893,47 @@ describe('run — esta fase es TEXT ONLY', () => {
       const model = fakeModel({ ok: true, text: 'ok', model: 'gpt-fake' });
 
       const result = await runAgentTurn(
-        inbound({ contentType: 'image', content }),
+        inboundImagen({ content }),
         deps({ model: model.model, send: fakeSend().send }),
       );
 
       expect(result, String(content)).not.toMatchObject({ reason: 'unsupported_content' });
       expect(model.calls.length, String(content)).toBeGreaterThan(0);
     }
+  });
+
+  it('6b · una imagen SIN adjunto y SIN caption NO llega al modelo', async () => {
+    // El caso real del 29-08-2026: la puerta de comprobantes retira los bytes
+    // de un adjunto no autorizado y deja el mensaje. Con eso, el turno se
+    // quedaba sin foto y sin texto, y el modelo decidía sobre el HISTORIAL
+    // solo — le mandó el menú a un cliente que acababa de pagar, porque lo
+    // último que constaba en su conversación era "quiero pedir".
+    store.seedConversation();
+    const model = fakeModel({ ok: true, text: 'ok', model: 'gpt-fake' });
+
+    const result = await runAgentTurn(
+      inbound({ contentType: 'image', content: null, image: null }),
+      deps({ model: model.model, send: fakeSend().send }),
+    );
+
+    expect(result).toMatchObject({ reason: 'unsupported_content' });
+    // Ni una llamada: no se paga por contestarle a otro mensaje.
+    expect(model.calls).toHaveLength(0);
+  });
+
+  it('6c · pero con caption sí pasa, aunque le hayan quitado el adjunto', async () => {
+    // El texto no se toca nunca: un comprobante con "¿ya llegó?" sigue siendo
+    // una pregunta del cliente que merece respuesta.
+    store.seedConversation();
+    const model = fakeModel({ ok: true, text: 'ok', model: 'gpt-fake' });
+
+    const result = await runAgentTurn(
+      inbound({ contentType: 'image', content: 'ya te pagué, revisá', image: null }),
+      deps({ model: model.model, send: fakeSend().send }),
+    );
+
+    expect(result).not.toMatchObject({ reason: 'unsupported_content' });
+    expect(model.calls.length).toBeGreaterThan(0);
   });
 
   it('un texto vacío o en blanco no llega al modelo', async () => {

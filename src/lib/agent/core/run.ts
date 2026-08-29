@@ -323,11 +323,23 @@ export function isAgentEligibleContent(message: ProvenanceMessage): boolean {
   if (message.contentType === 'text') {
     return message.content !== null && message.content.trim() !== '';
   }
-  // Imagen (5C.5): elegible SIEMPRE, con caption o sin él. Una foto sola es un
-  // mensaje completo del cliente —"mirá esto"— y desde esta fase el modelo
-  // puede verla. Que no traiga texto no la vacía de contenido; ese era
-  // justamente el supuesto que la dejaba fuera.
-  if (message.contentType === 'image') return true;
+  // Imagen (5C.5): una foto sola es un mensaje completo del cliente —"mirá
+  // esto"— y desde esa fase el modelo puede verla. Que no traiga texto no la
+  // vacía de contenido; ese era justamente el supuesto que la dejaba fuera.
+  //
+  // Pero tiene que quedar ALGO que mirar o que leer (29-08-2026). La puerta de
+  // comprobantes retira los bytes de un adjunto no autorizado —pone `image` en
+  // `null` y deja el mensaje— y con eso el turno se quedaba sin foto y sin
+  // texto: el modelo decidía sobre el HISTORIAL solo, sin el mensaje actual.
+  // En producción eso mandó el menú a un cliente que acababa de pagar, porque
+  // lo último que constaba en su conversación era "quiero pedir".
+  //
+  // Un turno sin nada del cliente no es un turno: es contestarle a otro
+  // mensaje. Y el comprobante ya tiene quien lo atienda.
+  if (message.contentType === 'image') {
+    const tieneCaption = message.content !== null && message.content.trim() !== '';
+    return tieneCaption || message.image != null;
+  }
   return false;
 }
 
@@ -375,8 +387,17 @@ export async function runAgentTurn(
   }
   const sourceMessageId = message.providerMessageId;
 
-  // 2b. Solo texto. Ver `isAgentEligibleContent`.
-  if (!isAgentEligibleContent(message)) {
+  // 2b. ¿Aporta este LOTE algo del cliente? Ver `isAgentEligibleContent`.
+  //
+  // Se mira el burst entero y no solo el ancla, y la diferencia es real: el
+  // ancla puede ser un comprobante al que la puerta ya le quitó los bytes
+  // mientras el mismo lote trae un "quiero una hamburguesa" que sí hay que
+  // contestar. Preguntar solo por el ancla dejaría ese texto sin respuesta.
+  //
+  // Y al revés: si NADA del lote aporta nada —el caso del comprobante suelto—
+  // el turno no corre. Antes corría, y decidía sobre el historial solo: en
+  // producción eso le mandó el menú a un cliente que acababa de pagar.
+  if (!(burst ?? [message]).some(isAgentEligibleContent)) {
     return { result: 'skipped', reason: 'unsupported_content' };
   }
 
