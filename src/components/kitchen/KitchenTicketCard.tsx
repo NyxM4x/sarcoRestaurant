@@ -3,6 +3,8 @@
 import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
 import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
 import { proofAlertOf, type KitchenProofAlert } from '@/lib/kitchen/proof-alert';
+import type { PaymentGateState } from '@/lib/payment-proof/payment-gate';
+import type { ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
 import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import { KitchenPaymentPanel } from './KitchenPaymentPanel';
@@ -70,6 +72,17 @@ export function KitchenTicketCard({
    * decide sigue siendo quien está delante de la pantalla.
    */
   const alerta = proofAlertOf(ticket.payment);
+
+  /**
+   * ¿Está cerrada la puerta del pago para INICIAR? (0028)
+   *
+   * Solo afecta al botón de arranque de un ticket NUEVO. El estado viene ya
+   * resuelto del servidor —`ticket.gate`— y es el MISMO valor que `applyAction`
+   * comprueba antes de escribir: la pantalla no reimplementa la regla, la
+   * refleja. Si la reimplementara, un día enseñaría un botón que el servidor
+   * rechaza, y eso solo se descubre pulsándolo.
+   */
+  const pagoBloqueaInicio = ticket.stage === 'new' && !ticket.gate.canStart;
 
   return (
     <article className="flex max-h-full w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-black/5">
@@ -139,11 +152,23 @@ export function KitchenTicketCard({
             ser lo que puede costar dinero. */}
         {alerta && <ProofAlertBox alert={alerta} />}
 
+        {/* Qué pagó: lo que el repartidor pregunta al llegar. Va junto al pago
+            y antes de las notas, porque decide si hay que cobrar en la puerta. */}
+        {ticket.amountLabel && <AmountLabelChip label={ticket.amountLabel} />}
+
         {ticket.notes && (
           <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Notas</p>
             <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800">{ticket.notes}</p>
           </div>
+        )}
+
+        {/* POR QUÉ no se puede empezar. Un botón gris sin explicación se lee
+            como una pantalla rota, y en cocina eso acaba en una llamada. */}
+        {pagoBloqueaInicio && (
+          <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-900 ring-1 ring-amber-300">
+            {GATE_REASONS[ticket.gate.state]}
+          </p>
         )}
 
         <div className="flex gap-2">
@@ -153,13 +178,15 @@ export function KitchenTicketCard({
               <button
                 key={b.action}
                 type="button"
-                disabled={busy}
+                // Cancelar SIEMPRE se puede: si el cliente no pagó, lo que hace
+                // falta es poder cerrar el pedido, no quedarse sin botones.
+                disabled={busy || (b.action === 'start' && pagoBloqueaInicio)}
                 onClick={() => onAction(ticket.orderNumber, b.action)}
                 aria-label={b.kind === 'danger' ? 'Cancelar pedido' : undefined}
                 className={
                   b.kind === 'danger'
                     ? 'grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:opacity-50'
-                    : 'h-16 flex-1 rounded-xl bg-emerald-600 text-xl font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50'
+                    : 'h-16 flex-1 rounded-xl bg-emerald-600 text-xl font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600'
                 }
               >
                 {b.kind === 'danger' ? <TrashIcon /> : b.label}
@@ -182,6 +209,46 @@ export function KitchenTicketCard({
           ))}
       </footer>
     </article>
+  );
+}
+
+/**
+ * Por qué está cerrada la puerta, dicho para quien tiene la plancha delante.
+ *
+ * Cada estado dice la ACCIÓN que corresponde, no el estado interno: "acepta el
+ * pago para empezar" se puede hacer ahora mismo, "awaiting_review" no significa
+ * nada a un metro de distancia y con prisa.
+ */
+const GATE_REASONS: Record<PaymentGateState, string> = {
+  awaiting_review: 'Revisa el comprobante y acepta el pago para empezar.',
+  no_proof: 'Todavía no llegó el comprobante de este pedido.',
+  rejected_grace: 'Pago rechazado. El cliente tiene unos minutos para reenviarlo.',
+  expired: 'El cliente no reenvió el comprobante a tiempo. Se puede cancelar.',
+  // Los tres que ABREN la puerta no llegan a pintarse nunca.
+  accepted: '',
+  not_required: '',
+  unknown: '',
+};
+
+/**
+ * Qué pagó el cliente. Tres palabras en mayúsculas y una línea de qué hacer.
+ *
+ * `PAGO PRODUCTOS` NO es una alerta —es el caso normal en delivery— así que va
+ * en azul y no en ámbar: teñir de aviso lo esperado gasta la atención que
+ * necesita el rojo. El color nunca comunica solo; siempre va con su palabra.
+ */
+function AmountLabelChip({ label }: { label: ProofAmountLabelView }) {
+  const tono =
+    label.code === 'pago_total'
+      ? 'bg-emerald-50 ring-emerald-300 text-emerald-900'
+      : label.code === 'pago_productos'
+        ? 'bg-sky-50 ring-sky-300 text-sky-900'
+        : 'bg-red-50 ring-red-300 text-red-900';
+  return (
+    <div className={`mb-3 rounded-lg px-3 py-2 ring-1 ${tono}`}>
+      <p className="text-sm font-extrabold uppercase tracking-wide">{label.text}</p>
+      <p className="mt-0.5 text-xs font-medium leading-snug opacity-90">{label.hint}</p>
+    </div>
   );
 }
 

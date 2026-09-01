@@ -19,6 +19,8 @@ function order(
     paymentMethod: 'qr',
     openedAt: hace(10 * 60_000),
     hasAcceptedPayment: false,
+    // Sin ventana de gracia corriendo: el caso normal.
+    rejectionGraceEndsAtMs: null,
     ...over,
   };
 }
@@ -217,5 +219,60 @@ describe('invariante del contrato §3.4', () => {
     const normal = decideAssociation({ ...base, candidates: [order('A')] });
     expect(normal.method).not.toBe('duplicate');
     expect(normal.duplicateOfProofId).toBeNull();
+  });
+});
+
+// ── La ventana de gracia y el comprobante tardío (0028) ─────────────────────
+//
+// La cancelación por vencimiento se DERIVA al leer, así que `orders.status`
+// sigue siendo `confirmed` hasta que alguien pulsa "Limpiar expirados". Si el
+// enrutado no mirara el mismo reloj, un comprobante que llega tarde encontraría
+// el pedido vivo y abriría un intento — y el desenlace dependería de quién leyó
+// primero. Ese es el error que no se puede depurar ni explicar a un cliente.
+
+describe('asociación — ventana de gracia vencida', () => {
+  it('un comprobante que llega DESPUÉS del plazo no abre intento', () => {
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('A', { rejectionGraceEndsAtMs: NOW - 1 })],
+    });
+    expect(d.routingException).toBe('expired_target');
+    expect(d.attemptEligible).toBe(false);
+  });
+
+  it('pero SÍ se registra: un comprobante nunca se pierde', () => {
+    // `orderId` sigue apuntando al pedido, así que la fila es visible en el
+    // panel y una persona decide. Lo único que no ocurre es el intento nuevo.
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('A', { rejectionGraceEndsAtMs: NOW - 1 })],
+    });
+    expect(d.orderId).toBe('A');
+  });
+
+  it('dentro del plazo, el comprobante entra con normalidad', () => {
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('A', { rejectionGraceEndsAtMs: NOW + 60_000 })],
+    });
+    expect(d.routingException).toBeNull();
+    expect(d.attemptEligible).toBe(true);
+  });
+
+  it('justo al vencer ya está fuera: el plazo prometido es el plazo', () => {
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('A', { rejectionGraceEndsAtMs: NOW })],
+    });
+    expect(d.routingException).toBe('expired_target');
+  });
+
+  it('un pago ya aceptado explica mejor que el vencimiento', () => {
+    // El orden de las excepciones importa: se informa la razón MÁS específica.
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('A', { hasAcceptedPayment: true, rejectionGraceEndsAtMs: NOW - 1 })],
+    });
+    expect(d.routingException).toBe('payment_already_accepted');
   });
 });

@@ -4,12 +4,15 @@
  * Viven aparte del flujo de decision para poder revisarlos de un vistazo y
  * probarlos sin red: son lo unico de todo esto que lee un cliente real.
  *
- * El texto de rechazo evita culpar al cliente y le dice exactamente que hacer
- * ("responde al mismo QR"), porque la alternativa —que cree otro pedido— nos
- * deja dos pedidos y un comprobante ambiguo.
+ * El texto de rechazo evita culpar al cliente —dice que la foto PUEDE estar
+ * borrosa, no que haya intentado engañar a nadie— y le dice exactamente qué
+ * hacer y cuánto tiempo tiene. Le pide que reenvíe "aquí mismo" porque la
+ * alternativa —que cree otro pedido— nos deja dos pedidos y un comprobante
+ * ambiguo.
  */
 import type { DeliveryType } from '@/types';
 import type { ReviewDecision } from './review-result';
+import { REJECTION_GRACE_MS } from './payment-gate';
 
 /**
  * La parte que no cambia. Se conserva como constante porque es la marca por la
@@ -35,10 +38,33 @@ const PAYMENT_ACCEPTED_NEXT: Record<DeliveryType, string> = {
   pickup: 'Te esperamos con el chat en mano cuando vengas a recogerlo.',
 };
 
+/**
+ * El aviso de rechazo, con su plazo.
+ *
+ * ── Por qué dice cuánto tiempo tiene ────────────────────────────────────────
+ *
+ * El texto anterior le pedía al cliente que reenviara y no decía nada más. Con
+ * la ventana de gracia eso ya no basta: el pedido se cancela solo a los quince
+ * minutos, y no avisarlo sería cancelarle el pedido a alguien que creía tener
+ * toda la noche.
+ *
+ * Decirlo tiene además un segundo efecto buscado: a quien mandó un comprobante
+ * retocado, el plazo le quita el margen para insistir.
+ *
+ * ── El número sale de la constante, no de la frase ──────────────────────────
+ *
+ * `REJECTION_GRACE_MS` es la regla que aplican la puerta del KDS, el panel y el
+ * intake. Si el texto llevara un 15 escrito a mano, cambiar el plazo dejaría al
+ * cliente leyendo un número que ya no es cierto — y esa clase de mentira no la
+ * ve ningún test.
+ */
+const GRACE_MINUTES = Math.round(REJECTION_GRACE_MS / 60_000);
+
 export const PAYMENT_REJECTED_TEXT =
-  'No pudimos confirmar el pago con el comprobante enviado. ' +
-  'Por favor, verifica que corresponda a este pedido y envía un nuevo comprobante ' +
-  'respondiendo al mismo QR. No necesitas crear otro pedido.';
+  '❌ No pudimos validar tu pago. Es posible que la foto esté borrosa o los datos ' +
+  `no coincidan. Por favor, tienes ${GRACE_MINUTES} minutos para reenviar una captura ` +
+  'clara aquí mismo. Si no la recibimos en ese tiempo, tu pedido será cancelado ' +
+  'automáticamente.';
 
 /**
  * Texto que corresponde a la decision tomada.

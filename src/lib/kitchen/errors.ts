@@ -13,6 +13,14 @@ export type KitchenFailure =
   | 'cancelled'
   | 'invalid_transition'
   | 'conflict'
+  // ── La puerta del pago (0028) ─────────────────────────────────────────────
+  //
+  // Tres motivos distintos y no uno, porque cada uno pide algo distinto de
+  // quien está delante: revisar el comprobante, esperar al cliente, o dejarlo
+  // estar. Un único "no se puede" obligaría a adivinar cuál de los tres es.
+  | 'payment_pending'
+  | 'payment_rejected'
+  | 'payment_expired'
   | 'error';
 
 const MESSAGES: Record<KitchenFailure, string> = {
@@ -24,6 +32,11 @@ const MESSAGES: Record<KitchenFailure, string> = {
   cancelled: 'El pedido fue cancelado.',
   invalid_transition: 'Esa acción no está disponible para este pedido.',
   conflict: 'Otro cocinero cambió este pedido. Se actualizó el tablero.',
+  // Dice qué hacer, no solo qué pasa: el comprobante está en la misma pantalla
+  // y quien cocina puede aceptarlo él mismo.
+  payment_pending: 'Revisa el comprobante y acepta el pago para empezar.',
+  payment_rejected: 'Pago rechazado. Esperando que el cliente reenvíe el comprobante.',
+  payment_expired: 'El cliente no reenvió el comprobante a tiempo. El pedido queda cancelado.',
   error: 'No se pudo guardar el cambio. Vuelve a intentarlo.',
 };
 

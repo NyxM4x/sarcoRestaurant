@@ -187,3 +187,91 @@ describe('hora local boliviana', () => {
     }
   });
 });
+
+// ── La etiqueta del monto (0028) ────────────────────────────────────────────
+//
+// Dos pagos son legítimos en delivery: la comida sola —el envío se cobra al
+// entregar— y la comida con el envío. La etiqueta dice cuál hizo el cliente,
+// porque es la pregunta que el repartidor hace al llegar y que hasta ahora se
+// contestaba llamando a cocina.
+
+/** Pedido de Bs 48 de comida y Bs 6 de envío. */
+const IMPORTES = { subtotal: 48, total: 54 };
+
+describe('etiqueta del monto — los dos pagos válidos', () => {
+  it('el subtotal exacto es PAGO PRODUCTOS: falta cobrar el envío', () => {
+    const j = judgeProof(bueno({ amount: 48 }), ctx({ amounts: IMPORTES }));
+    expect(j.amountLabel).toBe('pago_productos');
+    expect(j.verdict).toBe('ok');
+    expect(j.reasons).toEqual([]);
+  });
+
+  it('el total exacto es PAGO TOTAL: el repartidor no cobra nada', () => {
+    const j = judgeProof(bueno({ amount: 54 }), ctx({ amounts: IMPORTES }));
+    expect(j.amountLabel).toBe('pago_total');
+    expect(j.verdict).toBe('ok');
+    expect(j.reasons).toEqual([]);
+  });
+
+  it('en recojo las dos cifras coinciden y sale PAGO TOTAL', () => {
+    // Sin envío que cobrar aparte, "pagó todo" es la lectura correcta. No es un
+    // caso especial: es la misma regla con el envío en cero.
+    const j = judgeProof(bueno({ amount: 48 }), ctx({ amounts: { subtotal: 48, total: 48 } }));
+    expect(j.amountLabel).toBe('pago_total');
+  });
+});
+
+describe('etiqueta del monto — lo que no cuadra', () => {
+  it('pagar de MENOS acusa: es el retoque que esto viene a detectar', () => {
+    const j = judgeProof(bueno({ amount: 7 }), ctx({ amounts: IMPORTES }));
+    expect(j.amountLabel).toBe('revisar_monto');
+    expect(j.reasons).toContain('amount_mismatch');
+    expect(j.verdict).toBe('suspicious');
+  });
+
+  it('pagar de MÁS también pide una mirada, y eso es deliberado', () => {
+    // Redondear la propina o adelantar son pagos buenos, pero ninguna regla
+    // automática los distingue de un pago corto. El cocinero sí, en dos
+    // segundos, con el comprobante delante.
+    const j = judgeProof(bueno({ amount: 100 }), ctx({ amounts: IMPORTES }));
+    expect(j.amountLabel).toBe('revisar_monto');
+    expect(j.reasons).toContain('amount_mismatch');
+  });
+
+  it('no hay margen de tolerancia: un boliviano de diferencia es una rendija', () => {
+    for (const amount of [47, 47.99, 48.01, 49, 53, 55]) {
+      expect(judgeProof(bueno({ amount }), ctx({ amounts: IMPORTES })).amountLabel, String(amount))
+        .toBe('revisar_monto');
+    }
+  });
+
+  it('un monto ilegible es un monto inválido', () => {
+    const j = judgeProof(bueno({ amount: null }), ctx({ amounts: IMPORTES }));
+    expect(j.amountLabel).toBe('revisar_monto');
+    expect(j.reasons).toContain('amount_mismatch');
+  });
+});
+
+describe('etiqueta del monto — cuándo NO se pronuncia', () => {
+  it('sin importes no hay etiqueta: `null` no se parece a `pago_total`', () => {
+    const j = judgeProof(bueno(), ctx());
+    expect(j.amountLabel).toBeNull();
+    expect(j.reasons).toEqual([]);
+  });
+
+  it('una foto borrosa se etiqueta REVISAR MONTO pero NO se vuelve sospechosa', () => {
+    // El cocinero tiene que mirarla —de ahí la etiqueta— pero `unreadable` no
+    // es una acusación, y añadirle `amount_mismatch` la convertiría en una.
+    const j = judgeProof(bueno({ legible: false }), ctx({ amounts: IMPORTES }));
+    expect(j.verdict).toBe('unreadable');
+    expect(j.reasons).toEqual(['unreadable']);
+    expect(j.amountLabel).toBe('revisar_monto');
+  });
+
+  it('lo que no es un comprobante se etiqueta, sin un segundo motivo encima', () => {
+    const j = judgeProof(bueno({ looksLikeReceipt: false }), ctx({ amounts: IMPORTES }));
+    expect(j.verdict).toBe('suspicious');
+    expect(j.reasons).toEqual(['not_a_receipt']);
+    expect(j.amountLabel).toBe('revisar_monto');
+  });
+});

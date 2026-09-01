@@ -61,6 +61,16 @@ export function KitchenBoardScreen({
   const [readyOpen, setReadyOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [offline, setOffline] = useState(false);
+  /**
+   * ¿Se pudo consultar el estado de los pagos? (0028)
+   *
+   * `false` NO es "no hay pagos": es "no lo sabemos". El tablero sigue entero y
+   * la puerta de INICIAR se abre —parar la cocina por un fallo de la base sería
+   * peor que cocinar un pedido de más— pero la pantalla tiene que decirlo. Sin
+   * este aviso la degradación era invisible: se cocinaba sin verificar el pago
+   * y nada lo insinuaba.
+   */
+  const [paymentsAvailable, setPaymentsAvailable] = useState(initial.paymentsAvailable);
   const [message, setMessage] = useState<string | null>(null);
   const [, startAction] = useTransition();
 
@@ -93,6 +103,7 @@ export function KitchenBoardScreen({
       }
       const board = (await res.json()) as KitchenBoard;
       setTickets(board.tickets);
+      setPaymentsAvailable(board.paymentsAvailable);
       setOffline(false);
     } catch {
       setOffline(true);
@@ -233,6 +244,19 @@ export function KitchenBoardScreen({
         onToggleSound={toggleSound}
         soundBlocked={soundBlocked}
       />
+
+      {/* Degradación VISIBLE. Va sobre el grid y a ancho completo: es una
+          condición de toda la pantalla, no de un ticket, y quien entra a media
+          noche tiene que verla sin buscarla. */}
+      {!paymentsAvailable && (
+        <div
+          role="status"
+          className="shrink-0 bg-amber-100 px-4 py-2 text-center text-sm font-bold text-amber-900 ring-1 ring-inset ring-amber-300"
+        >
+          No se pudo consultar el estado de los pagos. Revisa el comprobante antes de
+          empezar cada pedido.
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         {/* Grid central: las tarjetas llenan una columna hacia abajo y desbordan

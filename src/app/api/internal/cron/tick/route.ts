@@ -3,6 +3,7 @@ import { getServerEnv } from '@/lib/env/env';
 import { safeCompare } from '@/lib/security/compare';
 import { POST as tickWebhookInbox } from '../../webhook-events/worker/tick/route';
 import { POST as tickNotifications } from '../../order-notifications/worker/tick/route';
+import { POST as tickTelegramAlerts } from '../../telegram-alerts/worker/tick/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,17 +33,18 @@ export const dynamic = 'force-dynamic';
  * que se disparen desde una barra de direcciones— esta ruta traduce: valida el
  * secreto y los invoca con un POST sintético.
  *
- * Un solo cron mueve los dos workers, así que el plan de Vercel solo tiene que
+ * Un solo cron mueve los TRES workers, así que el plan de Vercel solo tiene que
  * dar para una entrada.
  *
- * ── Los dos workers son independientes ──────────────────────────────────────
+ * ── Los tres workers son independientes ─────────────────────────────────────
  *
  * Se lanzan con `allSettled`: que el inbox falle no puede impedir que las
- * notificaciones se recuperen, ni al revés. Cada uno ya es idempotente y
- * reclama su propio trabajo, así que dos latidos solapados no se pisan.
+ * notificaciones se recuperen, ni que salgan las alertas pendientes, ni al
+ * revés. Cada uno ya es idempotente y reclama su propio trabajo, así que dos
+ * latidos solapados no se pisan.
  *
- * Independencia en la EJECUCIÓN, no en el diagnóstico: los dos corren pase lo
- * que pase, y después el estado HTTP resume si los dos lo consiguieron.
+ * Independencia en la EJECUCIÓN, no en el diagnóstico: los tres corren pase lo
+ * que pase, y después el estado HTTP resume si los tres lo consiguieron.
  *
  * ── Esta ruta es el FALLBACK, no el despertador principal ────────────────────
  *
@@ -101,9 +103,13 @@ export async function GET(request: Request): Promise<Response> {
       headers: { authorization: `Bearer ${esperado}` },
     });
 
-  const [inbox, notifications] = await Promise.allSettled([
+  // LOS TRES, siempre. Que el fallback moviera solo dos sería la misma clase de
+  // divergencia que ya costó un fallo en este repo: dos caminos que ejecutan
+  // cosas distintas, y el que se queda corto no lo dice en ninguna parte.
+  const [inbox, notifications, alerts] = await Promise.allSettled([
     tickWebhookInbox(interno()),
     tickNotifications(interno()),
+    tickTelegramAlerts(interno()),
   ]);
 
   /**
@@ -131,14 +137,13 @@ export async function GET(request: Request): Promise<Response> {
   const ejecutado = (r: PromiseSettledResult<Response>): boolean =>
     r.status === 'fulfilled' && r.value.status >= 200 && r.value.status <= 299;
 
-  const inboxOk = ejecutado(inbox);
-  const notificationsOk = ejecutado(notifications);
-  const ok = inboxOk && notificationsOk;
+  const ok = ejecutado(inbox) && ejecutado(notifications) && ejecutado(alerts);
 
   log.info('cron_tick_done', {
     ok,
     inbox: estado(inbox),
     notifications: estado(notifications),
+    alerts: estado(alerts),
   });
 
   // ── 200 solo si los DOS se ejecutaron; 503 si alguno no ────────────────────
@@ -160,7 +165,12 @@ export async function GET(request: Request): Promise<Response> {
   // El cuerpo lleva los dos estados por separado a propósito: un 503 sin decir
   // cuál de los dos cayó obliga a abrir los logs para saber dónde mirar.
   return Response.json(
-    { ok, inbox: estado(inbox), notifications: estado(notifications) },
+    {
+      ok,
+      inbox: estado(inbox),
+      notifications: estado(notifications),
+      alerts: estado(alerts),
+    },
     { status: ok ? 200 : 503 },
   );
 }

@@ -1,0 +1,8 @@
+# Dependencias del paquete (aisladas del repo Next)
+node_modules/
+
+# Estado local de Wrangler
+.wrangler/
+
+# Variables locales para `wrangler dev` — NUNCA versionar (contiene el secreto)
+.dev.vars

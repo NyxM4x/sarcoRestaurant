@@ -18,6 +18,9 @@ function ticket(orderNumber: string, stage: KdsStage, minutes = 0): KitchenTicke
     amountDueByQr: 0,
     awaitingPaymentConfirmation: false,
     payment: null,
+    // Puerta abierta: estos tests no van del pago (0028).
+    gate: { state: 'not_required' as const, canStart: true, graceEndsAtMs: null },
+    amountLabel: null,
   };
 }
 

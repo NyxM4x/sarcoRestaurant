@@ -38,6 +38,8 @@ function fuente(over: Partial<AnalysisDataSource> = {}) {
   const guardados: Array<{ proofId: string; outcome: AnalysisOutcome }> = [];
   const fallidos: string[] = [];
   const source: AnalysisDataSource = {
+    // 48 la comida, 54 con envio: los dos importes del pedido de los fixtures.
+    expectedAmounts: async () => ({ subtotal: 48, total: 54 }),
     isReferenceUsedElsewhere: async () => false,
     saveAnalysis: async (proofId, outcome) => {
       guardados.push({ proofId, outcome });
@@ -72,6 +74,8 @@ describe('análisis — el recorrido completo', () => {
           verdict: 'ok',
           reasons: [],
           amount: 48,
+          // 48 es el subtotal: pagó la comida y el envío se cobra al entregar.
+          amountLabel: 'pago_productos',
           reference: 'TX-1',
           model: 'gpt-4o-mini',
         },
@@ -94,15 +98,58 @@ describe('análisis — el recorrido completo', () => {
     expect(guardados[0].outcome.reasons).toEqual(['bank_mismatch']);
   });
 
-  it('el monto leído se guarda aunque no acuse', async () => {
+  it('un monto que no es ninguno de los dos válidos acusa (0028)', async () => {
+    // Antes de 0028 esto se guardaba con veredicto `ok`: el monto se leía y no
+    // acusaba nunca. Un comprobante retocado de Bs 48 a Bs 7 pasaba el filtro.
     const { source, guardados } = fuente();
     await analyzeProofWith(entrada(), {
       model: modelo({ ok: true, text: LECTURA({ amount: 7 }), model: 'gpt-4o-mini' }),
       source,
       expected: CUENTA,
     });
-    expect(guardados[0].outcome.verdict).toBe('ok');
+    expect(guardados[0].outcome.verdict).toBe('suspicious');
+    expect(guardados[0].outcome.reasons).toEqual(['amount_mismatch']);
+    expect(guardados[0].outcome.amountLabel).toBe('revisar_monto');
+    // La cifra leída se sigue guardando: la etiqueta no la reemplaza.
     expect(guardados[0].outcome.amount).toBe(7);
+  });
+
+  it('el pago completo —productos más envío— se etiqueta como tal', async () => {
+    // El caso que motivó la etiqueta: el cliente pagó también la carrera, y el
+    // repartidor no tenía forma de saberlo sin llamar a cocina.
+    const { source, guardados } = fuente();
+    await analyzeProofWith(entrada(), {
+      model: modelo({ ok: true, text: LECTURA({ amount: 54 }), model: 'gpt-4o-mini' }),
+      source,
+      expected: CUENTA,
+    });
+    expect(guardados[0].outcome.verdict).toBe('ok');
+    expect(guardados[0].outcome.reasons).toEqual([]);
+    expect(guardados[0].outcome.amountLabel).toBe('pago_total');
+  });
+
+  it('sin pedido asociado no hay etiqueta: no había con qué comparar', async () => {
+    const { source, guardados } = fuente();
+    await analyzeProofWith(
+      { ...entrada(), orderId: null },
+      { model: modelo({ ok: true, text: LECTURA(), model: 'gpt-4o-mini' }), source, expected: CUENTA },
+    );
+    // `null` es ausencia de dato, y no se parece en nada a `pago_total`.
+    expect(guardados[0].outcome.amountLabel).toBeNull();
+    expect(guardados[0].outcome.reasons).toEqual([]);
+  });
+
+  it('un fallo leyendo los importes no acusa al cliente', async () => {
+    // Si no podemos consultar el pedido, el problema es nuestro. Etiquetar
+    // `revisar_monto` ahí convertiría una caída de la base en una sospecha.
+    const { source, guardados } = fuente({ expectedAmounts: async () => null });
+    await analyzeProofWith(entrada(), {
+      model: modelo({ ok: true, text: LECTURA(), model: 'gpt-4o-mini' }),
+      source,
+      expected: CUENTA,
+    });
+    expect(guardados[0].outcome.amountLabel).toBeNull();
+    expect(guardados[0].outcome.reasons).toEqual([]);
   });
 
   it('pregunta por el número de transacción repetido, y lo tiene en cuenta', async () => {

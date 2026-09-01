@@ -16,6 +16,7 @@ function proof(id: string, analysis: ProofView['analysis'] = null): ProofView {
     filename: `comprobante-${id}.jpg`,
     declaredLabel: null,
     analysis,
+    amountLabel: null,
   };
 }
 

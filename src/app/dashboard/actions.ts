@@ -22,6 +22,7 @@ import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
 import { isReviewDecision, type ReviewResult } from '@/lib/payment-proof/review-result';
+import { sweepExpiredOrders } from '@/lib/payment-proof/expiry-service';
 
 export interface LoginState {
   error: 'invalid' | 'not_configured' | null;
@@ -116,6 +117,37 @@ export async function reviewPaymentAttemptAction(
   const result = await decidePaymentAttempt(attemptId, decision);
   if (result.ok) revalidatePath('/dashboard');
   return result;
+}
+
+/**
+ * Cancela los pedidos cuya ventana de gracia venció (0028).
+ *
+ * ── Por qué es un botón y no un cron ────────────────────────────────────────
+ *
+ * La expiración se DERIVA al leer: el KDS, el panel y el enrutado del intake
+ * aplican la misma regla, así que nadie ve como vivo un pedido que ya venció
+ * aunque su `status` siga diciendo `confirmed`. Lo que falta es MATERIALIZAR
+ * esa cancelación en la base, y eso es un acto explícito: lo pulsa una persona
+ * que está mirando, no un proceso a las tres de la mañana.
+ *
+ * ── Solo el encargado ───────────────────────────────────────────────────────
+ *
+ * Cancelar es terminal y afecta a varios pedidos de golpe. Quien cocina decide
+ * sobre UN comprobante que tiene delante; cerrar una tanda de pedidos es una
+ * decisión del turno, no de la plancha. Por eso `canAccessAdmin` y no
+ * `canReviewPayments`.
+ */
+export async function sweepExpiredOrdersAction(): Promise<
+  { ok: true; cancelled: number; orderNumbers: string[] } | { ok: false; reason: 'unauthorized' }
+> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessAdmin(role)) return { ok: false, reason: 'unauthorized' };
+
+  const result = await sweepExpiredOrders();
+  // Solo si algo cambió: refrescar por un barrido que no canceló nada es pedirle
+  // al servidor que repinta la vista para nada.
+  if (result.cancelled > 0) revalidatePath('/dashboard');
+  return { ok: true, ...result };
 }
 
 /**

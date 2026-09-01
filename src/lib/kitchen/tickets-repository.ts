@@ -6,7 +6,7 @@
  * traduce consultas. La cocina LEE pedidos y escribe `orders.status`; nunca
  * toca `order_notifications`, Telegram, Kapso ni WhatsApp.
  */
-import type { OrderStatus, PaymentAttempt } from '@/types';
+import type { OrderStatus, PaymentAttempt, PaymentMethod } from '@/types';
 import { dateBounds } from '@/lib/dashboard/filters';
 import { toPaymentView, type PaymentView } from '@/lib/dashboard/attempt-review';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
@@ -25,6 +25,7 @@ import {
   type RawKitchenOrderRow,
 } from './ticket-view';
 import type { KitchenFailure } from './errors';
+import { paymentGateOf, type PaymentGateState } from '@/lib/payment-proof/payment-gate';
 
 export type KitchenUpdateResult = 'updated' | 'conflict' | 'not_found';
 
@@ -50,6 +51,23 @@ export interface KitchenDataSource {
    */
   listPayments?(orderIds: string[]): Promise<KitchenPaymentRows>;
   getStatus(orderNumber: string): Promise<OrderStatus | null>;
+  /**
+   * Cómo se cobra este pedido y en qué va su pago.
+   *
+   * Lo necesita la puerta de INICIAR, y por eso se pregunta por NÚMERO de
+   * pedido y en el momento de actuar: leerlo del tablero que el navegador tenía
+   * cargado dejaría decidir con un pago de hace treinta segundos, que es
+   * justo el tiempo que tarda otro en aceptarlo o rechazarlo.
+   *
+   * Opcional: sin este método la puerta no puede preguntar y se comporta como
+   * `unknown` —abre y avisa—, que es el mismo criterio que cuando la consulta
+   * falla. Un adaptador antiguo sigue funcionando exactamente como antes.
+   */
+  paymentFor?(orderNumber: string): Promise<{
+    paymentMethod: PaymentMethod | null;
+    rows: KitchenPaymentRows;
+    orderId: string;
+  } | null>;
   updateStatus(orderNumber: string, from: OrderStatus, to: OrderStatus): Promise<KitchenUpdateResult>;
 }
 
@@ -61,6 +79,16 @@ export interface KitchenDataSource {
 export interface KitchenBoard {
   tickets: KitchenTicket[];
   serverNow: number;
+  /**
+   * ¿Se pudo consultar el estado de los pagos? (0028)
+   *
+   * `false` NO significa "no hay pagos": significa que no lo sabemos. El
+   * tablero sigue mostrando todas las comandas y la puerta de INICIAR se abre
+   * —parar la cocina por un fallo de la base sería peor— pero la pantalla tiene
+   * que DECIRLO. Hasta ahora esa degradación era silenciosa: se cocinaba sin
+   * verificar el pago y nada en pantalla lo insinuaba.
+   */
+  paymentsAvailable: boolean;
 }
 
 export type KitchenActionOutcome =
@@ -69,7 +97,8 @@ export type KitchenActionOutcome =
 
 export interface KitchenRepository {
   getBoard(nowMs: number): Promise<KitchenBoard>;
-  applyAction(orderNumber: string, action: string): Promise<KitchenActionOutcome>;
+  /** `nowMs` inyectable: la ventana de gracia se DERIVA al leer, no con un cron. */
+  applyAction(orderNumber: string, action: string, nowMs?: number): Promise<KitchenActionOutcome>;
 }
 
 /** Formato del numero de pedido aceptado (misma whitelist que el dashboard). */
@@ -105,6 +134,61 @@ function agruparPagos(rows: KitchenPaymentRows): Record<string, PaymentView> {
   return out;
 }
 
+/**
+ * Consulta la puerta del pago para UN pedido, en el instante de actuar.
+ *
+ * Nunca lanza. Un fallo de consulta devuelve `unknown`, que ABRE la puerta: es
+ * la misma decisión que toma el tablero cuando no puede leer los pagos, y por
+ * el mismo motivo — cerrar ante la duda detendría el servicio entero por un
+ * hipo de la base, sin ninguna forma de saltarse la puerta desde una tablet.
+ */
+async function consultarPuerta(
+  source: KitchenDataSource,
+  orderNumber: string,
+  nowMs: number,
+) {
+  if (!source.paymentFor) return paymentGateOf(null, null, nowMs);
+  try {
+    const datos = await source.paymentFor(orderNumber);
+    // El pedido existe —`getStatus` acaba de encontrarlo— así que un `null`
+    // aquí es un fallo de esta consulta, no un pedido ausente.
+    if (datos === null) return paymentGateOf('qr', null, nowMs);
+    const vista = agruparPagos(datos.rows)[datos.orderId] ?? EMPTY_PAYMENT_VIEW;
+    return paymentGateOf(datos.paymentMethod, vista, nowMs);
+  } catch {
+    return paymentGateOf('qr', null, nowMs);
+  }
+}
+
+/**
+ * Vista de pago vacía: el pedido se consultó y no tiene NADA.
+ *
+ * Distinta de `null`, que significa "no se pudo consultar". La diferencia
+ * decide si la puerta se abre o se cierra, así que no puede quedar implícita.
+ */
+const EMPTY_PAYMENT_VIEW: PaymentView = {
+  attempts: [],
+  unlinkedProofs: [],
+  hasPendingReview: false,
+};
+
+/** Cada estado cerrado dice algo distinto a quien está delante de la plancha. */
+function motivoDeBloqueo(state: PaymentGateState): KitchenFailure {
+  switch (state) {
+    case 'awaiting_review':
+    case 'no_proof':
+      return 'payment_pending';
+    case 'rejected_grace':
+      return 'payment_rejected';
+    case 'expired':
+      return 'payment_expired';
+    default:
+      // Los estados que abren no llegan aquí. Si alguno lo hiciera, el mensaje
+      // genérico es preferible a afirmar un motivo que no se comprobó.
+      return 'payment_pending';
+  }
+}
+
 export function createKitchenRepository(source: KitchenDataSource): KitchenRepository {
   return {
     async getBoard(nowMs) {
@@ -135,12 +219,15 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
       }
 
       return {
-        tickets: toKitchenTickets(rows, items, payments, pagosConsultados),
+        tickets: toKitchenTickets(rows, items, payments, pagosConsultados, nowMs),
         serverNow: nowMs,
+        // Sin el método cableado tampoco se consultaron: un adaptador antiguo
+        // no puede afirmar que el pago esté verificado.
+        paymentsAvailable: pagosConsultados,
       };
     },
 
-    async applyAction(orderNumber, action) {
+    async applyAction(orderNumber, action, nowMs = Date.now()) {
       if (!ORDER_NUMBER_RE.test(orderNumber)) return { ok: false, reason: 'not_found' };
       if (!isKdsAction(action)) return { ok: false, reason: 'invalid_action' };
 
@@ -157,6 +244,23 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
 
       const target = nextStage(stage, action);
       if (target === null) return { ok: false, reason: 'invalid_transition' };
+
+      // ── LA PUERTA DEL PAGO ──────────────────────────────────────────────
+      //
+      // Solo sobre `start`, y a propósito. Las demás acciones operan sobre un
+      // pedido que YA se empezó: frenar un `complete` porque el pago se
+      // discute después dejaría la hamburguesa hecha y el ticket sin poder
+      // cerrarse, y hacerla desaparecer no la devuelve al refrigerador.
+      //
+      // La puerta va DESPUÉS de validar la transición para que un `start`
+      // imposible siga diciendo "esa acción no está disponible" en vez de
+      // hablar del pago de un pedido que ni siquiera podía arrancar.
+      if (action === 'start') {
+        const puerta = await consultarPuerta(source, orderNumber, nowMs);
+        if (!puerta.canStart) {
+          return { ok: false, reason: motivoDeBloqueo(puerta.state) };
+        }
+      }
 
       // Guarda optimista: solo escribe si el estado sigue siendo el que leimos,
       // para que dos cocineros tocando a la vez no se pisen.

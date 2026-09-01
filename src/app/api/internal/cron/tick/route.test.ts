@@ -16,9 +16,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 const llamadas: string[] = [];
-const fallos = { inbox: false, notifications: false };
+const fallos = { inbox: false, notifications: false, alerts: false };
 /** Estado con el que responde cada worker cuando NO lanza. */
-const estados = { inbox: 200, notifications: 200 };
+const estados = { inbox: 200, notifications: 200, alerts: 200 };
 
 vi.mock('@/lib/log', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -42,6 +42,14 @@ vi.mock('../../order-notifications/worker/tick/route', () => ({
   },
 }));
 
+vi.mock('../../telegram-alerts/worker/tick/route', () => ({
+  POST: async (req: Request) => {
+    llamadas.push(`alerts:${req.method}:${req.headers.get('authorization')}`);
+    if (fallos.alerts) throw new Error('alertas caídas: 59171234567');
+    return Response.json({ ok: true }, { status: estados.alerts });
+  },
+}));
+
 const { GET } = await import('./route');
 
 const TOKEN = 'token-interno-de-prueba';
@@ -57,7 +65,9 @@ beforeEach(() => {
   llamadas.length = 0;
   fallos.inbox = false;
   fallos.notifications = false;
+  fallos.alerts = false;
   estados.inbox = 200;
+  estados.alerts = 200;
   estados.notifications = 200;
   delete process.env.CRON_SECRET;
 });
@@ -96,6 +106,7 @@ describe('el latido mueve los DOS workers', () => {
     // Los workers son POST: la ruta traduce el GET del cron, no los afloja.
     expect(llamadas).toContain(`inbox:POST:Bearer ${TOKEN}`);
     expect(llamadas).toContain(`notifications:POST:Bearer ${TOKEN}`);
+    expect(llamadas).toContain(`alerts:POST:Bearer ${TOKEN}`);
   });
 
   it('si el inbox falla, las notificaciones se recuperan igual', async () => {
@@ -211,5 +222,48 @@ describe('la respuesta no filtra nada', () => {
     expect(cuerpo).not.toContain('caídas');
     // Lo único que se dice de un worker que lanzó es que lanzó.
     expect(cuerpo).toContain('error');
+  });
+});
+
+// ── El fallback tiene que mover TODOS los workers ───────────────────────────
+//
+// Cuando se añadió el outbox de alertas (0028), el fallback movía dos de tres y
+// nada lo decía: un latido que solo recupera parte del sistema informa `ok` como
+// si lo hubiera recuperado entero. Es la misma clase de divergencia que ya costó
+// un fallo en este repo —el worker del inbox ejecutando menos capacidades que el
+// webhook— y se detecta igual de tarde.
+
+describe('el latido no puede quedarse corto', () => {
+  it('mueve los TRES workers en una sola invocación', async () => {
+    await GET(pedir(`Bearer ${TOKEN}`));
+    const movidos = llamadas.map((l) => l.split(':')[0]).sort();
+    expect(movidos).toEqual(['alerts', 'inbox', 'notifications']);
+  });
+
+  it('un worker de alertas caído no impide que corran los otros dos', async () => {
+    fallos.alerts = true;
+    const res = await GET(pedir(`Bearer ${TOKEN}`));
+    expect(llamadas.some((l) => l.startsWith('inbox:'))).toBe(true);
+    expect(llamadas.some((l) => l.startsWith('notifications:'))).toBe(true);
+    // Y el latido NO se reporta sano: el minuto no recuperó las alertas.
+    expect(res.status).toBe(503);
+  });
+
+  it('si las alertas responden 401, el latido lo dice en vez de callar', async () => {
+    estados.alerts = 401;
+    const res = await GET(pedir(`Bearer ${TOKEN}`));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, alerts: 401 });
+  });
+
+  it('el cuerpo nombra a cada worker por separado', async () => {
+    // Un 503 sin decir cuál cayó obliga a abrir los logs para saber dónde mirar.
+    const res = await GET(pedir(`Bearer ${TOKEN}`));
+    expect(await res.json()).toEqual({
+      ok: true,
+      inbox: 200,
+      notifications: 200,
+      alerts: 200,
+    });
   });
 });

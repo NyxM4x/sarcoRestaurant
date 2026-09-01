@@ -10,7 +10,7 @@ import type {
   ProofAssociationMethod,
   ProofRoutingException,
 } from '@/types';
-import type { ProofAnalysisReason, ProofVerdict } from './analysis';
+import type { ProofAmountLabel, ProofAnalysisReason, ProofVerdict } from './analysis';
 
 /** Estado de revision del intento, tal como se titula en el panel. */
 export const REVIEW_STATUS_LABELS: Record<PaymentReviewStatus, string> = {
@@ -75,11 +75,60 @@ export const ANALYSIS_REASON_LABELS: Record<ProofAnalysisReason, string> = {
   stale_receipt: 'El comprobante es de otro momento, no de este pedido',
   not_a_receipt: 'La imagen no parece un comprobante de pago',
   unreadable: 'No se pudo leer el comprobante',
+  amount_mismatch: 'El monto no coincide ni con los productos ni con el total',
 };
 
 export function analysisReasonLabel(reason: ProofAnalysisReason): string {
   return ANALYSIS_REASON_LABELS[reason] ?? 'Revisar el comprobante';
 }
+
+// ── Qué pagó: la etiqueta que responde al repartidor (0028) ─────────────────
+
+/**
+ * Las tres respuestas posibles a "¿este ya me pagó la carrera?".
+ *
+ * En MAYÚSCULAS y cortas porque se leen de lejos, en una tablet, mientras
+ * alguien espera en la puerta. Es la única etiqueta del ticket que no la lee
+ * quien cocina sino quien reparte, a través de quien cocina.
+ */
+export const AMOUNT_LABEL_TEXTS: Record<ProofAmountLabel, string> = {
+  pago_total: 'PAGO TOTAL',
+  pago_productos: 'PAGO PRODUCTOS',
+  revisar_monto: 'REVISAR MONTO',
+};
+
+/**
+ * Qué significa cada una, para quien no la conoce todavía.
+ *
+ * El texto de `pago_productos` nombra la acción, no el estado: "falta cobrar el
+ * envío" es lo que hay que hacer al llegar, y "pagó solo los productos" obliga
+ * a deducirlo. En la puerta de una casa, con el pedido en la mano, no se deduce.
+ */
+export const AMOUNT_LABEL_HINTS: Record<ProofAmountLabel, string> = {
+  pago_total: 'Ya pagó el envío: no cobrar nada al entregar',
+  pago_productos: 'Falta cobrar el envío al entregar',
+  revisar_monto: 'El monto no cuadra: abrir el comprobante antes de cocinar',
+};
+
+export function amountLabelText(label: ProofAmountLabel | null): string | null {
+  return label === null ? null : (AMOUNT_LABEL_TEXTS[label] ?? null);
+}
+
+export function amountLabelHint(label: ProofAmountLabel | null): string | null {
+  return label === null ? null : (AMOUNT_LABEL_HINTS[label] ?? null);
+}
+
+/**
+ * Tono de la etiqueta. `pago_total` es verde porque no hay nada que hacer;
+ * `pago_productos` NO es una alerta —es el caso normal en delivery— así que va
+ * en azul, no en ámbar: teñir de aviso el comportamiento esperado gasta la
+ * atención que necesita el rojo.
+ */
+export const AMOUNT_LABEL_TONES: Record<ProofAmountLabel, 'green' | 'blue' | 'red'> = {
+  pago_total: 'green',
+  pago_productos: 'blue',
+  revisar_monto: 'red',
+};
 
 /**
  * Título del aviso según el veredicto.

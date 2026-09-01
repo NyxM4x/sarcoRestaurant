@@ -120,14 +120,23 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
   it('el ticket tampoco expone el UUID interno del pedido', () => {
     const [ticket] = toKitchenTickets([row], []);
     expect(JSON.stringify(ticket)).not.toContain('uuid-interno');
+    // Ni la etiqueta ni la puerta pueden traerse una cifra de vuelta.
+    expect(JSON.stringify(ticket.amountLabel ?? {})).not.toMatch(/\d+[.,]\d{2}/);
     // La lista es cerrada A PROPÓSITO: si alguien añade un campo al ticket, este
     // test falla y obliga a justificarlo. Así se añadieron `total` y `payment`.
     expect(Object.keys(ticket).sort()).toEqual([
       'amountDueByQr',
+      // 0028: la etiqueta del monto. Es un ENUM mas dos textos fijos
+      // (`pago_total` / "PAGO TOTAL" / "Ya pago el envio..."), nunca la cifra
+      // leida — esa se queda en la base, como el resto del analisis.
+      'amountLabel',
       'awaitingPaymentConfirmation',
       'completedAt',
       'deliveryType',
       'enteredAt',
+      // 0028: la puerta del pago, ya resuelta. Un estado cerrado, un booleano y
+      // un instante de vencimiento. Ningun dato del cliente.
+      'gate',
       'lines',
       'notes',
       'orderNumber',

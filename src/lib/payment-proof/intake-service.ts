@@ -7,7 +7,11 @@ import { capturePaymentProof, type IntakeOutcome } from './capture';
 import { decideAssociation } from './association';
 import { classifyForAgentGate, type ProofClassification } from './agent-gate';
 import type { ProofAssociationMethod } from '@/types';
-import { createSupabaseIntakeDataSource, newClaimToken } from './intake-data-source';
+import {
+  createSupabaseIntakeDataSource,
+  newClaimToken,
+  type IntakeDataSource,
+} from './intake-data-source';
 import { isProofStorageConfigured, putProofObject } from './storage';
 import { analyzeCapturedProof } from './analysis-service';
 
@@ -117,6 +121,49 @@ export type ProofIntakeResult = IntakeOutcome & { proofClassification: ProofClas
  * atiende a todos los clientes. Los fallos se registran y se devuelven como
  * resultado.
  */
+/**
+ * Deja constancia de un comprobante que no se pudo capturar. Nunca lanza.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ *
+ * Tres desenlaces terminaban sin NINGUNA fila —`insert_failed`, `intake_error`
+ * y `storage_not_configured`— y el evento del webhook se marcaba `processed`
+ * igual, porque la captura no lanza por diseño. El resultado era el peor
+ * posible: el cliente pagó, el archivo se perdió, y no quedaba rastro en
+ * ninguna pantalla ni forma de saber que había existido.
+ *
+ * Esto no recupera el archivo: eso ya no se puede. Deja la fila para que el
+ * pedido muestre "llegó un comprobante y no lo tenemos", que es lo que permite
+ * a una persona pedirlo de nuevo en vez de descubrirlo al cuadrar la caja.
+ *
+ * ── Por qué no se reintenta el evento ───────────────────────────────────────
+ *
+ * Devolver el evento a la cola habría recuperado el archivo de verdad, pero
+ * `askLocationForQuote` no tiene barrera de idempotencia: un mensaje con texto
+ * Y foto reenviaría al cliente el "compárteme tu ubicación" en cada reintento.
+ * Se prefiere una fila fiable a un archivo recuperado con efectos duplicados.
+ */
+async function dejarConstancia(
+  source: Pick<IntakeDataSource, 'insertUncaptured'>,
+  input: ProofIntakeInput,
+  orderId: string | null,
+): Promise<void> {
+  try {
+    const escrita = await source.insertUncaptured({
+      sourceMessageId: input.sourceMessageId,
+      orderId,
+      declaredMimeType: input.attachment?.facts.mimeType ?? input.declaredMimeType ?? null,
+      receivedAt: new Date(input.receivedAtMs).toISOString(),
+    });
+    if (!escrita) log.error('payment_proof_uncaptured_row_failed');
+  } catch {
+    // Si ni esto se puede escribir, la base no está disponible y no queda nada
+    // que hacer desde aquí. Se registra y se sigue: el resto de la entrega —el
+    // pedido, la ubicación, el agente— ya se atendió y no puede caerse por esto.
+    log.error('payment_proof_uncaptured_row_error');
+  }
+}
+
 export async function intakePaymentProof(input: ProofIntakeInput): Promise<ProofIntakeResult> {
   // Interruptor primero: apagada, ni se consulta la base.
   //
@@ -140,6 +187,11 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
 
   const source = createSupabaseIntakeDataSource();
 
+  // A qué pedido iba, si se llegó a saber. Vive FUERA del try porque el catch
+  // también lo necesita: una fila de constancia sin `order_id` no aparece en
+  // ninguna pantalla, y el pedido es lo único que la hace visible.
+  let pedidoDestino: string | null = null;
+
   try {
     const candidates = await source.candidatesForPhone(input.customerPhone);
 
@@ -161,6 +213,7 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
       nowMs: input.receivedAtMs,
     });
     const proofClassification = classifyForAgentGate(enrutado);
+    pedidoDestino = enrutado.orderId;
 
     // Sin bucket configurado no se captura: guardar una fila que jamás podrá
     // tener archivo solo genera ruido en el panel.
@@ -171,6 +224,10 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
     // los dos casos —eso no lo arregla este orden— pero la imagen deja de
     // viajar. Cuesta una lectura de candidatos en un estado que ya está roto.
     if (!isProofStorageConfigured()) {
+      // El pago se pierde igual —no hay dónde guardarlo— pero ahora deja fila:
+      // el pedido enseña que llegó un comprobante que no tenemos, en vez de
+      // parecer que el cliente nunca mandó nada.
+      await dejarConstancia(source, input, enrutado.orderId);
       return { result: 'failed', reason: 'storage_not_configured', proofClassification };
     }
 
@@ -317,6 +374,15 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
       });
     }
 
+    // `insert_failed` es el único desenlace del motor que se va SIN fila: el
+    // insert falló de verdad —no fue la carrera del WAMID, que ya se resuelve
+    // arriba— así que no hay `proofId` al que volver. Los demás fallos
+    // (`download_failed`, `storage_failed`) sí dejaron su fila y el panel ya
+    // los enseña como archivo no disponible.
+    if (outcome.result === 'failed' && outcome.reason === 'insert_failed') {
+      await dejarConstancia(source, input, enrutado.orderId);
+    }
+
     // El veredicto viaja con CUALQUIER desenlace del motor. `already_captured`,
     // `in_progress` y `lost_claim` son los caminos que recorren un reintento y
     // una carrera entre el `after()` y el worker de recovery: si perdieran la
@@ -327,6 +393,16 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
     log.error('payment_proof_intake_failed', {
       reason: error instanceof Error ? error.name : 'unknown',
     });
+    // Constancia también aquí, y con la reserva de que este es el caso menos
+    // recuperable de los tres: si la excepción vino de la propia base, escribir
+    // la fila puede fallar igual. Se intenta porque una consulta puede caerse
+    // sola —`candidatesForPhone` es la primera y la más pesada— y ahí el insert
+    // sí entra.
+    //
+    // `pedidoDestino` será `null` si la excepción llegó antes de enrutar, y la
+    // fila quedará huérfana: existe en la base y es auditable, pero no se ve en
+    // el panel. Sigue siendo mejor que nada, y peor que las otras dos.
+    await dejarConstancia(source, input, pedidoDestino);
     // FAIL CLOSED: si no se pudo decidir, los bytes no salen. Un fallo de la
     // base no puede convertirse en una imagen de más viajando a OpenAI.
     return { result: 'failed', reason: 'intake_error', proofClassification: 'unknown' };

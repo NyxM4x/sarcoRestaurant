@@ -1,7 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import type { OrderStatus } from '@/types';
+import type { OrderStatus, PaymentMethod } from '@/types';
 import { KITCHEN_BOARD_STATUSES } from './kds-status';
 import type { PaymentAttempt } from '@/types';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
@@ -123,6 +123,31 @@ export function createSupabaseKitchenDataSource(
       return {
         attempts: (attemptsRes.data ?? []) as unknown as PaymentAttempt[],
         proofs: (proofsRes.data ?? []) as unknown as ProofUiRow[],
+      };
+    },
+
+    async paymentFor(orderNumber) {
+      // El pedido y su pago EN EL MOMENTO de pulsar, no lo que el navegador
+      // tenía cargado: entre que se pinta el tablero y alguien pulsa INICIAR,
+      // otro puede haber aceptado o rechazado ese mismo comprobante.
+      const { data, error } = await client
+        .from('orders')
+        .select('id,payment_method')
+        .eq('order_number', orderNumber)
+        .limit(1);
+      // Se propaga: el repositorio lo traduce a `unknown` —puerta abierta y
+      // aviso en pantalla— y esa decisión vive en un solo sitio, no aquí.
+      if (error) throw new Error('kitchen_payment_lookup_failed');
+
+      const row = (data ?? [])[0] as
+        | { id: string; payment_method: PaymentMethod | null }
+        | undefined;
+      if (!row) return null;
+
+      return {
+        orderId: row.id,
+        paymentMethod: row.payment_method,
+        rows: await this.listPayments!([row.id]),
       };
     },
 

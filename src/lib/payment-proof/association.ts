@@ -36,6 +36,23 @@ export interface ProofCandidateOrder {
   openedAt: string;
   /** ¿Este pedido ya tiene un intento de pago aceptado? */
   hasAcceptedPayment: boolean;
+  /**
+   * Cuándo vence la ventana de gracia de este pedido (ms), o `null` si no tiene
+   * una corriendo (0028).
+   *
+   * ── Por qué el intake comparte este reloj ─────────────────────────────────
+   *
+   * La cancelación por vencimiento se DERIVA al leer: `orders.status` sigue
+   * siendo `confirmed` hasta que alguien pulsa "Limpiar expirados". Si el
+   * intake no mirara el mismo reloj, un comprobante que llega al minuto veinte
+   * encontraría el pedido todavía vivo y abriría un intento normal — y el
+   * resultado dependería de si alguien abrió el panel antes que el cliente
+   * reenviara. El mismo caso daría dos desenlaces según el azar.
+   *
+   * Mirándolo aquí, el comprobante tardío se REGISTRA igual —nunca se pierde—
+   * pero cae en `expired_target` y no abre intento: lo resuelve una persona.
+   */
+  rejectionGraceEndsAtMs: number | null;
 }
 
 export interface AssociationInput {
@@ -88,6 +105,12 @@ function exceptionFor(
   if (order.hasAcceptedPayment) return 'payment_already_accepted';
   if (isClosed(order)) return 'closed_order';
   if (isExpired(order, nowMs, ttlMs)) return 'expired_target';
+  // La ventana de gracia vencida: el pedido está muerto aunque su `status`
+  // todavía no lo diga. Va después de `closed_order` porque un pedido ya
+  // cancelado explica mejor lo mismo.
+  if (order.rejectionGraceEndsAtMs !== null && nowMs >= order.rejectionGraceEndsAtMs) {
+    return 'expired_target';
+  }
   return null;
 }
 

@@ -24,6 +24,7 @@ const pedido = (id: string): ProofCandidateOrder => ({
   paymentMethod: 'qr',
   openedAt: new Date(NOW - 60_000).toISOString(),
   hasAcceptedPayment: false,
+  rejectionGraceEndsAtMs: null,
 });
 
 interface FakeOptions {

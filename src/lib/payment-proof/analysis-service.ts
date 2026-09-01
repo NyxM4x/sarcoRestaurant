@@ -167,26 +167,41 @@ export async function analyzeProofWith(
       )
     : false;
 
+  // ── Los dos importes contra los que se compara ────────────────────────────
+  //
+  // Sin pedido asociado no hay etiqueta: el cliente mandó una captura y no
+  // tiene nada pendiente, así que no existe la pregunta "¿pagó el envío?".
+  //
+  // Un fallo leyendo los importes tampoco inventa una: `expectedAmounts`
+  // devuelve `null` y la etiqueta se queda sin poner. Marcar `revisar_monto`
+  // ahí acusaría al cliente de un problema nuestro.
+  const amounts = input.orderId
+    ? await deps.source.expectedAmounts(input.orderId)
+    : null;
+
   const juicio = judgeProof(facts, {
     expected: deps.expected,
     receivedAtMs: input.receivedAtMs,
     referenceReused,
+    amounts,
   });
 
   await deps.source.saveAnalysis(input.proofId, {
     verdict: juicio.verdict,
     reasons: juicio.reasons,
     amount: facts.amount,
+    amountLabel: juicio.amountLabel,
     reference: facts.transactionRef,
     model: lectura.model,
   });
 
   // Sin datos del cliente, sin montos y sin el número de transacción: solo el
-  // veredicto y sus motivos, que es lo que sirve para saber si el filtro está
-  // funcionando o gritando de más.
+  // veredicto, sus motivos y la etiqueta —que es un enum cerrado, no una
+  // cifra—. Sirve para saber si el filtro está funcionando o gritando de más.
   log.info('payment_proof_analyzed', {
     verdict: juicio.verdict,
     reasons: juicio.reasons.join(','),
+    amount_label: juicio.amountLabel,
   });
 }
 

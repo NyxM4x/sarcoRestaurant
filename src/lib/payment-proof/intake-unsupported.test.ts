@@ -74,6 +74,7 @@ function pedidoAbierto(id: string): ProofCandidateOrder {
     paymentMethod: 'qr',
     openedAt: new Date().toISOString(),
     hasAcceptedPayment: false,
+    rejectionGraceEndsAtMs: null,
   };
 }
 

@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import type { OrderStatus, PaymentMethod } from '@/types';
 import type { ProofCandidateOrder } from './association';
 import type { ExistingProof, ProofContentUpdate, ProofInsert } from './capture';
+import { REJECTION_GRACE_MS } from './payment-gate';
 
 /**
  * Puertos de captura sobre Supabase — server-only.
@@ -40,6 +41,28 @@ export interface IntakeDataSource {
   attachToAttempt(proofId: string, orderId: string): Promise<string | null>;
   /** Pedidos del teléfono que podrían estar esperando pago. */
   candidatesForPhone(phone: string): Promise<ProofCandidateOrder[]>;
+  /**
+   * LA RED DE SEGURIDAD: deja constancia de un comprobante que no se pudo
+   * capturar (0028).
+   *
+   * Escribe lo poco que se sabe con certeza —el WAMID, cuándo llegó, qué tipo
+   * decía ser y a qué pedido iba, si se supo— con `capture_status = 'failed'`.
+   * No descarga, no almacena y no abre intento: solo impide que el comprobante
+   * desaparezca sin dejar rastro.
+   *
+   * Devuelve `false` si no se pudo escribir NI ESO. Es idempotente por WAMID:
+   * si la fila ya existe (una carrera, un reproceso), no toca nada.
+   */
+  insertUncaptured(row: UncapturedProofInsert): Promise<boolean>;
+}
+
+/** Lo mínimo que deja constancia de un comprobante perdido. */
+export interface UncapturedProofInsert {
+  sourceMessageId: string;
+  /** Pedido al que iba, si se llegó a enrutar. `null` lo deja huérfano. */
+  orderId: string | null;
+  declaredMimeType: string | null;
+  receivedAt: string;
 }
 
 export function createSupabaseIntakeDataSource(
@@ -209,23 +232,78 @@ export function createSupabaseIntakeDataSource(
       }>;
       if (rows.length === 0) return [];
 
-      // ¿Cuáles ya tienen un pago aceptado? Una sola consulta para todos.
-      const { data: aceptados } = await client
+      // ── El estado de pago de todos, en UNA consulta ────────────────────
+      //
+      // Se traen los intentos enteros y no solo los aceptados: desde 0028 hace
+      // falta saber también si hay uno esperando revisión —eso PARA el reloj de
+      // la ventana de gracia— y cuándo fue el último rechazo. Tres consultas
+      // separadas darían tres fotos de instantes distintos del mismo pago.
+      const ids = rows.map((r) => r.id);
+      const { data: intentos } = await client
         .from('payment_attempts')
-        .select('order_id')
-        .in('order_id', rows.map((r) => r.id))
-        .eq('review_status', 'accepted');
-      const conPagoAceptado = new Set(
-        (aceptados ?? []).map((a) => (a as { order_id: string }).order_id),
-      );
+        .select('order_id,review_status,reviewed_at')
+        .in('order_id', ids);
 
-      return rows.map((r) => ({
-        orderId: r.id,
-        status: r.status,
-        paymentMethod: r.payment_method,
-        openedAt: r.confirmed_at ?? r.created_at,
-        hasAcceptedPayment: conPagoAceptado.has(r.id),
-      }));
+      const porPedido = new Map<string, Array<{ review_status: string; reviewed_at: string | null }>>();
+      for (const fila of (intentos ?? []) as Array<{
+        order_id: string;
+        review_status: string;
+        reviewed_at: string | null;
+      }>) {
+        const lista = porPedido.get(fila.order_id);
+        if (lista) lista.push(fila);
+        else porPedido.set(fila.order_id, [fila]);
+      }
+
+      return rows.map((r) => {
+        const suyos = porPedido.get(r.id) ?? [];
+        const aceptado = suyos.some((a) => a.review_status === 'accepted');
+        const esperando = suyos.some((a) => a.review_status === 'pending_review');
+
+        // El reloj corre SOLO si hay un rechazo sin nada posterior. Un intento
+        // esperando revisión significa que el cliente ya reenvió y cumplió su
+        // parte: a partir de ahí el pedido no puede morir por una demora
+        // nuestra en mirarlo.
+        let graceEnds: number | null = null;
+        if (!aceptado && !esperando) {
+          const rechazos = suyos
+            .filter((a) => a.review_status === 'rejected')
+            .map((a) => (a.reviewed_at === null ? NaN : Date.parse(a.reviewed_at)))
+            .filter((ms) => !Number.isNaN(ms));
+          // El MÁS RECIENTE: cada rechazo trae su propio aviso al cliente
+          // prometiéndole el plazo entero, así que abre una ventana limpia.
+          if (rechazos.length > 0) graceEnds = Math.max(...rechazos) + REJECTION_GRACE_MS;
+        }
+
+        return {
+          orderId: r.id,
+          status: r.status,
+          paymentMethod: r.payment_method,
+          openedAt: r.confirmed_at ?? r.created_at,
+          hasAcceptedPayment: aceptado,
+          rejectionGraceEndsAtMs: graceEnds,
+        };
+      });
+    },
+
+    async insertUncaptured(row) {
+      // Solo las columnas que no pueden faltar. `association_method` se deja
+      // en NULL a propósito aunque el enrutado lo supiera: afirma cómo se
+      // vinculó un archivo que no llegamos a tener, y el panel lo pintaría
+      // como una asociación hecha. El `order_id` sí va, porque sin él la fila
+      // no aparece en ninguna pantalla y una fila que nadie ve no es un
+      // rastro, es un residuo.
+      const { error } = await client.from('payment_proofs').insert({
+        source_message_id: row.sourceMessageId,
+        order_id: row.orderId,
+        declared_mime_type: row.declaredMimeType,
+        received_at: row.receivedAt,
+        capture_status: 'failed',
+      });
+      // El índice único del WAMID rechazando un duplicado NO es un fallo: la
+      // constancia que se quería dejar ya está puesta.
+      if (error) return error.code === '23505';
+      return true;
     },
   };
 }

@@ -25,6 +25,9 @@ function ticket(
     // etapas, y los del pago activan la espera explícitamente.
     awaitingPaymentConfirmation: false,
     payment: null,
+    // Puerta abierta: estos tests no van del pago (0028).
+    gate: { state: 'not_required' as const, canStart: true, graceEndsAtMs: null },
+    amountLabel: null,
   };
 }
 

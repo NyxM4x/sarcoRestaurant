@@ -10,6 +10,9 @@ import {
 import type { OrderStatus } from '@/types';
 
 const BASE = Date.parse('2026-08-22T12:00:00Z');
+/** Puerta abierta: el orden del grid no depende del pago. */
+const ABIERTA = { state: 'not_required' as const, canStart: true, graceEndsAtMs: null };
+
 const iso = (min: number) => new Date(BASE + min * 60_000).toISOString();
 
 function row(
@@ -71,8 +74,8 @@ describe('ticket — orden y contenido', () => {
 
   it('las fechas ilegibles se van al final sin romper el orden', () => {
     const tickets = sortByAge([
-      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null },
-      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null },
+      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null },
+      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null },
     ]);
     expect(tickets.map((t) => t.orderNumber)).toEqual(['ok', 'roto']);
   });

@@ -15,13 +15,15 @@ export default async function KitchenPage() {
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
-  let initial: KitchenBoard = { tickets: [], serverNow: now };
+  // `paymentsAvailable: false` en el arranque vacio: sin haber consultado nada
+  // no se puede afirmar que el pago este verificado.
+  let initial: KitchenBoard = { tickets: [], serverNow: now, paymentsAvailable: false };
   try {
     const repo = createKitchenRepository(createSupabaseKitchenDataSource());
     initial = await repo.getBoard(now);
   } catch {
     // Si la carga inicial falla, el tablero se recupera en el siguiente polling.
-    initial = { tickets: [], serverNow: now };
+    initial = { tickets: [], serverNow: now, paymentsAvailable: false };
   }
 
   return <KitchenBoardScreen initial={initial} serverNow={now} />;

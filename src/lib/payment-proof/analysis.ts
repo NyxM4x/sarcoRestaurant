@@ -28,20 +28,35 @@
  * dos veces un pago bueno; un rechazo automático equivocado insulta a un cliente
  * que sí pagó, y lo hace por WhatsApp y al instante.
  *
- * ── Tres datos, y el monto NO es uno de ellos ────────────────────────────
+ * ── Qué se contrasta: el destino, y el monto ────────────────────────────────
  *
- * Lo que se contrasta es el DESTINO del dinero: cuenta, titular y banco. Los
- * tres describen el mismo hecho —"esto entró donde cobra Don Zarco"— y ninguno
- * depende de cómo se comportó el cliente.
+ * El DESTINO del dinero —cuenta, titular y banco— describe el mismo hecho:
+ * "esto entró donde cobra Don Zarco". Ninguno de los tres depende de cómo se
+ * comportó el cliente.
  *
- * El monto se lee y se guarda, pero no acusa. No se sabe de antemano cuánto va a
- * transferir alguien por WhatsApp: hay quien adelanta, quien paga dos pedidos
- * juntos, quien redondea la propina y quien abona una parte. Contrastar contra
- * el total del pedido marcaría como sospechosos pagos perfectamente buenos, y a
- * diario — que es la forma más rápida de que cocina aprenda a ignorar el aviso.
+ * El MONTO sí se contrasta, y contra DOS cifras, porque en delivery hay dos
+ * pagos legítimos y distintos:
  *
- * Queda visible en el panel junto al comprobante: quien revisa lo ve y decide.
- * Lo que no hace es gritar.
+ *   · solo los productos — el envío se paga en mano al recibir el pedido, que
+ *     es lo que el QR le advierte;
+ *   · productos + envío — el cliente que prefiere dejarlo todo pagado.
+ *
+ * Los dos son correctos, y hasta ahora no había forma de saber cuál hizo cada
+ * uno: el repartidor llegaba sin saber si le tocaba cobrar la carrera. La
+ * etiqueta lo responde, y ese es su trabajo principal — no vigilar al cliente,
+ * sino decirle al que reparte qué lleva cobrado.
+ *
+ * Cualquier otra cifra es `revisar_monto`. También lo es un monto que NO se
+ * pudo leer: un importe que no se puede confirmar no es un importe, y en caja
+ * se prefiere mirar de más a cobrar de menos.
+ *
+ * ── La etiqueta no cambia un `unreadable` en acusación ──────────────────────
+ *
+ * Una foto borrosa recibe la etiqueta `revisar_monto` —el cocinero tiene que
+ * mirarla— pero su veredicto sigue siendo `unreadable`, no `suspicious`. Son
+ * dos cosas distintas: "hay que mirar esto" y "esto no cuadra". Confundirlas
+ * convertiría cada recorte a medias en una acusación de fraude, y ese es
+ * exactamente el aviso que se aprende a ignorar.
  */
 import {
   matchesAccount,
@@ -73,8 +88,75 @@ export const PROOF_ANALYSIS_REASONS = [
   'not_a_receipt',
   /** No se pudo leer lo suficiente para contrastar nada. */
   'unreadable',
+  /**
+   * El monto no cuadra con ninguno de los dos pagos válidos: ni los productos
+   * solos ni productos más envío.
+   *
+   * Solo se emite cuando el comprobante ERA legible y se leyó una cifra que no
+   * es ninguna de las dos. Un monto ilegible recibe la etiqueta
+   * `revisar_monto` —el cocinero tiene que mirarlo igual— pero no este motivo:
+   * `unreadable` ya dice lo que pasó, y añadirle una acusación encima
+   * convertiría una foto borrosa en un intento de fraude.
+   */
+  'amount_mismatch',
 ] as const;
 export type ProofAnalysisReason = (typeof PROOF_ANALYSIS_REASONS)[number];
+
+/**
+ * Contra cuál de los dos importes válidos cuadró lo leído.
+ *
+ * Es una dimensión APARTE del veredicto, y por eso viaja en su propio campo. El
+ * veredicto responde "¿hay que desconfiar?"; la etiqueta responde "¿qué pagó?",
+ * que es una pregunta operativa: la hace el repartidor al llegar, y hasta ahora
+ * nadie sabía contestarla.
+ */
+export const PROOF_AMOUNT_LABELS = ['pago_total', 'pago_productos', 'revisar_monto'] as const;
+export type ProofAmountLabel = (typeof PROOF_AMOUNT_LABELS)[number];
+
+/**
+ * Los dos importes que un comprobante puede valer legítimamente.
+ *
+ * En recojo no hay envío que cobrar aparte, así que las dos cifras coinciden y
+ * cualquier pago correcto sale `pago_total`. No es un caso especial: es la
+ * misma regla con `deliveryAmount` en cero.
+ */
+export interface ExpectedAmounts {
+  /** Solo la comida. En delivery es lo que el QR pide de verdad. */
+  subtotal: number;
+  /** Comida más envío, para quien prefiere dejarlo todo pagado. */
+  total: number;
+}
+
+/**
+ * Etiqueta del monto leído. Comparación EXACTA contra las dos cifras.
+ *
+ * ── Por qué exacta y sin margen ─────────────────────────────────────────────
+ *
+ * Un margen de tolerancia es una rendija: si se acepta un boliviano de
+ * diferencia, un comprobante retocado en un boliviano pasa. Y el margen no
+ * compra nada a cambio, porque las dos cifras contra las que se compara salen
+ * del carrito, no de una estimación — el cliente ve el número exacto antes de
+ * transferir.
+ *
+ * Quien paga de más o redondea la propina cae en `revisar_monto`, y eso es
+ * deliberado: es una etiqueta que pide una mirada, no una acusación, y el
+ * cocinero resuelve en dos segundos lo que ninguna regla automática puede
+ * distinguir de un pago corto.
+ *
+ * `null` —no se leyó cifra— es `revisar_monto` por la misma razón: un importe
+ * que no se puede confirmar no es un importe.
+ */
+export function labelForAmount(
+  amount: number | null,
+  expected: ExpectedAmounts,
+): ProofAmountLabel {
+  if (amount === null || !Number.isFinite(amount)) return 'revisar_monto';
+  // El total primero: en recojo las dos cifras son la misma, y "pagó todo" es
+  // la lectura correcta de un pedido que no tiene envío que cobrar aparte.
+  if (amount === expected.total) return 'pago_total';
+  if (amount === expected.subtotal) return 'pago_productos';
+  return 'revisar_monto';
+}
 
 /**
  * Lo que la lectura afirma haber visto. Todo es anulable: un campo que no está
@@ -109,6 +191,15 @@ export interface ProofJudgeContext {
   receivedAtMs: number;
   /** ¿Ese número de transacción ya está registrado en otro comprobante? */
   referenceReused: boolean;
+  /**
+   * Los dos importes válidos del pedido al que se asoció el comprobante.
+   *
+   * Opcional porque un comprobante puede llegar sin pedido detrás —el cliente
+   * manda una captura y no tiene nada pendiente— y ahí no hay contra qué
+   * comparar. Su ausencia deja la etiqueta en `null`, que significa "no se
+   * pudo comparar", nunca "cuadra".
+   */
+  amounts?: ExpectedAmounts | null;
 }
 
 export interface ProofChecks {
@@ -121,6 +212,16 @@ export interface ProofJudgement {
   verdict: ProofVerdict;
   reasons: ProofAnalysisReason[];
   checks: ProofChecks;
+  /**
+   * Qué pagó, de las dos cosas que podía pagar. `null` = no había pedido
+   * contra el que comparar.
+   *
+   * Va SIEMPRE que haya importes, incluso cuando el veredicto corta antes por
+   * `not_a_receipt` o `unreadable`: en esos casos vale `revisar_monto`, porque
+   * el repartidor sigue necesitando una respuesta y "no lo sabemos" es la
+   * respuesta correcta.
+   */
+  amountLabel: ProofAmountLabel | null;
 }
 
 /**
@@ -163,11 +264,33 @@ export function parseBolivianLocalTime(value: string | null): number | null {
 export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudgement {
   const sinContrastar: ProofChecks = { account: 'unknown', holder: 'unknown', bank: 'unknown' };
 
+  // Sin importes no hay etiqueta: `null` dice "no se pudo comparar" y no se
+  // parece en nada a `pago_total`, que afirma algo.
+  const amounts = ctx.amounts ?? null;
+  const etiqueta = (amount: number | null): ProofAmountLabel | null =>
+    amounts === null ? null : labelForAmount(amount, amounts);
+
   if (!facts.looksLikeReceipt) {
-    return { verdict: 'suspicious', reasons: ['not_a_receipt'], checks: sinContrastar };
+    // No es un comprobante, así que su monto tampoco confirma nada. La
+    // etiqueta lo dice sin añadir un segundo motivo: `not_a_receipt` ya es la
+    // acusación, y repetirla en otras palabras no informa mejor.
+    return {
+      verdict: 'suspicious',
+      reasons: ['not_a_receipt'],
+      checks: sinContrastar,
+      amountLabel: etiqueta(null),
+    };
   }
   if (!facts.legible) {
-    return { verdict: 'unreadable', reasons: ['unreadable'], checks: sinContrastar };
+    // Borrosa, recortada u oscura. El cocinero tiene que mirarla —de ahí la
+    // etiqueta— pero el veredicto NO sube a `suspicious`: no se acusa a una
+    // foto mala de lo mismo que a un monto cambiado.
+    return {
+      verdict: 'unreadable',
+      reasons: ['unreadable'],
+      checks: sinContrastar,
+      amountLabel: etiqueta(null),
+    };
   }
 
   const checks: ProofChecks = {
@@ -182,6 +305,12 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
   if (checks.bank === 'mismatch') reasons.push('bank_mismatch');
   if (ctx.referenceReused) reasons.push('reference_reused');
 
+  // El monto, aquí y no antes: solo tiene sentido preguntarlo de un comprobante
+  // que se pudo leer. La etiqueta se calcula igual en los tres caminos; lo que
+  // solo ocurre en este es que además ACUSE.
+  const amountLabel = etiqueta(facts.amount);
+  if (amountLabel === 'revisar_monto') reasons.push('amount_mismatch');
+
   const pagadoMs = parseBolivianLocalTime(facts.paidAtLocal);
   if (pagadoMs !== null && Math.abs(ctx.receivedAtMs - pagadoMs) > STALE_RECEIPT_TOLERANCE_MS) {
     reasons.push('stale_receipt');
@@ -193,8 +322,13 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
   const seContrastoAlgo =
     checks.account !== 'unknown' || checks.holder !== 'unknown' || checks.bank !== 'unknown';
   if (reasons.length === 0 && !seContrastoAlgo) {
-    return { verdict: 'unreadable', reasons: ['unreadable'], checks };
+    return { verdict: 'unreadable', reasons: ['unreadable'], checks, amountLabel };
   }
 
-  return { verdict: reasons.length > 0 ? 'suspicious' : 'ok', reasons, checks };
+  return {
+    verdict: reasons.length > 0 ? 'suspicious' : 'ok',
+    reasons,
+    checks,
+    amountLabel,
+  };
 }

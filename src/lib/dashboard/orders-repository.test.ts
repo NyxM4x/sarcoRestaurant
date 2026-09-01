@@ -26,6 +26,14 @@ function row(id: string, over: Partial<RawOrderRow> = {}): RawOrderRow {
     created_at: '2026-08-06T14:00:00.000Z',
     updated_at: '2026-08-06T14:00:00.000Z',
     confirmed_at: null,
+    // Legacy por defecto: `null` es el pedido que NO se cotiza con Mapbox.
+    // Los tres estaban ausentes, y `Partial<RawOrderRow>` los dejaba pasar como
+    // `undefined` — un tipo que la fila real nunca puede tener. El typecheck lo
+    // veia; `npm test` no, porque en runtime `undefined` se comporta igual que
+    // `null` en todas las comparaciones que hace el repositorio.
+    delivery_pricing: null,
+    delivery_quote_status: null,
+    delivery_distance_meters: null,
     ...over,
   };
 }

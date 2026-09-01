@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { setRainSurchargeAction } from '@/app/dashboard/actions';
+import { setRainSurchargeAction, sweepExpiredOrdersAction } from '@/app/dashboard/actions';
 import { formatLongDate, formatTime } from '@/lib/dashboard/format';
 
 export function DashboardHeader({
@@ -31,6 +31,7 @@ export function DashboardHeader({
         </p>
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
+        <SweepExpiredButton />
         <RainSurchargeToggle initial={rainSurcharge} />
         <span className="flex items-center gap-1.5 text-xs text-zinc-400">
           <span className={`h-1.5 w-1.5 rounded-full ${refreshing ? 'animate-pulse bg-blue-500' : 'bg-green-500'}`} aria-hidden />
@@ -60,6 +61,55 @@ export function DashboardHeader({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Cierra los pedidos cuya ventana de gracia venció (0028).
+ *
+ * ── Por qué es un botón y no ocurre solo ────────────────────────────────────
+ *
+ * Cuando cocina rechaza un comprobante, el cliente tiene quince minutos para
+ * reenviar otro. Pasado ese plazo el pedido ya no puede cocinarse —el KDS lo
+ * enseña así y su botón de INICIAR está bloqueado— pero su estado en la base
+ * sigue siendo `confirmed` hasta que alguien lo cierra.
+ *
+ * Ese "alguien" es este botón, y es deliberado: cancelar es terminal, y una
+ * cancelación automática a las tres de la mañana no la revisa nadie. Aquí la
+ * pulsa una persona que está mirando la pantalla.
+ *
+ * No cancela nada que esté en la plancha: solo lo que nunca llegó a empezarse.
+ */
+function SweepExpiredButton() {
+  const [pending, startTransition] = useTransition();
+  const [resultado, setResultado] = useState<string | null>(null);
+
+  const barrer = () => {
+    setResultado(null);
+    startTransition(async () => {
+      const res = await sweepExpiredOrdersAction();
+      if (!res.ok) {
+        setResultado('Sin permiso');
+        return;
+      }
+      // Decir "0" es informativo, no un fallo: significa que no hay nada
+      // colgando, que es la respuesta que se espera la mayoría de las veces.
+      setResultado(
+        res.cancelled === 0 ? 'Nada que cerrar' : `${res.cancelled} cerrado${res.cancelled === 1 ? '' : 's'}`,
+      );
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={barrer}
+      disabled={pending}
+      title="Cancelar los pedidos cuyo plazo para reenviar el comprobante ya venció"
+      className="rounded-lg border border-black/10 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-black/[0.04] disabled:opacity-50 dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+    >
+      {pending ? 'Cerrando…' : (resultado ?? 'Limpiar expirados')}
+    </button>
   );
 }
 

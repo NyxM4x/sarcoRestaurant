@@ -1,7 +1,12 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import type { ProofAnalysisReason, ProofVerdict } from './analysis';
+import type {
+  ExpectedAmounts,
+  ProofAmountLabel,
+  ProofAnalysisReason,
+  ProofVerdict,
+} from './analysis';
 
 /**
  * Puertos del análisis de comprobantes sobre Supabase — server-only.
@@ -20,9 +25,19 @@ export interface AnalysisOutcome {
   /** Número de transacción leído; `null` si no se leyó. */
   reference: string | null;
   model: string;
+  /** Contra cuál de los dos importes cuadró. `null` = no había con qué comparar. */
+  amountLabel: ProofAmountLabel | null;
 }
 
 export interface AnalysisDataSource {
+  /**
+   * Los dos importes válidos del pedido: la comida sola y la comida con envío.
+   *
+   * `null` si el pedido no existe o sus importes no se pueden leer. Ausencia de
+   * dato, y por eso deja la etiqueta sin poner en vez de compararla contra
+   * cero — que marcaría `revisar_monto` a todo el mundo por un fallo nuestro.
+   */
+  expectedAmounts(orderId: string): Promise<ExpectedAmounts | null>;
   /**
    * ¿Ese número de transacción ya aparece en el comprobante de OTRO pedido?
    *
@@ -44,6 +59,24 @@ export function createSupabaseAnalysisDataSource(
   client: SupabaseClient = getSupabaseAdmin(),
 ): AnalysisDataSource {
   return {
+    async expectedAmounts(orderId) {
+      const { data, error } = await client
+        .from('orders')
+        .select('subtotal_amount,total_amount')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (error || !data) return null;
+
+      // `numeric` de Postgres llega como cadena según el driver. Un valor que
+      // no es un número finito se trata como ausencia: comparar contra `NaN`
+      // devolvería `false` siempre y etiquetaría todo `revisar_monto`.
+      const fila = data as { subtotal_amount: unknown; total_amount: unknown };
+      const subtotal = Number(fila.subtotal_amount);
+      const total = Number(fila.total_amount);
+      if (!Number.isFinite(subtotal) || !Number.isFinite(total)) return null;
+      return { subtotal, total };
+    },
+
     async isReferenceUsedElsewhere(reference, proofId, orderId) {
       const { data, error } = await client
         .from('payment_proofs')
@@ -65,6 +98,7 @@ export function createSupabaseAnalysisDataSource(
           analysis_verdict: outcome.verdict,
           analysis_reasons: outcome.reasons,
           analysis_amount: outcome.amount,
+          analysis_amount_label: outcome.amountLabel,
           analysis_reference: outcome.reference,
           analysis_model: outcome.model,
           analyzed_at: new Date().toISOString(),

@@ -37,6 +37,7 @@ function proof(id: string, over: Partial<ProofUiRow> = {}): ProofUiRow {
     analysis_status: 'pending',
     analysis_verdict: null,
     analysis_reasons: [],
+    analysis_amount_label: null,
     ...over,
   };
 }

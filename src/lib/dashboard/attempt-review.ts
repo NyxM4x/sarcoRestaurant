@@ -18,8 +18,13 @@ import {
   type ReviewTone,
 } from '@/lib/payment-proof/labels';
 import { isImageMime } from '@/lib/payment-proof/mime';
-import { analysisReasonLabel, verdictHeadline } from '@/lib/payment-proof/labels';
-import type { ProofVerdict } from '@/lib/payment-proof/analysis';
+import {
+  amountLabelHint,
+  amountLabelText,
+  analysisReasonLabel,
+  verdictHeadline,
+} from '@/lib/payment-proof/labels';
+import type { ProofAmountLabel, ProofVerdict } from '@/lib/payment-proof/analysis';
 
 /** Un archivo de comprobante tal como lo ve el panel. */
 export interface ProofView {
@@ -56,6 +61,24 @@ export interface ProofView {
    * y cada aviso que no dice nada le quita sitio a uno que si.
    */
   analysis: ProofAnalysisView | null;
+  /**
+   * Que pago: los productos solos o tambien el envio (0028).
+   *
+   * Va APARTE de `analysis` porque se muestra siempre, tambien cuando el
+   * veredicto es `ok`. `analysis` solo aparece cuando hay algo que temer, y
+   * "ya pago el envio" no es algo que temer — es justo lo que el repartidor
+   * necesita saber cuando todo va bien.
+   */
+  amountLabel: ProofAmountLabelView | null;
+}
+
+/** La etiqueta del monto, ya traducida. La UI no ve codigos. */
+export interface ProofAmountLabelView {
+  code: ProofAmountLabel;
+  /** Texto corto, en mayusculas: se lee de lejos. */
+  text: string;
+  /** Que hacer con esa informacion, en una linea. */
+  hint: string;
 }
 
 /** Aviso del analisis, ya traducido: la UI no ve codigos. */
@@ -140,7 +163,26 @@ function toProofView(row: ProofUiRow): ProofView {
     filename: row.safe_filename,
     declaredLabel: declaredLabelOf(row),
     analysis: toAnalysisView(row),
+    amountLabel: toAmountLabelView(row),
   };
+}
+
+/**
+ * Traduce la etiqueta del monto.
+ *
+ * Exige `analysis_status === 'done'` por la misma razon que el aviso: una
+ * etiqueta escrita a medio analisis afirmaria algo que nadie llego a comprobar.
+ * `null` significa que no se pudo comparar, y se pinta como ausencia, nunca
+ * como aprobado.
+ */
+function toAmountLabelView(row: ProofUiRow): ProofAmountLabelView | null {
+  if (row.analysis_status !== 'done') return null;
+  const code = row.analysis_amount_label;
+  if (code === null) return null;
+  const text = amountLabelText(code);
+  const hint = amountLabelHint(code);
+  if (text === null || hint === null) return null;
+  return { code, text, hint };
 }
 
 /**

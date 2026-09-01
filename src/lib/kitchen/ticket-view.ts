@@ -30,9 +30,10 @@
  * y por eso se calcula aqui una vez y no en cada pantalla que la use.
  */
 import type { OrderStatus, DeliveryType, PaymentMethod } from '@/types';
-import type { PaymentView } from '@/lib/dashboard/attempt-review';
+import type { PaymentView, ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
 import { amountDueByQrOf } from '@/lib/orders/amount-due';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
+import { paymentGateOf, type PaymentGate } from '@/lib/payment-proof/payment-gate';
 
 /** Fila cruda minima de `orders` (mas `id`, solo para unir los items server-side). */
 export interface RawKitchenOrderRow {
@@ -119,6 +120,23 @@ export interface KitchenTicket {
    * tiene que ver exactamente lo que veria desde el panel.
    */
   payment: PaymentView | null;
+  /**
+   * ¿Se puede empezar a cocinar este pedido, y si no, por qué? (0028)
+   *
+   * Viaja YA RESUELTO desde el servidor, no como datos sueltos que la pantalla
+   * interprete: la misma regla que bloquea el botón en el navegador es la que
+   * rechaza la acción en `applyAction`. Dos implementaciones de la misma puerta
+   * acabarían enseñando un botón que el servidor no acepta, que es exactamente
+   * la clase de error que no se ve hasta que alguien lo pulsa.
+   */
+  gate: PaymentGate;
+  /**
+   * Qué pagó el cliente: los productos solos o también el envío.
+   *
+   * `null` si no hay análisis o no se pudo comparar. Sale del comprobante más
+   * reciente que tenga etiqueta: es el que describe el pago vigente.
+   */
+  amountLabel: ProofAmountLabelView | null;
 }
 
 /**
@@ -220,6 +238,25 @@ export function groupItemsByOrder(
  * Convierte filas crudas en tickets ordenados por antiguedad (lo que mas
  * espera, primero). Las filas cuyo estado no pertenece al tablero se descartan.
  */
+/**
+ * La etiqueta del pago vigente.
+ *
+ * El comprobante MÁS RECIENTE que tenga etiqueta, no el primero: si el cliente
+ * reenvió, lo que vale es lo último que mandó. Se miran también los sueltos,
+ * porque un comprobante sin intento sigue siendo dinero que alguien transfirió.
+ */
+function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | null {
+  if (payment === null) return null;
+  const todos = [
+    ...payment.attempts.flatMap((a) => a.proofs),
+    ...payment.unlinkedProofs,
+  ];
+  for (let i = todos.length - 1; i >= 0; i -= 1) {
+    if (todos[i].amountLabel !== null) return todos[i].amountLabel;
+  }
+  return null;
+}
+
 export function toKitchenTickets(
   rows: RawKitchenOrderRow[],
   items: RawKitchenItemRow[],
@@ -235,6 +272,12 @@ export function toKitchenTickets(
    * perder la pantalla entera.
    */
   pagosConsultados = false,
+  /**
+   * Reloj del servidor. La ventana de gracia se DERIVA aquí, en tiempo de
+   * lectura: no hay cron que cancele pedidos, así que el estado que ve la
+   * cocina se calcula cada vez que se pinta el tablero.
+   */
+  nowMs: number = Date.now(),
 ): KitchenTicket[] {
   const lines = groupItemsByOrder(items);
   const tickets: KitchenTicket[] = [];
@@ -259,6 +302,11 @@ export function toKitchenTickets(
       // trampa que ya evita el filtro de entrada de arriba.
       awaitingPaymentConfirmation: pagosConsultados && esperandoConfirmacionDePago(row, payment),
       payment,
+      // Sin haber podido consultar los pagos se pasa `null`, que la puerta lee
+      // como `unknown`: abre y lo dice. Pasar la vista vacía diría "este
+      // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
+      gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
+      amountLabel: etiquetaDelPago(payment),
     });
   }
   return sortByAge(tickets);

@@ -29,7 +29,8 @@ const ATTEMPT_COLUMNS = 'id,order_id,review_status,opened_at,reviewed_at,created
 const PROOF_UI_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
-  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons';
+  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons,' +
+  'analysis_amount_label';
 
 /**
  * `analysis_amount` y `analysis_reference` NO viajan a la UI a proposito.
@@ -41,6 +42,20 @@ const PROOF_UI_COLUMNS =
  *
  * Se guardan igualmente en la base, que es donde sirven: contrastar despues y
  * reconocer un numero de transaccion repetido.
+ *
+ * ── Por que `analysis_amount_label` SI viaja (0028) ─────────────────────────
+ *
+ * Parece la misma cosa y no lo es. La cifra invita a decidir el pago por ella;
+ * la etiqueta responde una pregunta que NO es sobre validar el pago sino sobre
+ * que hacer al entregarlo: si el repartidor tiene que cobrar el envio o no.
+ * Esa pregunta hoy se resuelve llamando por telefono a cocina.
+ *
+ * La distincion importa y por eso queda escrita: quien vea la etiqueta en
+ * pantalla y recuerde la regla de arriba podria "corregirla" quitandola, y con
+ * ella se iria la unica respuesta que el repartidor puede leer sin llamar.
+ *
+ * `revisar_monto` tampoco reemplaza mirar el comprobante: dice que hay algo que
+ * no cuadra, no cuanto. La cifra sigue sin salir.
  */
 
 export type ProofUiRow = Pick<
@@ -60,6 +75,7 @@ export type ProofUiRow = Pick<
   | 'analysis_status'
   | 'analysis_verdict'
   | 'analysis_reasons'
+  | 'analysis_amount_label'
 >;
 
 /** Referencia privada al objeto: SOLO para el endpoint de streaming. */

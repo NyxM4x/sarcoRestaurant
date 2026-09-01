@@ -1,0 +1,53 @@
+{
+  // Cloudflare Worker DEDICADO al outbox de alertas de Telegram (0028).
+  //
+  // Recupera los dos avisos que hasta ahora se perdían en silencio cuando
+  // Telegram fallaba: el del grupo de reparto y el de handoff humano. El camino
+  // normal es el fast path del que encola; esto recoge lo que aquel no logró.
+  //
+  // Es un despliegue INDEPENDIENTE de los otros dos crons, y lo es por el mismo
+  // motivo por el que ellos son dos y no uno: el peor caso de este tick son
+  // cuatro alertas con timeout de 10 s, y encadenarlo con un recovery del inbox
+  // —que puede llevar un turno completo del agente— haría que uno le comiera el
+  // presupuesto al otro y que un timeout tumbara a los dos el mismo minuto.
+  //
+  // ── El nombre lleva prefijo `sarco-` a propósito ──────────────────────────
+  //
+  // `name` es la identidad del Worker DENTRO de la cuenta de Cloudflare: dos
+  // proyectos que declaren el mismo `name` son el mismo Worker, y el segundo
+  // `wrangler deploy` sobrescribe al primero sin avisar. Un nombre genérico
+  // como `telegram-alerts-cron` es exactamente esa trampa cuando otro
+  // restaurante del mismo operador despliega el suyo en la misma cuenta.
+  //
+  // `WORKER_TICK_URL` apunta al dominio de Sarco y a NADA más; lo vigila
+  // `test/no-cross-tenant.test.ts`.
+  "name": "sarco-telegram-alerts-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-31",
+
+  // Un ÚNICO Cron Trigger: una ejecución por minuto (UTC). No añadir un segundo.
+  //
+  // Cada minuto y no cada cinco porque el contenido es urgente por naturaleza:
+  // un aviso de reparto que llega tarde es un pedido pagado que nadie lleva, y
+  // uno de handoff es un cliente esperando a una persona. Un tick en vacío no
+  // cuesta nada — no hay filas vencidas la mayor parte del tiempo.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  // Variable NO secreta: URL del endpoint interno en Vercel.
+  "vars": {
+    "WORKER_TICK_URL": "https://sarco-restaurant.vercel.app/api/internal/telegram-alerts/worker/tick"
+  },
+
+  // Secreto OBLIGATORIO: un deploy sin él debe fallar. El VALOR nunca va aquí;
+  // se entrega con `wrangler secret put`. Debe coincidir con INTERNAL_API_TOKEN
+  // — es el mismo valor que usan los otros dos Workers.
+  "secrets": {
+    "required": ["WORKER_INTERNAL_TOKEN"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

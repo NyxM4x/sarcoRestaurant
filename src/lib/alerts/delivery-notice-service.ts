@@ -6,7 +6,8 @@ import { log } from '@/lib/log';
 import { reverseGeocode } from '@/lib/delivery/geocode';
 import { parseDeliveryConfig } from '@/lib/delivery/config';
 import { buildDeliveryNotice, type DeliveryNoticeItem } from './delivery-notice';
-import { createTelegramAlertSender } from './telegram';
+import { createAlertRunnerDeps, enqueueAlert } from './outbox-store';
+import { trySendNow } from './outbox-runner';
 
 /**
  * Envío del aviso de pedido al grupo de reparto — wiring server-only.
@@ -21,14 +22,19 @@ import { createTelegramAlertSender } from './telegram';
  * el envío directo tras cotizar y el descubrimiento por `select_due` conviven a
  * propósito. Sin protección, el grupo recibiría el pedido repetido.
  *
- * El claim es un UPDATE condicional sobre `delivery_notice_sent_at IS NULL`
- * (migración 0019), el mismo mecanismo que ya protege la ubicación: solo una
- * ejecución concurrente puede escribirlo.
+ * Desde 0028 el aviso vive en el OUTBOX y su unicidad la garantiza el índice
+ * `(kind, target_ref)`: dos ejecuciones concurrentes encolan una sola alerta.
  *
- * El claim va ANTES del envío. Si Telegram falla después, el aviso se pierde y
- * no se reintenta — deliberado: para el grupo, un pedido duplicado es peor que
- * uno ausente, porque dos personas podrían salir a llevar lo mismo. El pedido
- * está en el dashboard de todos modos.
+ * Sigue siendo cierto que un aviso duplicado es peor que uno ausente —dos
+ * personas podrían salir a llevar el mismo pedido— pero eso ya no obliga a
+ * perderlo cuando Telegram falla. Antes el claim se escribía ANTES del envío y
+ * un fallo posterior dejaba el pedido marcado como avisado para siempre; ahora
+ * la fila es durable, el estado se escribe DESPUÉS de saber qué pasó, y lo que
+ * no salió se reintenta con backoff sin poder salir dos veces.
+ *
+ * `orders.delivery_notice_sent_at` (0019) queda sin usar: su nombre decía
+ * "enviado" y significaba "reclamado", y esa mentira es la que impedía
+ * detectar el problema mirando la base.
  *
  * NUNCA lanza: un fallo aquí no puede tumbar la confirmación al cliente, que es
  * lo importante del turno.
@@ -91,22 +97,6 @@ export async function notifyDeliveryGroup(
       return;
     }
 
-    // CLAIM: gana quien ponga la marca primero. Si no vuelve fila, otro ya
-    // avisó de este pedido y aquí no hay nada que hacer.
-    const { data: claimed, error: claimError } = await supabase
-      .from('orders')
-      .update({ delivery_notice_sent_at: new Date().toISOString() })
-      .eq('id', orderId)
-      .is('delivery_notice_sent_at', null)
-      .select('id')
-      .maybeSingle();
-
-    if (claimError) {
-      log.warn('delivery_notice_claim_failed', { order_id: orderId });
-      return;
-    }
-    if (!claimed) return; // Ya avisado: silencio, no es un error.
-
     // La dirección es un adorno: si el geocoder no contesta, el aviso sale
     // igual con el enlace de mapa. Se prefiere la que mandó WhatsApp cuando
     // existe, porque suele ser un lugar con nombre elegido por el cliente.
@@ -150,20 +140,32 @@ export async function notifyDeliveryGroup(
       distanceMeters: num(order.delivery_distance_meters),
     });
 
-    const sender = createTelegramAlertSender({
-      botToken: env.TELEGRAM_BOT_TOKEN,
-      chatId: env.TELEGRAM_CHAT_ID,
-    });
-    const outcome = await sender.send(text);
+    // ── ENCOLAR, y solo después mandar ────────────────────────────────────
+    //
+    // Aquí estaba el fallo. El claim sobre `delivery_notice_sent_at` se escribía
+    // ANTES de llamar a Telegram: si Telegram fallaba después, el pedido quedaba
+    // marcado como avisado para siempre. Nadie salía a repartirlo, no se
+    // reintentaba y no aparecía en ninguna pantalla.
+    //
+    // La protección contra el duplicado no desaparece, cambia de sitio: el
+    // índice único `(kind, target_ref)` de 0028 solo admite UNA alerta por
+    // pedido, así que dos ejecuciones concurrentes encolan una sola. Y como la
+    // fila es durable, reintentar el envío ya no arriesga un segundo aviso.
+    const alertId = await enqueueAlert('delivery_notice', orderId, text, supabase);
+    if (alertId === null) return; // Ya encolada: silencio, no es un error.
+
+    // Fast path: la fila ya está: esto solo adelanta el aviso. Si falla, el
+    // worker lo reintenta con backoff en vez de perderlo.
+    const resultado = await trySendNow(alertId, createAlertRunnerDeps(supabase));
 
     // El número de pedido no es un dato sensible y hace el log accionable; el
     // texto enviado NO se registra, porque lleva teléfono y ubicación.
-    if (outcome.kind === 'sent') {
+    if (resultado === 'sent') {
       log.info('delivery_notice_sent', { order_number: order.order_number });
     } else {
-      log.warn('delivery_notice_send_failed', {
+      log.info('delivery_notice_queued', {
         order_number: order.order_number,
-        outcome: outcome.kind,
+        outcome: resultado,
       });
     }
   } catch (error) {

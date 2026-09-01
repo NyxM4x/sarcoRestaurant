@@ -86,7 +86,10 @@ describe('decisión ganadora — avisa exactamente una vez', () => {
     const res = await decidePaymentAttempt('a1', 'reject', deps);
     expect(res.ok).toBe(true);
     expect(enviados).toHaveLength(1);
-    expect(enviados[0].text).toContain('respondiendo al mismo QR');
+    // Desde 0028 el texto lleva el plazo de la ventana de gracia: sin el, el
+    // pedido se cancelaria solo sin que el cliente supiera que tenia un reloj.
+    expect(enviados[0].text).toContain('reenviar una captura clara');
+    expect(enviados[0].text).toContain('cancelado automáticamente');
   });
 });
 

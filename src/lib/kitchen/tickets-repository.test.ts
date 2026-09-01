@@ -159,3 +159,124 @@ describe('repositorio de cocina — fallos traducidos al cocinero', () => {
     expect(calls).toEqual([]);
   });
 });
+
+// ── La puerta del pago sobre INICIAR (0028) ─────────────────────────────────
+//
+// Antes, `applyAction` no consultaba el pago en ningún punto: se podía pulsar
+// INICIAR sin haber mirado el comprobante, o después de haberlo rechazado. El
+// agente, mientras tanto, le prometía al cliente que "la cocina empieza cuando
+// el pago está confirmado".
+
+import type { PaymentAttempt, PaymentMethod } from '@/types';
+import { REJECTION_GRACE_MS } from '@/lib/payment-proof/payment-gate';
+
+/** Fuente con pago: `paymentFor` responde de verdad. */
+function fuenteConPago(
+  attempts: Array<Partial<PaymentAttempt>>,
+  paymentMethod: PaymentMethod | null = 'qr',
+  fallar = false,
+) {
+  const escrituras: Array<{ from: OrderStatus; to: OrderStatus }> = [];
+  const source: KitchenDataSource = {
+    async listBoard() {
+      return { rows: [], items: [] };
+    },
+    async listPayments() {
+      return {
+        attempts: attempts.map((a, i) => ({
+          id: `att-${i}`,
+          order_id: 'id-1',
+          review_status: 'pending_review',
+          opened_at: new Date(NOW - 600_000).toISOString(),
+          reviewed_at: null,
+          ...a,
+        })) as unknown as PaymentAttempt[],
+        proofs: [],
+      };
+    },
+    async paymentFor() {
+      if (fallar) throw new Error('supabase caído');
+      return { orderId: 'id-1', paymentMethod, rows: await this.listPayments!(['id-1']) };
+    },
+    async getStatus() {
+      return 'confirmed';
+    },
+    async updateStatus(_n, from, to) {
+      escrituras.push({ from, to });
+      return 'updated';
+    },
+  };
+  return { source, escrituras };
+}
+
+describe('repositorio de cocina — la puerta del pago', () => {
+  it('con el pago ACEPTADO, INICIAR arranca', async () => {
+    const { source, escrituras } = fuenteConPago([
+      { review_status: 'accepted', reviewed_at: new Date(NOW - 1000).toISOString() },
+    ]);
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: true, stage: 'in_progress' });
+    expect(escrituras).toEqual([{ from: 'confirmed', to: 'preparing' }]);
+  });
+
+  it('con el comprobante SIN revisar, INICIAR se bloquea y no escribe nada', async () => {
+    const { source, escrituras } = fuenteConPago([{ review_status: 'pending_review' }]);
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: false, reason: 'payment_pending' });
+    expect(escrituras).toEqual([]);
+  });
+
+  it('con el comprobante RECHAZADO, INICIAR se bloquea', async () => {
+    const { source, escrituras } = fuenteConPago([
+      { review_status: 'rejected', reviewed_at: new Date(NOW - 60_000).toISOString() },
+    ]);
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: false, reason: 'payment_rejected' });
+    expect(escrituras).toEqual([]);
+  });
+
+  it('vencida la ventana de gracia, el motivo lo dice', async () => {
+    const { source } = fuenteConPago([
+      {
+        review_status: 'rejected',
+        reviewed_at: new Date(NOW - REJECTION_GRACE_MS - 1000).toISOString(),
+      },
+    ]);
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: false, reason: 'payment_expired' });
+  });
+
+  it('un pedido en EFECTIVO arranca sin pedir comprobante', async () => {
+    const { source, escrituras } = fuenteConPago([], 'cash');
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: true, stage: 'in_progress' });
+    expect(escrituras).toHaveLength(1);
+  });
+
+  it('si la consulta del pago FALLA, se permite iniciar', async () => {
+    // Cerrar aquí detendría la cocina entera por un fallo de la base. El aviso
+    // vive en el tablero; la puerta no puede ser la que pare el servicio.
+    const { source, escrituras } = fuenteConPago([{ review_status: 'pending_review' }], 'qr', true);
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: true, stage: 'in_progress' });
+    expect(escrituras).toHaveLength(1);
+  });
+
+  it('la puerta NO frena las demás acciones de un pedido ya empezado', async () => {
+    // `complete` sobre algo que ya está en la plancha: bloquearlo dejaría la
+    // comida hecha y el ticket sin poder cerrarse.
+    const { source, escrituras } = fuenteConPago([{ review_status: 'pending_review' }]);
+    const repo = createKitchenRepository({ ...source, getStatus: async () => 'preparing' });
+    const res = await repo.applyAction('ORD-000001', 'complete', NOW);
+    expect(res).toEqual({ ok: true, stage: 'done' });
+    expect(escrituras).toEqual([{ from: 'preparing', to: 'ready' }]);
+  });
+
+  it('sin `paymentFor` cableado, el KDS se comporta como antes', async () => {
+    // Compatibilidad: un adaptador viejo no bloquea nada.
+    const { source, calls } = fakeSource();
+    const res = await createKitchenRepository(source).applyAction('ORD-000001', 'start', NOW);
+    expect(res).toEqual({ ok: true, stage: 'in_progress' });
+    expect(calls).toHaveLength(1);
+  });
+});

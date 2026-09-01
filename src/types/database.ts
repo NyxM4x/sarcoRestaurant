@@ -1,4 +1,8 @@
-import type { ProofAnalysisReason, ProofVerdict } from '@/lib/payment-proof/analysis';
+import type {
+  ProofAmountLabel,
+  ProofAnalysisReason,
+  ProofVerdict,
+} from '@/lib/payment-proof/analysis';
 
 /**
  * Tipos del modelo de datos de Don Zarco Orders.
@@ -438,6 +442,14 @@ export interface PaymentProof {
   analysis_reasons: ProofAnalysisReason[];
   /** Monto leido en la imagen. Es una lectura optica, no una verdad contable. */
   analysis_amount: number | null;
+  /**
+   * Contra cual de los dos importes validos cuadro el monto leido (0028).
+   *
+   * A diferencia de `analysis_amount`, esta SI viaja a la interfaz: no es la
+   * cifra sino la conclusion, y responde una pregunta operativa —"¿ya me pago
+   * la carrera?"— que hoy se contesta llamando por telefono.
+   */
+  analysis_amount_label: ProofAmountLabel | null;
   /** Numero de transaccion leido. Reconoce el mismo pago en una captura nueva. */
   analysis_reference: string | null;
   analysis_model: string | null;
