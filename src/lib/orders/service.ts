@@ -21,12 +21,15 @@ import {
 } from './location';
 import {
   attachLocation,
+  attachLooseLocation,
   type AttachLocationInput,
   type AttachLocationResult,
   type AttachLocationStore,
+  type AttachLooseLocationInput,
   type LocationOrderRow as LocationAttachRow,
 } from './attach-location';
 import { getKapsoClient } from '@/lib/kapso/client';
+import { normalizePhone } from '@/lib/phone';
 
 export interface UpsertOrderDraftResult {
   order: Order;
@@ -188,6 +191,29 @@ function toLocationAttachRow(row: Record<string, unknown>): LocationAttachRow {
   };
 }
 
+/**
+ * Cuánto tiempo sigue siendo "la ubicación de mi pedido" un pin que no responde
+ * al botón (0028).
+ *
+ * No es un timeout técnico: es cuánto dura la intención. Dentro de la sesión en
+ * la que alguien acaba de armar su pedido, un pin es la respuesta a lo que le
+ * acabamos de pedir. Un día después ya no: sería alguien preguntando de nuevo
+ * cuánto sale el envío, y adjuntarlo a un pedido olvidado le cambiaría el
+ * destino a algo que ya no está mirando.
+ */
+const LOOSE_PIN_WINDOW_HOURS = 6;
+
+/**
+ * Cuántos pedidos recientes se miran para encontrar el de este teléfono.
+ *
+ * El filtro fino se hace EN MEMORIA porque los dos lados no están escritos
+ * igual: `orders.customer_phone` guarda lo que llegó del checkout —con `+`,
+ * espacios o guiones— y el webhook trae dígitos pelados. Un `.eq()` entre esos
+ * dos no encontraría nunca nada, y el fallo sería mudo: el pedido seguiría
+ * esperando y nadie vería un error.
+ */
+const LOOSE_PIN_CANDIDATES = 50;
+
 /** Store de asociación de ubicación respaldado por Supabase (service_role). */
 export function createSupabaseLocationAttachStore(
   supabase: SupabaseClient,
@@ -203,11 +229,45 @@ export function createSupabaseLocationAttachStore(
       return data ? toLocationAttachRow(data) : null;
     },
 
+    /**
+     * 0028 — el pedido de este teléfono que sigue esperando ubicación.
+     *
+     * Se traen las candidatas de la ventana (pocas: `awaiting_location` sin GPS
+     * es un estado de minutos) y se compara el teléfono normalizado en memoria,
+     * igual que hace el reuso de distancias del ledger.
+     *
+     * El MÁS RECIENTE: si alguien armó dos pedidos seguidos, el pin contesta al
+     * último, que es el que tiene delante.
+     */
+    async findAwaitingLocationByPhone(
+      customerPhoneDigits: string,
+    ): Promise<LocationAttachRow | null> {
+      const desde = new Date(
+        Date.now() - LOOSE_PIN_WINDOW_HOURS * 60 * 60 * 1000,
+      ).toISOString();
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select(LOCATION_ATTACH_COLUMNS)
+        .eq('status', 'awaiting_location')
+        .is('delivery_latitude', null)
+        .is('delivery_longitude', null)
+        .gte('created_at', desde)
+        .order('created_at', { ascending: false })
+        .limit(LOOSE_PIN_CANDIDATES);
+      if (error) throw new Error(`orders.findAwaitingLocationByPhone: ${error.message}`);
+
+      const fila = ((data ?? []) as Record<string, unknown>[]).find(
+        (f) => normalizePhone(String(f.customer_phone ?? '')) === customerPhoneDigits,
+      );
+      return fila ? toLocationAttachRow(fila) : null;
+    },
+
     async attachIfPending(input): Promise<LocationAttachRow | null> {
       // Atómico: solo escribe si sigue awaiting_location y sin ubicación previa.
       // `confirmed_at` llega ya resuelto (coalesce en la capa pura): conserva el
       // valor previo si existía o sella el instante de esta confirmación.
-      const { data, error } = await supabase
+      let q = supabase
         .from('orders')
         .update({
           delivery_latitude: input.latitude,
@@ -217,8 +277,16 @@ export function createSupabaseLocationAttachStore(
           status: 'confirmed',
           confirmed_at: input.confirmedAt,
         })
-        .eq('id', input.orderId)
-        .eq('location_request_message_id', input.contextId)
+        .eq('id', input.orderId);
+
+      // Con contexto, el wamid es un guard más. Sin él (pin suelto, 0028) el
+      // claim son el estado y las coordenadas NULL — los mismos que ya impedían
+      // la doble escritura cuando sí había contexto.
+      if (input.contextId !== null) {
+        q = q.eq('location_request_message_id', input.contextId);
+      }
+
+      const { data, error } = await q
         .eq('status', 'awaiting_location')
         .is('delivery_latitude', null)
         .is('delivery_longitude', null)
@@ -234,7 +302,7 @@ export function createSupabaseLocationAttachStore(
       // `delivery_latitude IS NULL` sigue siendo el claim implícito de una sola
       // escritura; el pedido permanece `awaiting_location` para que la cotización
       // lo confirme después.
-      const { data, error } = await supabase
+      let q = supabase
         .from('orders')
         .update({
           delivery_latitude: input.latitude,
@@ -242,8 +310,13 @@ export function createSupabaseLocationAttachStore(
           delivery_address: input.address,
           delivery_location_name: input.name,
         })
-        .eq('id', input.orderId)
-        .eq('location_request_message_id', input.contextId)
+        .eq('id', input.orderId);
+
+      if (input.contextId !== null) {
+        q = q.eq('location_request_message_id', input.contextId);
+      }
+
+      const { data, error } = await q
         .eq('status', 'awaiting_location')
         .is('delivery_latitude', null)
         .is('delivery_longitude', null)
@@ -263,6 +336,17 @@ export function createSupabaseLocationAttachStore(
 export function attachLocationForOrder(input: AttachLocationInput): Promise<AttachLocationResult> {
   const store = createSupabaseLocationAttachStore(getSupabaseAdmin());
   return attachLocation(store, input);
+}
+
+/**
+ * Adjunta al pedido que estaba esperando el pin que llegó sin contexto (0028):
+ * mismo store, misma escritura atómica, otra forma de encontrar el pedido.
+ */
+export function attachLooseLocationForOrder(
+  input: AttachLooseLocationInput,
+): Promise<AttachLocationResult> {
+  const store = createSupabaseLocationAttachStore(getSupabaseAdmin());
+  return attachLooseLocation(store, input);
 }
 
 /**

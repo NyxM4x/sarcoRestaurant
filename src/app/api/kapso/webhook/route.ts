@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import {
   attachLocationForOrder,
+  attachLooseLocationForOrder,
   confirmDraftOrder,
   ensureLocationRequestForOrder,
 } from '@/lib/orders/service';
@@ -17,6 +18,7 @@ import {
   askLocationForQuote,
   quoteStandaloneLocation,
 } from '@/lib/delivery/quote-request-service';
+import { expandMapsLink } from '@/lib/delivery/maps-link-service';
 import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
@@ -80,6 +82,12 @@ export async function POST(request: Request): Promise<Response> {
       quoteDynamicDelivery: quoteDynamicDeliveryForOrder,
       // 0027: cotización de un pin suelto, antes de que exista ningún pedido.
       quoteStandaloneLocation: (input) => quoteStandaloneLocation(input),
+      // 0028: el pin que llega sin contexto pero con un pedido esperándolo. Va
+      // antes que la cotización suelta: primero se mira si alguien lo espera.
+      attachLooseLocation: (input) => attachLooseLocationForOrder(input),
+      // 0029: la ubicación que llega como link de Google Maps en vez de pin.
+      // Solo la expansión sale a la red; leer las coordenadas es puro.
+      expandMapsLink: (url) => expandMapsLink(url),
       // 0027: "¿cuánto sale el envío?" se contesta pidiendo la ubicación, sin
       // pasar por el modelo — medido, el modelo lo derivaba a una persona.
       askLocationForQuote: (input) => askLocationForQuote(input),

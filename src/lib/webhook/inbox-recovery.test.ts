@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   acceptKapsoWebhook,
   processWebhookEvent,
@@ -538,5 +540,56 @@ describe('recovery del inbox — el trabajo abandonado se termina UNA vez', () =
 
     expect(a.pending!.rowId).not.toBe(b.pending!.rowId);
     expect(efectos()).toMatchObject({ runs: 2, deliveries: 2, envios: 2, ctas: 2, entrantes: 2 });
+  });
+});
+
+// ── Paridad de cableado entre las dos vías (REC-03) ─────────────────────────
+
+describe('el recovery ejecuta el MISMO negocio que el webhook', () => {
+  /**
+   * El fallo que esto cierra: el worker declaraba —en su propio comentario—
+   * "EXACTAMENTE las mismas dependencias que el webhook", y le faltaban cuatro.
+   * Un pin suelto recogido por el recovery no se cotizaba, la pregunta por el
+   * envío caía en el modelo, el pin sin contexto no encontraba su pedido y el
+   * cliente atascado no se escalaba. Todo con la fila marcada `processed`: el
+   * mismo mensaje salía atendido o en silencio según quién lo procesara, y no
+   * había forma de verlo desde fuera.
+   *
+   * Se compara el FUENTE de las dos rutas porque el cableado es exactamente lo
+   * que no se puede probar ejecutándolas: son puertos opcionales, así que
+   * olvidar uno compila, corre y pasa todos los demás tests.
+   */
+  const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  const webhookSrc = read('../../app/api/kapso/webhook/route.ts');
+  const workerSrc = read('../../app/api/internal/webhook-events/worker/tick/route.ts');
+
+  /** Puertos de negocio que las dos vías tienen que cablear igual. */
+  const PUERTOS = [
+    'confirmOrder',
+    'ensureLocationRequest',
+    'attachOrderLocation',
+    'sendMenuCta',
+    'quoteDynamicDelivery',
+    'quoteStandaloneLocation',
+    'attachLooseLocation',
+    'expandMapsLink',
+    'askLocationForQuote',
+    'checkStuckCustomer',
+    'agentChannel',
+    'paymentProofIntake',
+    'outbound',
+  ];
+
+  it.each(PUERTOS)('el worker cablea %s, igual que el webhook', (puerto) => {
+    // Si algún día un puerto deja de existir, esta mitad avisa: la lista de
+    // arriba no puede quedarse pidiendo algo que ya nadie inyecta.
+    expect(webhookSrc).toContain(`${puerto}:`);
+    expect(workerSrc).toContain(`${puerto}:`);
+  });
+
+  it('el worker anota sus deps, para que un puerto mal escrito no compile', () => {
+    // Sin la anotación, el objeto se infiere y una clave sobrante o mal escrita
+    // pasa el compilador sin quejarse — que es como llegó a faltar.
+    expect(workerSrc).toContain('InboxWorkerDeps');
   });
 });

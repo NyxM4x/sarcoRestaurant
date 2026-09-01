@@ -382,6 +382,136 @@ Contar pasa a ser lo ÚLTIMO que se hace, detrás de dos puertas:
 
 ---
 
+## 5g. El pedido armado que se quedó esperando una ubicación ya enviada (0028)
+
+**El agujero**, contado por el negocio con dos conversaciones reales al lado. El
+5c arregló al cliente que **pregunta** por el envío. Faltaba el que **ya pidió**.
+
+El flujo previsto: el cliente arma el pedido en el menú, le llega el botón de
+"enviar ubicación", lo toca, el pin vuelve con `context.id` y todo encaja. El
+flujo real de bastante gente: arma el pedido y manda su ubicación con el clip de
+WhatsApp de siempre, sin tocar el botón. Nadie le explicó que ese botón importa,
+y desde su lado no hay diferencia.
+
+Ese pin llega **sin `context.id`**, así que caía en el camino del 5c y se leía
+como una consulta de tarifa. El resultado era peor que un error:
+
+- recibía un precio de envío suelto y un *"armá tu pedido en el menú"* que
+  acababa de hacer;
+- su pedido seguía en `awaiting_location` **para siempre**: sin GPS, sin total
+  con envío, sin QR y sin nadie preparándolo;
+- y el webhook marcaba la entrega `processed`. Todo verde.
+
+**Lo que se añade.** Antes de cotizar un pin como suelto se mira si hay un pedido
+de ese teléfono esperando exactamente ese dato. Si lo hay, el pin es su
+ubicación: se adjunta por el mismo camino que el botón —misma escritura atómica,
+misma idempotencia, misma rama dinámica/legacy— y se cotiza, que es lo que junta
+productos + envío en un total y dispara el QR.
+
+El orden es todo el arreglo: **primero el pedido que espera, después la tarifa
+suelta.** Quien no tiene pedido pendiente sigue recibiendo su cotización como en
+el 5c, sin cambios.
+
+Tres decisiones que sostienen esto:
+
+- **Se busca por teléfono, no por wamid**, porque no hay wamid que buscar. La
+  comparación se hace **normalizada y en memoria**: `orders.customer_phone`
+  guarda lo que llegó del checkout (con `+`, espacios o guiones) y el webhook
+  trae dígitos pelados. Un `.eq()` entre esos dos no encontraría nunca nada, y
+  el fallo sería mudo — nadie vería un error, el cliente solo silencio.
+- **Ventana de 6 horas.** No es un timeout técnico: es cuánto dura la intención.
+  Un pin de mañana no es la respuesta al pedido de hoy, y adjuntarlo le cambiaría
+  el destino a algo que ya nadie mira.
+- **El claim del UPDATE no exige el wamid** (`contextId: null`): lo sostienen
+  `status='awaiting_location'` y las coordenadas NULL, que son las mismas
+  condiciones que ya impedían la doble escritura cuando sí había contexto.
+
+**Y el recovery, que hacía lo mismo distinto (REC-03).** El worker del inbox
+declaraba en su propio comentario *"EXACTAMENTE las mismas dependencias que el
+webhook"* y le faltaban cuatro: `quoteStandaloneLocation`, `askLocationForQuote`,
+`checkStuckCustomer` y el `attachLooseLocation` nuevo. El mismo mensaje salía
+atendido o en silencio según quién lo procesara, y siempre con la fila
+`processed`. Ahora se inyectan las cuatro, el objeto de deps va **anotado** (un
+puerto mal escrito ya no compila) y un test compara el fuente de las dos rutas
+puerto por puerto, porque el cableado es justo lo que no se puede probar
+ejecutándolas: son opcionales, y olvidar uno compila, corre y pasa todo lo demás.
+
+Archivos: `attachLooseLocation` en `src/lib/orders/attach-location.ts` (puro),
+`findAwaitingLocationByPhone` + `attachLooseLocationForOrder` en
+`src/lib/orders/service.ts`, el enganche en `src/lib/webhook/kapso.ts` y el
+cableado de las dos rutas. Sin migraciones.
+
+---
+
+## 5h. La ubicación que llega como link de Google Maps (0029)
+
+**El agujero**, traído por el negocio el 01-09-2026. El 5g arregló al cliente que
+manda el pin sin usar el botón. Falta el que **no manda un pin en absoluto**:
+abre Google Maps, busca su casa, le da a compartir y pega el link en el chat.
+
+Llega como `type: 'text'`, así que no lo ve el parser de ubicación; y no lleva
+palabra de coste, así que tampoco lo reconoce `isDeliveryQuoteIntent`. Termina en
+el modelo, que contesta lo único que sabe: *"compartime tu ubicación"* — a
+alguien que la acaba de compartir.
+
+**El link corto no tiene coordenadas dentro.** `maps.app.goo.gl/5biYBaWPiPGPPcyB9`
+es un identificador opaco. Hay que pedirle a Google la URL larga: un 302 con el
+cuerpo vacío, del que solo se lee la cabecera `Location`.
+
+**Y la URL larga trae TRES pares que no significan lo mismo.** Medido sobre un
+link real del negocio:
+
+| Dónde | Coordenadas | Qué es |
+|---|---|---|
+| `!3d!4d` (en `data=`) | -17.8429809, **-63.179145** | el lugar marcado |
+| DMS del path | -17.8429722, -63.1791389 | el mismo lugar, ~1 m |
+| `@` | -17.8429809, **-63.1817199** | el centro de la cámara |
+
+**El `@` estaba 272 metros al oeste de los otros dos** — casi tres cuadras. No es
+un redondeo: es la vista del mapa, y cambia según dónde tuviera el cliente la
+pantalla al compartir. Es además el par más visible (sale en la barra del
+navegador) y por eso el más fácil de agarrar con un regex apresurado, con el
+repartidor dando vueltas por la cuadra equivocada.
+
+De ahí la cascada, que es lo único que de verdad importa del extractor:
+`?q=` → `!3d!4d` → DMS → `@` como último recurso. Hay un test que mide esos 272
+metros, para que nadie lo "simplifique" a un solo regex de `@`.
+
+**Un link de RUTA (`/dir/`) no se lee**: eso no es "aquí vivo", son dos puntos y
+un trayecto, y adivinar cuál es la casa sería inventarse la dirección de alguien.
+
+**La URL la escribe el cliente**, y eso decide el diseño de la única parte con
+red. Las defensas, todas juntas y ninguna suficiente sola: allowlist **exacta** de
+dominios (un `endsWith('google.com')` aceptaría `google.com.atacante.net`),
+comprobada antes de la primera petición y **otra vez en cada salto**;
+`redirect: 'manual'`; máximo dos saltos; timeout de 3 s porque esto corre con el
+cliente esperando; y solo se lee la cabecera, nunca el cuerpo. Si algo falla
+devuelve `null` y el mensaje sigue su camino de hoy — nunca lanza, porque una
+excepción aquí tumbaría la entrega entera por un link.
+
+**Las coordenadas escritas salen gratis.** "Lat: -17.842973, Long: -63.179229" es
+leer dos números: sin red y sin depender del formato de nadie. Van primero. Se
+exigen decimales en los dos, o "pedime 2, 3 hamburguesas" sería un par de
+coordenadas perfectamente válido frente al ecuador y el cliente recibiría una
+tarifa de envío en vez de su pedido.
+
+**Un camino, tres puertas.** El pin, el link y las coordenadas escritas terminan
+en la misma función: primero el pedido que espera (5g), y si no hay ninguno, la
+tarifa suelta (5c). Tener un camino por puerta era justo lo que hacía que el
+mismo cliente recibiera su QR o silencio según qué botón hubiera encontrado.
+
+**El orden en el pipeline** es parte del arreglo: va después del menú —quien
+escribe "quiero pedir" quiere pedir— y **antes** de "¿cuánto sale el envío?".
+Sin eso, "cotízame aquí `<link>`" lleva palabra de coste y palabra de lugar, así
+que el detector del 5d lo reconocería y le pediría la ubicación que acaba de
+mandar.
+
+Archivos: `src/lib/delivery/maps-link.ts` (puro: detección, cascada y
+coordenadas escritas), `maps-link-service.ts` (la expansión, lo único con red) y
+el enganche en `src/lib/webhook/kapso.ts`. Sin migraciones.
+
+---
+
 ## 6. Estado
 
 **2.977 tests en verde**, lint limpio, build correcto.

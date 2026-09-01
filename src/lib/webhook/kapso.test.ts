@@ -9,6 +9,8 @@ import {
   type EnsureLocationRequest,
   type QuoteDynamicDelivery,
   type QuoteStandaloneLocation,
+  type AttachLooseLocation,
+  type ExpandMapsLink,
   type AskLocationForQuote,
   type SendMenuCta,
   type SendMenuCtaInput,
@@ -1403,6 +1405,387 @@ describe('handleKapsoWebhook — cotización de una ubicación suelta', () => {
   it('sin la dependencia, el webhook se comporta como antes', async () => {
     const res = await callStandalone(locationMessage({ context: undefined }));
     expect(res.outcome).toBe('processed');
+  });
+});
+
+// ── El pin que no responde al botón, con un pedido esperándolo (0028) ───────
+
+describe('handleKapsoWebhook — el pin sin contexto de quien YA pidió', () => {
+  /**
+   * El flujo real, tal como lo contó el negocio: el cliente arma todo el
+   * pedido, le sale el botón de "enviar ubicación"… y no lo usa. Manda su
+   * ubicación con el clip de WhatsApp de siempre, como en cualquier otro chat.
+   *
+   * Ese pin llega SIN `context.id`, así que hasta ahora se leía como "¿cuánto
+   * sale el envío?": el cliente recibía una tarifa suelta y un "armá tu pedido
+   * en el menú" que acababa de hacer, mientras su pedido se quedaba en
+   * `awaiting_location` para siempre — sin total, sin QR y sin nadie
+   * preparándolo. Silencio con todo en verde.
+   */
+  const AWAITING: AttachLocationResult = {
+    result: 'attached',
+    order: { id: 'ord-uuid', order_number: 'ORD-000002', status: 'awaiting_location' },
+  };
+
+  function fakeLoose(result: AttachLocationResult) {
+    const calls: Array<Parameters<AttachLooseLocation>[0]> = [];
+    const fn: AttachLooseLocation = async (input) => {
+      calls.push(input);
+      return result;
+    };
+    return { fn, calls };
+  }
+
+  function fakeStandaloneQuote() {
+    const calls: unknown[] = [];
+    const fn: QuoteStandaloneLocation = async (input) => {
+      calls.push(input);
+      return { result: 'quoted' };
+    };
+    return { fn, calls };
+  }
+
+  function fakeDynamicQuote() {
+    const calls: string[] = [];
+    const fn: QuoteDynamicDelivery = async (orderId) => {
+      calls.push(orderId);
+      return { result: 'quoted' };
+    };
+    return { fn, calls };
+  }
+
+  function callPin(
+    message: Record<string, unknown>,
+    deps: {
+      loose?: AttachLooseLocation;
+      standalone?: QuoteStandaloneLocation;
+      dynamic?: QuoteDynamicDelivery;
+      attachResult?: AttachLocationResult;
+    } = {},
+  ) {
+    const raw = messageBody(message);
+    return handleKapsoWebhook({
+      rawBody: raw,
+      headers: headers(raw),
+      secret: SECRET,
+      store: new FakeStore(),
+      confirmOrder: NOOP_CONFIRM,
+      ensureLocationRequest: NOOP_ENSURE,
+      attachOrderLocation: async () => deps.attachResult ?? ATTACHED_RESULT,
+      sendMenuCta: NEVER_SEND_CTA,
+      attachLooseLocation: deps.loose,
+      quoteStandaloneLocation: deps.standalone,
+      quoteDynamicDelivery: deps.dynamic,
+    });
+  }
+
+  it('el pin va al pedido que lo esperaba, NO a una cotización suelta', async () => {
+    const loose = fakeLoose(AWAITING);
+    const standalone = fakeStandaloneQuote();
+
+    const res = await callPin(locationMessage({ context: undefined }), {
+      loose: loose.fn,
+      standalone: standalone.fn,
+    });
+
+    expect(res.outcome).toBe('processed');
+    expect(loose.calls).toHaveLength(1);
+    expect(loose.calls[0]).toMatchObject({
+      customerPhoneDigits: '59170000000',
+      latitude: -17.7833,
+      longitude: -63.1821,
+    });
+    // Lo que arregla el silencio: NO se le manda una tarifa suelta a quien ya
+    // tiene el pedido armado.
+    expect(standalone.calls).toEqual([]);
+  });
+
+  it('adjuntado y todavía esperando: se cotiza el pedido, que es lo que trae el QR', async () => {
+    // Adjuntar sin cotizar sería el mismo silencio un paso más adelante: el
+    // pedido tendría GPS y seguiría sin confirmarse.
+    const dynamic = fakeDynamicQuote();
+    await callPin(locationMessage({ context: undefined }), {
+      loose: fakeLoose(AWAITING).fn,
+      dynamic: dynamic.fn,
+    });
+
+    expect(dynamic.calls).toEqual(['ord-uuid']);
+  });
+
+  it('nadie esperaba el pin: se cotiza suelto, como antes', async () => {
+    const loose = fakeLoose({ result: 'not_found' });
+    const standalone = fakeStandaloneQuote();
+
+    await callPin(locationMessage({ context: undefined }), {
+      loose: loose.fn,
+      standalone: standalone.fn,
+    });
+
+    expect(loose.calls).toHaveLength(1);
+    expect(standalone.calls).toHaveLength(1);
+  });
+
+  it('el pin que SÍ responde al botón sigue por su camino de siempre', async () => {
+    // La regresión que hay que evitar: si la búsqueda por teléfono se comiera
+    // este caso, la correlación exacta por wamid dejaría de mandar.
+    const loose = fakeLoose(AWAITING);
+    await callPin(locationMessage(), { loose: loose.fn });
+
+    expect(loose.calls).toEqual([]);
+  });
+
+  it('un botón viejo sin pedido detrás: se intenta el pedido que sí espera', async () => {
+    const loose = fakeLoose(AWAITING);
+    const standalone = fakeStandaloneQuote();
+
+    await callPin(locationMessage(), {
+      loose: loose.fn,
+      standalone: standalone.fn,
+      attachResult: { result: 'not_found' },
+    });
+
+    expect(loose.calls).toHaveLength(1);
+    expect(standalone.calls).toEqual([]);
+  });
+
+  it('una carrera perdida se reintenta: no se da por atendido', async () => {
+    // Mismo trato que en el camino con contexto: 500 y fila reclamable, en vez
+    // de un `processed` sobre un pedido que nadie escribió.
+    const loose = fakeLoose({ result: 'concurrent_update' });
+    const res = await callPin(locationMessage({ context: undefined }), { loose: loose.fn });
+
+    expect(res.status).toBe(500);
+    expect(res.outcome).toBe('failed');
+  });
+
+  it('coordenadas imposibles no adjuntan nada', async () => {
+    const loose = fakeLoose(AWAITING);
+    await callPin(
+      locationMessage({ context: undefined, location: { latitude: 999, longitude: -63.1 } }),
+      { loose: loose.fn },
+    );
+
+    expect(loose.calls).toEqual([]);
+  });
+
+  it('sin la dependencia, el webhook se comporta EXACTAMENTE como antes', async () => {
+    const standalone = fakeStandaloneQuote();
+    const res = await callPin(locationMessage({ context: undefined }), {
+      standalone: standalone.fn,
+    });
+
+    expect(res.outcome).toBe('processed');
+    expect(standalone.calls).toHaveLength(1);
+  });
+});
+
+// ── La ubicación que llega como link o como texto (0029) ────────────────
+
+describe('handleKapsoWebhook — ubicación compartida por link de Google Maps', () => {
+  /**
+   * Mucha gente no usa el pin: abre Google Maps, busca su casa y le da a
+   * compartir. Llega un texto con un link corto, así que ni el parser de
+   * ubicación lo veía ni el detector de "¿cuánto sale el envío?" lo reconocía:
+   * terminaba en el modelo, que contestaba pidiéndole la ubicación que acababa
+   * de mandar.
+   */
+  const CORTO = 'https://maps.app.goo.gl/5biYBaWPiPGPPcyB9';
+
+  /** La respuesta real de Google (medida el 01-09-2026). */
+  const LARGO =
+    'https://www.google.com/maps/place/17%C2%B050%2734.7%22S+63%C2%B010%2744.9%22W/' +
+    '@-17.8429809,-63.1817199,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-17.8429809!4d-63.179145';
+
+  const AWAITING: AttachLocationResult = {
+    result: 'attached',
+    order: { id: 'ord-uuid', order_number: 'ORD-000002', status: 'awaiting_location' },
+  };
+
+  function fakeExpand(resultado: string | null = LARGO) {
+    const calls: string[] = [];
+    const fn: ExpandMapsLink = async (url) => {
+      calls.push(url);
+      return resultado;
+    };
+    return { fn, calls };
+  }
+
+  function fakeLoose(result: AttachLocationResult) {
+    const calls: Array<Parameters<AttachLooseLocation>[0]> = [];
+    const fn: AttachLooseLocation = async (input) => {
+      calls.push(input);
+      return result;
+    };
+    return { fn, calls };
+  }
+
+  function fakeStandalone() {
+    const calls: Array<Parameters<QuoteStandaloneLocation>[0]> = [];
+    const fn: QuoteStandaloneLocation = async (input) => {
+      calls.push(input);
+      return { result: 'quoted' };
+    };
+    return { fn, calls };
+  }
+
+  function callTexto(
+    body: string,
+    deps: {
+      expand?: ExpandMapsLink;
+      loose?: AttachLooseLocation;
+      standalone?: QuoteStandaloneLocation;
+      ask?: AskLocationForQuote;
+      cta?: SendMenuCta;
+    } = {},
+  ) {
+    const raw = messageBody({
+      id: 'wamid.TXT_LINK_1',
+      type: 'text',
+      from: '59170000001',
+      text: { body },
+    });
+    return handleKapsoWebhook({
+      rawBody: raw,
+      headers: headers(raw),
+      secret: SECRET,
+      store: new FakeStore(),
+      confirmOrder: NOOP_CONFIRM,
+      ensureLocationRequest: NOOP_ENSURE,
+      attachOrderLocation: NOOP_ATTACH,
+      sendMenuCta: deps.cta ?? NEVER_SEND_CTA,
+      expandMapsLink: deps.expand,
+      attachLooseLocation: deps.loose,
+      quoteStandaloneLocation: deps.standalone,
+      askLocationForQuote: deps.ask,
+    });
+  }
+
+  it('el link corto se expande y va al pedido que esperaba', async () => {
+    const expand = fakeExpand();
+    const loose = fakeLoose(AWAITING);
+
+    const res = await callTexto(CORTO, { expand: expand.fn, loose: loose.fn });
+
+    expect(res.outcome).toBe('processed');
+    expect(expand.calls).toEqual([CORTO]);
+    expect(loose.calls).toHaveLength(1);
+    // El par del LUGAR, no el de la cámara: -63.179145, no -63.1817199.
+    expect(loose.calls[0].longitude).toBeCloseTo(-63.179145, 6);
+  });
+
+  it('sin pedido esperando, el link se cotiza como un pin suelto', async () => {
+    const standalone = fakeStandalone();
+    await callTexto(CORTO, {
+      expand: fakeExpand().fn,
+      loose: fakeLoose({ result: 'not_found' }).fn,
+      standalone: standalone.fn,
+    });
+
+    expect(standalone.calls).toHaveLength(1);
+    expect(standalone.calls[0].coords.lng).toBeCloseTo(-63.179145, 6);
+    // El WAMID del texto es la clave de idempotencia, igual que el del pin.
+    expect(standalone.calls[0].sourceMessageId).toBe('wamid.TXT_LINK_1');
+  });
+
+  it('"cotizame aqui <link>" NO le pide la ubicación que acaba de mandar', async () => {
+    // El orden del pipeline, que es lo que hace útil este caso: ese texto lleva
+    // palabra de coste y palabra de lugar, así que `isDeliveryQuoteIntent` lo
+    // reconocería y contestaría "mandame tu ubicación" — a alguien que la
+    // acaba de mandar. La ubicación se atiende ANTES.
+    const ask = { calls: 0 };
+    const askFn: AskLocationForQuote = async () => {
+      ask.calls += 1;
+      return { ok: true };
+    };
+    const standalone = fakeStandalone();
+
+    await callTexto(`cotizame aqui ${CORTO}`, {
+      expand: fakeExpand().fn,
+      loose: fakeLoose({ result: 'not_found' }).fn,
+      standalone: standalone.fn,
+      ask: askFn,
+    });
+
+    expect(standalone.calls).toHaveLength(1);
+    expect(ask.calls).toBe(0);
+  });
+
+  it('las coordenadas escritas no gastan ninguna petición de red', async () => {
+    // El formato que copia y pega quien abre el pin en Maps. Son dos números:
+    // no hay nada que expandir ni formato de nadie del que depender.
+    const expand = fakeExpand();
+    const standalone = fakeStandalone();
+
+    await callTexto('Lat: -17.842973709106, Long: -63.179229736328', {
+      expand: expand.fn,
+      loose: fakeLoose({ result: 'not_found' }).fn,
+      standalone: standalone.fn,
+    });
+
+    expect(expand.calls).toEqual([]);
+    expect(standalone.calls[0].coords).toMatchObject({ lat: -17.842973709106 });
+  });
+
+  it('si el link no se puede expandir, el mensaje sigue su camino de hoy', async () => {
+    // Google caído o formato cambiado. No se inventa una ubicación: el mensaje
+    // queda para el agente, que es exactamente lo que pasaba antes.
+    const standalone = fakeStandalone();
+    const res = await callTexto(CORTO, {
+      expand: fakeExpand(null).fn,
+      loose: fakeLoose({ result: 'not_found' }).fn,
+      standalone: standalone.fn,
+    });
+
+    expect(standalone.calls).toEqual([]);
+    expect(res.body.handled).toBe('ignored');
+  });
+
+  it('sin el puerto de expansión no se sale a la red', async () => {
+    const standalone = fakeStandalone();
+    const res = await callTexto(CORTO, { standalone: standalone.fn });
+
+    expect(standalone.calls).toEqual([]);
+    expect(res.body.handled).toBe('ignored');
+  });
+
+  it('la intención de MENÚ sigue ganando: quien quiere pedir, pide', async () => {
+    const cta = { calls: 0 };
+    const sendCta: SendMenuCta = async () => {
+      cta.calls += 1;
+      return { result: 'sent', deliveryId: 'del-cta', wamid: 'wamid.CTA' };
+    };
+    const standalone = fakeStandalone();
+
+    await callTexto(`quiero pedir, mi ubicacion es ${CORTO}`, {
+      expand: fakeExpand().fn,
+      standalone: standalone.fn,
+      cta: sendCta,
+    });
+
+    expect(cta.calls).toBe(1);
+    expect(standalone.calls).toEqual([]);
+  });
+
+  it('un mensaje normal no dispara nada de esto', async () => {
+    const expand = fakeExpand();
+    const standalone = fakeStandalone();
+
+    const res = await callTexto('hola, tienen hamburguesas?', {
+      expand: expand.fn,
+      standalone: standalone.fn,
+    });
+
+    expect(expand.calls).toEqual([]);
+    expect(standalone.calls).toEqual([]);
+    // Declinado: queda para el agente, como cualquier pregunta.
+    expect(res.body.handled).toBe('ignored');
+  });
+
+  it('un link que no es de Maps no se toca', async () => {
+    const expand = fakeExpand();
+    await callTexto('mira esto https://facebook.com/algo', { expand: expand.fn });
+
+    expect(expand.calls).toEqual([]);
   });
 });
 

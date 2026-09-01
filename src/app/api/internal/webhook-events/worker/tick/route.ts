@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import {
   attachLocationForOrder,
+  attachLooseLocationForOrder,
   confirmDraftOrder,
   ensureLocationRequestForOrder,
 } from '@/lib/orders/service';
@@ -11,8 +12,14 @@ import { createSupabaseOutboundStore } from '@/lib/orders/notifications/service'
 import { createAgentChannel } from '@/lib/agent/service';
 import { intakePaymentProof } from '@/lib/payment-proof/intake-service';
 import { quoteDynamicDeliveryForOrder } from '@/lib/delivery/quote-service';
+import {
+  askLocationForQuote,
+  quoteStandaloneLocation,
+} from '@/lib/delivery/quote-request-service';
+import { expandMapsLink } from '@/lib/delivery/maps-link-service';
+import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { createSupabaseDueSelector, createSupabaseWebhookStore } from '@/lib/webhook/store';
-import { handleInboxTick } from '@/lib/webhook/inbox-worker';
+import { handleInboxTick, type InboxWorkerDeps } from '@/lib/webhook/inbox-worker';
 
 // Requiere APIs de Node (service_role, POST a Kapso, OpenAI) — no Edge.
 export const runtime = 'nodejs';
@@ -41,7 +48,10 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'internal_error' }, { status: 500 });
   }
 
-  let deps;
+  // Anotado, y no inferido: `InboxWorkerDeps.processing` es el MISMO tipo que
+  // usa la ruta del webhook, así que un puerto mal escrito falla al compilar en
+  // vez de quedarse sin cablear en silencio.
+  let deps: InboxWorkerDeps;
   try {
     const env = getServerEnv();
     const supabase = getSupabaseAdmin();
@@ -64,6 +74,20 @@ export async function POST(request: Request): Promise<Response> {
         attachOrderLocation: attachLocationForOrder,
         sendMenuCta: sendMenuCtaMessage,
         quoteDynamicDelivery: quoteDynamicDeliveryForOrder,
+        // Estas cuatro faltaban, y su ausencia no se veía: el mismo mensaje
+        // salía atendido o en silencio según quién lo procesara. Un pin suelto
+        // recogido por el recovery no se cotizaba, un "¿cuánto sale el envío?"
+        // caía en el modelo, un pin sin contexto no encontraba su pedido y el
+        // cliente atascado no se escalaba — todo con la fila marcada
+        // `processed`, que es la peor forma de fallar.
+        //
+        // El comentario de arriba dice "EXACTAMENTE las mismas dependencias que
+        // el webhook". Ahora lo son.
+        quoteStandaloneLocation: (input) => quoteStandaloneLocation(input),
+        attachLooseLocation: (input) => attachLooseLocationForOrder(input),
+        expandMapsLink: (url) => expandMapsLink(url),
+        askLocationForQuote: (input) => askLocationForQuote(input),
+        checkStuckCustomer: (phone) => escalateIfStuck(phone),
         outbound: createSupabaseOutboundStore(supabase),
         agentChannel: createAgentChannel(),
         // Vía del worker: el mismo motor canonico que las otras dos.

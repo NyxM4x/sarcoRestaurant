@@ -41,17 +41,34 @@ export interface LocationOrderRow {
 export interface AttachLocationStore {
   findByLocationRequestMessageId(contextId: string): Promise<LocationOrderRow | null>;
   /**
+   * 0028 — el pedido de ESTE teléfono que sigue esperando ubicación, si lo hay.
+   *
+   * Busca por teléfono porque el pin que llega por aquí no trae `context.id`:
+   * no responde a nuestro botón, así que no hay wamid con el que correlacionar.
+   * El teléfono llega ya normalizado a dígitos; la implementación es la que
+   * sabe cómo está guardado el suyo.
+   *
+   * Devuelve el MÁS RECIENTE dentro de una ventana corta y solo si sigue sin
+   * GPS. Opcional: sin este método el pin sin contexto se comporta como antes.
+   */
+  findAwaitingLocationByPhone?(customerPhoneDigits: string): Promise<LocationOrderRow | null>;
+  /**
    * Atómico: UPDATE … SET …, status='confirmed', confirmed_at=? WHERE id=? AND
-   * location_request_message_id=? AND status='awaiting_location' AND
-   * delivery_latitude IS NULL AND delivery_longitude IS NULL. Devuelve la fila
-   * actualizada o `null` si la condición ya no se cumplía (perdió la carrera).
+   * status='awaiting_location' AND delivery_latitude IS NULL AND
+   * delivery_longitude IS NULL. Devuelve la fila actualizada o `null` si la
+   * condición ya no se cumplía (perdió la carrera).
+   *
+   * `contextId` es un guard ADICIONAL, para el pin que sí respondía a nuestra
+   * petición (`location_request_message_id=?`). Con `null` —un pin suelto— el
+   * claim se sostiene sobre `status` + coordenadas NULL, que es lo que impide
+   * la doble escritura.
    *
    * `confirmedAt` viene ya resuelto por el llamador con semántica coalesce
    * (conserva el `confirmed_at` previo si existía; usa "ahora" solo si era NULL).
    */
   attachIfPending(input: {
     orderId: string;
-    contextId: string;
+    contextId: string | null;
     latitude: number;
     longitude: number;
     address: string | null;
@@ -61,15 +78,15 @@ export interface AttachLocationStore {
   /**
    * 6D.2C — variante DINÁMICA: guarda el GPS SIN tocar `status` ni
    * `confirmed_at`. Atómico: UPDATE … SET delivery_latitude/longitude/address/
-   * name WHERE id=? AND location_request_message_id=? AND
-   * status='awaiting_location' AND delivery_latitude IS NULL AND
-   * delivery_longitude IS NULL. Devuelve la fila actualizada (que sigue en
+   * name WHERE id=? AND status='awaiting_location' AND delivery_latitude IS NULL
+   * AND delivery_longitude IS NULL (más `location_request_message_id=?` cuando
+   * hay contexto). Devuelve la fila actualizada (que sigue en
    * `awaiting_location`) o `null` si perdió la carrera. NO confirma: la
    * cotización lo hará después vía `apply_delivery_quote`.
    */
   attachIfPendingDynamic(input: {
     orderId: string;
-    contextId: string;
+    contextId: string | null;
     latitude: number;
     longitude: number;
     address: string | null;
@@ -102,6 +119,14 @@ export type AttachLocationResult =
   | { result: 'location_conflict' }
   | { result: 'concurrent_update' };
 
+/** Las coordenadas del pin, sin el cómo se encontró el pedido. */
+interface PinCoords {
+  latitude: number;
+  longitude: number;
+  address?: string | null;
+  name?: string | null;
+}
+
 function toView(row: LocationOrderRow): AttachedOrderView {
   return { id: row.id, order_number: row.order_number, status: row.status };
 }
@@ -110,8 +135,65 @@ function hasLocation(row: LocationOrderRow): boolean {
   return row.delivery_latitude !== null && row.delivery_longitude !== null;
 }
 
-function coordsMatch(row: LocationOrderRow, input: AttachLocationInput): boolean {
-  return row.delivery_latitude === input.latitude && row.delivery_longitude === input.longitude;
+function coordsMatch(row: LocationOrderRow, pin: PinCoords): boolean {
+  return row.delivery_latitude === pin.latitude && row.delivery_longitude === pin.longitude;
+}
+
+/**
+ * Escribe el GPS en un pedido ya elegido y traduce el desenlace.
+ *
+ * Es el tramo que comparten los dos caminos —el pin que responde a nuestro
+ * botón y el que no—, y está separado justo por eso: entre ellos lo único que
+ * cambia es CÓMO se encontró el pedido, no qué se hace con él. Tenerlo dos
+ * veces sería la forma más fácil de que un cliente acabara atendido distinto
+ * según el botón que tocó.
+ *
+ * `reread` es la relectura ante una carrera perdida: cada camino relee por
+ * donde buscó.
+ */
+async function attachToOrder(
+  store: AttachLocationStore,
+  order: LocationOrderRow,
+  pin: PinCoords,
+  contextId: string | null,
+  reread: () => Promise<LocationOrderRow | null>,
+): Promise<AttachLocationResult> {
+  // 6D.2C: delivery dinámico guarda el GPS pero NO confirma; el pedido sigue
+  // `awaiting_location` hasta que la cotización lo confirme.
+  const updated =
+    order.delivery_pricing === 'dynamic'
+      ? await store.attachIfPendingDynamic({
+          orderId: order.id,
+          contextId,
+          latitude: pin.latitude,
+          longitude: pin.longitude,
+          address: pin.address ?? null,
+          name: pin.name ?? null,
+        })
+      : // Legacy: GPS + confirmación en el mismo UPDATE atómico. Coalesce: si el
+        // pedido ya tenía `confirmed_at` (lo fijó el Flow al pasar a
+        // awaiting_location) se conserva; si era NULL (camino web) se sella
+        // ahora. Nunca se sobrescribe.
+        await store.attachIfPending({
+          orderId: order.id,
+          contextId,
+          latitude: pin.latitude,
+          longitude: pin.longitude,
+          address: pin.address ?? null,
+          name: pin.name ?? null,
+          confirmedAt: order.confirmed_at ?? new Date().toISOString(),
+        });
+
+  if (updated) return { result: 'attached', order: toView(updated) };
+
+  // Perdió la carrera: releer y no sobrescribir.
+  const fresh = await reread();
+  if (fresh && hasLocation(fresh)) {
+    return coordsMatch(fresh, pin)
+      ? { result: 'already_attached', order: toView(fresh) }
+      : { result: 'location_conflict' };
+  }
+  return { result: 'concurrent_update' };
 }
 
 /**
@@ -140,40 +222,68 @@ export async function attachLocation(
     return { result: 'invalid_status' };
   }
 
-  // 6D.2C: delivery dinámico guarda el GPS pero NO confirma; el pedido sigue
-  // `awaiting_location` hasta que la cotización lo confirme.
-  const updated =
-    order.delivery_pricing === 'dynamic'
-      ? await store.attachIfPendingDynamic({
-          orderId: order.id,
-          contextId: input.contextId,
-          latitude: input.latitude,
-          longitude: input.longitude,
-          address: input.address ?? null,
-          name: input.name ?? null,
-        })
-      : // Legacy: GPS + confirmación en el mismo UPDATE atómico. Coalesce: si el
-        // pedido ya tenía `confirmed_at` (lo fijó el Flow al pasar a
-        // awaiting_location) se conserva; si era NULL (camino web) se sella
-        // ahora. Nunca se sobrescribe.
-        await store.attachIfPending({
-          orderId: order.id,
-          contextId: input.contextId,
-          latitude: input.latitude,
-          longitude: input.longitude,
-          address: input.address ?? null,
-          name: input.name ?? null,
-          confirmedAt: order.confirmed_at ?? new Date().toISOString(),
-        });
+  return attachToOrder(store, order, input, input.contextId, () =>
+    store.findByLocationRequestMessageId(input.contextId),
+  );
+}
 
-  if (updated) return { result: 'attached', order: toView(updated) };
+// ── El pin que no responde al botón (0028) ──────────────────────────────────
 
-  // Perdió la carrera: releer y no sobrescribir.
-  const fresh = await store.findByLocationRequestMessageId(input.contextId);
-  if (fresh && hasLocation(fresh)) {
-    return coordsMatch(fresh, input)
-      ? { result: 'already_attached', order: toView(fresh) }
+/**
+ * El cliente armó su pedido, le pedimos la ubicación con el botón… y la mandó
+ * con el clip de WhatsApp de toda la vida.
+ *
+ * Para nosotros son dos mensajes distintos —uno trae `context.id` y el otro
+ * no—, pero para quien lo manda es el mismo gesto: acabo de pedir, aquí vivo.
+ * Sin esto, ese pin se leía como "¿cuánto sale el envío?": el cliente recibía
+ * una tarifa suelta y un "armá tu pedido en el menú" que ya había hecho, y su
+ * pedido se quedaba en `awaiting_location` para siempre — sin total, sin QR y
+ * sin nadie esperándolo.
+ *
+ * Lo que NO cambia: el pin de quien no tiene pedido pendiente se sigue
+ * cotizando como antes. Aquí solo se recupera el caso en el que hay un pedido
+ * esperando exactamente este dato.
+ */
+export interface AttachLooseLocationInput {
+  /** Teléfono del webhook ya normalizado a solo dígitos. */
+  customerPhoneDigits: string;
+  latitude: number;
+  longitude: number;
+  address?: string | null;
+  name?: string | null;
+}
+
+export async function attachLooseLocation(
+  store: AttachLocationStore,
+  input: AttachLooseLocationInput,
+): Promise<AttachLocationResult> {
+  // Sin búsqueda por teléfono no hay nada que intentar: el llamador seguirá por
+  // donde iba, cotizando el pin como suelto.
+  if (!store.findAwaitingLocationByPhone) return { result: 'not_found' };
+  if (!input.customerPhoneDigits) return { result: 'not_found' };
+
+  const order = await store.findAwaitingLocationByPhone(input.customerPhoneDigits);
+  if (!order) return { result: 'not_found' };
+
+  // Estas tres comprobaciones se repiten aunque la consulta ya filtre por
+  // ellas: lo que protege a un pedido de una escritura equivocada no debería
+  // depender de una cláusula SQL que vive en otro archivo.
+  if (hasLocation(order)) {
+    return coordsMatch(order, input)
+      ? { result: 'already_attached', order: toView(order) }
       : { result: 'location_conflict' };
   }
-  return { result: 'concurrent_update' };
+  if (normalizePhone(order.customer_phone) !== input.customerPhoneDigits) {
+    return { result: 'phone_mismatch' };
+  }
+  if (order.status !== 'awaiting_location') {
+    return { result: 'invalid_status' };
+  }
+
+  // `contextId: null` — este pin no responde a ninguna petición nuestra, así
+  // que no hay wamid que exigir en el UPDATE. El claim lo sostienen el estado y
+  // las coordenadas NULL, que es lo que impide la doble escritura.
+  return attachToOrder(store, order, input, null, () =>
+    store.findAwaitingLocationByPhone!(input.customerPhoneDigits),
+  );
 }

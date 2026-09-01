@@ -6,6 +6,12 @@ import { isAgentEligibleContent } from '@/lib/agent/core/run';
 import { isReactionType } from '@/lib/kapso/channel/reaction';
 import { parseLocationMessage, parseStandaloneLocation } from '@/lib/flow/location-message';
 import { isDeliveryQuoteIntent } from './delivery-quote-intent';
+import {
+  extractCoordsFromMapsUrl,
+  findMapsLink,
+  isShortMapsLink,
+  parsePlainCoords,
+} from '@/lib/delivery/maps-link';
 import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isMenuIntent } from './menu-intent';
@@ -202,6 +208,41 @@ export type QuoteStandaloneLocation = (input: {
 }) => Promise<{ result: string }>;
 
 /**
+ * Expansión de un link corto de Google Maps (0029).
+ *
+ * `maps.app.goo.gl/5biYBaWPiPGPPcyB9` no lleva coordenadas dentro: hay que
+ * pedirle a Google la URL larga. Es la ÚNICA parte de este flujo con red, y por
+ * eso es lo único que se inyecta — detectar el link y leer las coordenadas es
+ * puro y vive en `@/lib/delivery/maps-link`.
+ *
+ * Opcional: sin ella, un link corto no se resuelve y el mensaje sigue su camino
+ * de hoy (el agente). Las coordenadas escritas en el texto y los links ya
+ * largos se atienden igual, porque no necesitan salir a ningún lado.
+ */
+export type ExpandMapsLink = (url: string) => Promise<string | null>;
+
+/**
+ * Rescate del pin que llegó sin contexto teniendo un pedido esperando (0028).
+ *
+ * El botón de ubicación que mandamos se contesta desde el propio mensaje, y
+ * bastantes clientes no lo usan: adjuntan su ubicación con el clip de WhatsApp,
+ * como harían en cualquier otro chat. Ese pin llega sin `context.id`, así que
+ * no se puede correlacionar por wamid — pero el pedido que lo espera existe, y
+ * se encuentra por teléfono.
+ *
+ * Opcional: sin ella, ese pin se sigue tratando como una consulta suelta de
+ * tarifa, que es el comportamiento previo.
+ */
+export type AttachLooseLocation = (input: {
+  /** Teléfono del cliente, solo dígitos. */
+  customerPhoneDigits: string;
+  latitude: number;
+  longitude: number;
+  address?: string | null;
+  name?: string | null;
+}) => Promise<AttachLocationResult>;
+
+/**
  * Fallo real al enviar la solicitud de ubicación: el caller marca el evento
  * `failed` (reintentable) y responde 500. El mensaje solo lleva el código de
  * error tipado (nunca teléfono, API keys ni bodies).
@@ -294,6 +335,16 @@ export interface HandleKapsoWebhookParams {
    * responde a nuestra petición se sigue descartando en silencio.
    */
   quoteStandaloneLocation?: QuoteStandaloneLocation;
+  /**
+   * 0028: el pin que llegó sin contexto cuando hay un pedido esperándolo. Sin
+   * ella, ese pin se sigue tratando como consulta suelta de tarifa.
+   */
+  attachLooseLocation?: AttachLooseLocation;
+  /**
+   * 0029: expande el link corto de Google Maps que el cliente manda en vez del
+   * pin. Sin ella, esos links siguen cayendo en el agente.
+   */
+  expandMapsLink?: ExpandMapsLink;
   /** 0027: "¿cuánto sale el envío?" antes de que mande el pin. */
   askLocationForQuote?: AskLocationForQuote;
   /** Avisa al equipo del cliente que lleva muchos mensajes y no consigue pedir. */
@@ -472,11 +523,20 @@ async function processMessage(
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
     quoteStandaloneLocation?: QuoteStandaloneLocation;
+    attachLooseLocation?: AttachLooseLocation;
+    expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
   },
 ): Promise<Record<string, unknown>> {
   const { message, conversationPhone, from } = ctx;
   const { confirmOrder, ensureLocationRequest, attachOrderLocation } = deps;
+
+  // El teléfono del cliente, una sola vez. Es el de la CONVERSACIÓN con el
+  // remitente de respaldo, y tiene que ser el mismo en todos los caminos: si el
+  // que adjunta y el que cotiza usaran teléfonos distintos, el ledger y el
+  // pedido hablarían de clientes distintos y el reuso no encontraría nada.
+  const phoneDigits = normalizePhone(conversationPhone ?? from ?? '');
+  const wamid = typeof message?.id === 'string' ? message.id : null;
 
   // Acceso al menú: se consume aquí y no continúa hacia nfm_reply, ubicación ni
   // creación de pedidos. Activa por (a) intención natural del cliente
@@ -525,6 +585,154 @@ async function processMessage(
     return { ok: true, handled: 'menu_cta', result: sent.result };
   }
 
+  // ── Una ubicación entrante, venga como venga ───────────────────────────────
+  //
+  // Lo que sigue es UN camino con tres puertas: el pin nativo de WhatsApp
+  // (0027/0028), el link de Google Maps y las coordenadas escritas (0029). Las
+  // tres significan lo mismo —"aquí vivo"— y por eso terminan en la misma
+  // función. Tener un camino por puerta era lo que hacía que el mismo cliente
+  // recibiera su QR o silencio según qué botón hubiera encontrado.
+
+  /** Una ubicación ya reducida a números, sin importar cómo llegó. */
+  interface UbicacionEntrante {
+    coords: { lat: number; lng: number };
+    /** WAMID del mensaje que la trajo. Clave de idempotencia del ledger. */
+    sourceMessageId: string;
+    address?: string | null;
+    name?: string | null;
+  }
+
+  /**
+   * El pedido que estaba esperando esta ubicación, si lo hay (0028).
+   *
+   * Se intenta ANTES de cotizar, y ese orden es todo el arreglo. Quien acaba de
+   * armar su pedido y manda su ubicación —con el clip, con un link o copiando
+   * las coordenadas— está contestando lo que le pedimos. Cotizárselo como
+   * consulta de tarifa le devolvía un precio suelto y un "armá tu pedido en el
+   * menú" que ya había hecho, mientras su pedido se quedaba esperando una
+   * ubicación que ya había mandado: sin total, sin QR y sin nadie preparándolo.
+   */
+  const adjuntarUbicacion = async (
+    u: UbicacionEntrante,
+  ): Promise<Record<string, unknown> | null> => {
+    if (!deps.attachLooseLocation) return null;
+    if (!phoneDigits) return null;
+
+    const adjuntada = await deps.attachLooseLocation({
+      customerPhoneDigits: phoneDigits,
+      latitude: u.coords.lat,
+      longitude: u.coords.lng,
+      address: u.address ?? null,
+      name: u.name ?? null,
+    });
+
+    // Ningún pedido esperaba esto: no es un fallo, es la otra mitad del caso.
+    // Vuelve `null` para que el llamador lo cotice suelto.
+    if (adjuntada.result === 'not_found') return null;
+
+    if (adjuntada.result === 'concurrent_update') {
+      // Mismo trato que en el camino con contexto: fallo transitorio, el evento
+      // queda reclamable.
+      throw new LocationAttachRetryError();
+    }
+
+    // Cotizar es lo que convierte el GPS en un total con envío y en el QR. Sin
+    // esto el pedido tendría ubicación y seguiría sin confirmarse: el silencio
+    // de siempre, un paso más adelante.
+    if (
+      (adjuntada.result === 'attached' || adjuntada.result === 'already_attached') &&
+      adjuntada.order.status === 'awaiting_location' &&
+      deps.quoteDynamicDelivery
+    ) {
+      await deps.quoteDynamicDelivery(adjuntada.order.id);
+    }
+
+    return locationBody(adjuntada);
+  };
+
+  /**
+   * Cotización de una ubicación que no adjunta a ningún pedido (0027).
+   *
+   * Para el cliente los tres caminos que llegan aquí significan lo mismo
+   * —"mandé mi ubicación y nadie me dijo nada"—: que no responda a nada, que
+   * responda a una petición que ya no tiene pedido detrás, o que ni siquiera
+   * fuera un pin.
+   */
+  const cotizarUbicacion = async (
+    u: UbicacionEntrante,
+  ): Promise<Record<string, unknown> | null> => {
+    if (!deps.quoteStandaloneLocation) return null;
+    if (!phoneDigits) return null;
+
+    const cotizacion = await deps.quoteStandaloneLocation({
+      customerPhone: phoneDigits,
+      sourceMessageId: u.sourceMessageId,
+      coords: u.coords,
+      phoneNumberId: ctx.phoneNumberId,
+    });
+    return { ok: true, handled: 'delivery_quote', result: cotizacion.result };
+  };
+
+  /** Primero el pedido que espera; si no hay ninguno, la tarifa. */
+  const atenderUbicacion = async (
+    u: UbicacionEntrante,
+  ): Promise<Record<string, unknown> | null> => {
+    const adjuntada = await adjuntarUbicacion(u);
+    if (adjuntada) return adjuntada;
+    return cotizarUbicacion(u);
+  };
+
+  /**
+   * La ubicación que viene dentro de un TEXTO (0029).
+   *
+   * Mucha gente no usa el pin: abre Google Maps, busca su casa y le da a
+   * compartir. Lo que llega es un texto con un link corto, así que hoy ni el
+   * parser de ubicación lo ve ni el detector de "¿cuánto sale el envío?" lo
+   * reconoce — termina en el modelo, que contesta pidiéndole la ubicación que
+   * acaba de mandar.
+   *
+   * Las coordenadas escritas van PRIMERO porque salen gratis: son dos números,
+   * sin red y sin depender del formato de nadie. El link corto es el único que
+   * obliga a salir a internet, y solo se sale si de verdad hay uno.
+   */
+  const ubicacionEnTexto = async (
+    texto: string,
+  ): Promise<{ lat: number; lng: number } | null> => {
+    const escritas = parsePlainCoords(texto);
+    if (escritas) return escritas;
+
+    const link = findMapsLink(texto);
+    if (!link) return null;
+
+    let url = link;
+    if (isShortMapsLink(link)) {
+      // Sin el puerto no se sale a la red: el mensaje sigue su camino de hoy.
+      if (!deps.expandMapsLink) return null;
+      const expandida = await deps.expandMapsLink(link);
+      if (!expandida) return null;
+      url = expandida;
+    }
+
+    const extraida = extractCoordsFromMapsUrl(url);
+    return extraida ? extraida.coords : null;
+  };
+
+  // Va DESPUÉS del menú y ANTES de "¿cuánto sale el envío?", y ese orden
+  // importa: "cotízame aquí <link>" lleva palabra de coste y palabra de lugar,
+  // así que `isDeliveryQuoteIntent` lo reconocería y le pediría la ubicación
+  // que acaba de mandar. Quien YA mandó su ubicación no tiene que mandarla otra
+  // vez.
+  if (menuIntentBody !== null && wamid) {
+    const desdeTexto = await ubicacionEnTexto(menuIntentBody);
+    if (desdeTexto) {
+      const atendida = await atenderUbicacion({
+        coords: desdeTexto,
+        sourceMessageId: wamid,
+      });
+      if (atendida) return atendida;
+    }
+  }
+
   // "¿Cuánto sale el envío?" (0027). Va DESPUÉS del menú a propósito: quien
   // escribe "quiero pedir, cuánto sale el envío" quiere pedir, y el CTA sigue
   // ganando. Aquí solo se recogen los mensajes que HOY caen en el modelo — y
@@ -550,35 +758,31 @@ async function processMessage(
   // Ubicación entrante (Fase 3.3B): se comprueba antes que nfm_reply porque
   // `location` no es un mensaje `interactive`.
   if (message?.type === 'location') {
-    const phoneDigits = normalizePhone(conversationPhone ?? from ?? '');
-
-    /**
-     * Cotización de un pin que no adjunta a ningún pedido (0027).
-     *
-     * Se llega aquí por dos caminos distintos que significan lo mismo para el
-     * cliente —"mandé mi ubicación y nadie me dijo nada"—: que el pin no
-     * responda a nada (sin `context.id`), o que responda a una petición que ya
-     * no tiene pedido detrás.
-     */
-    const cotizarSuelta = async (): Promise<Record<string, unknown> | null> => {
-      if (!deps.quoteStandaloneLocation) return null;
+    /** El pin como ubicación entrante, si sus coordenadas son legibles. */
+    const pin = ((): UbicacionEntrante | null => {
       const suelta = parseStandaloneLocation(message);
       if (!suelta.ok) return null;
-      if (!phoneDigits) return null;
-
-      const cotizacion = await deps.quoteStandaloneLocation({
-        customerPhone: phoneDigits,
-        sourceMessageId: suelta.data.messageId,
+      return {
         coords: { lat: suelta.data.latitude, lng: suelta.data.longitude },
-        phoneNumberId: ctx.phoneNumberId,
-      });
-      return { ok: true, handled: 'delivery_quote', result: cotizacion.result };
-    };
+        sourceMessageId: suelta.data.messageId,
+        address: suelta.data.address ?? null,
+        name: suelta.data.name ?? null,
+      };
+    })();
+
+    const adjuntarSuelta = async () => (pin ? adjuntarUbicacion(pin) : null);
+    const cotizarSuelta = async () => (pin ? cotizarUbicacion(pin) : null);
 
     const parsedLocation = parseLocationMessage(message);
     if (!parsedLocation.ok) {
-      // Un pin sin `context.id` NO es un payload roto: es alguien preguntando
-      // cuánto le sale el envío. Antes de rechazarlo se intenta cotizar.
+      // Un pin sin `context.id` NO es un payload roto. Son dos personas
+      // distintas, y en este orden: la que ya armó su pedido y contesta con el
+      // clip de WhatsApp en vez de con el botón, y la que solo pregunta cuánto
+      // le sale el envío. Primero se mira si hay un pedido esperando; si no lo
+      // hay, es una consulta de tarifa.
+      const adjuntada = await adjuntarSuelta();
+      if (adjuntada) return adjuntada;
+
       const cotizada = await cotizarSuelta();
       if (cotizada) return cotizada;
 
@@ -616,9 +820,14 @@ async function processMessage(
     }
 
     // El pin respondía a una petición nuestra, pero ya no hay pedido detrás: el
-    // cliente reutilizó un botón viejo, o el pedido se fue. Su ubicación sigue
-    // siendo una pregunta legítima, así que se cotiza en vez de callar.
+    // cliente reutilizó un botón viejo, o el pedido se fue. Puede que tenga otro
+    // pedido esperando ubicación —el botón viejo estaba a mano y lo tocó—, y en
+    // ese caso el pin es para ese. Si tampoco, su ubicación sigue siendo una
+    // pregunta legítima y se cotiza en vez de callar.
     if (attach.result === 'not_found') {
+      const adjuntada = await adjuntarSuelta();
+      if (adjuntada) return adjuntada;
+
       const cotizada = await cotizarSuelta();
       if (cotizada) return cotizada;
     }
@@ -642,7 +851,6 @@ async function processMessage(
     return { ok: false, handled: 'nfm_reply', result: 'invalid', reason: 'missing_message_id' };
   }
 
-  const phoneDigits = normalizePhone(conversationPhone ?? from ?? '');
   const confirm = await confirmOrder({
     orderDraftId: parsed.data.order_draft_id,
     flowToken: parsed.data.flow_token,
@@ -833,6 +1041,8 @@ async function processEnvelopes(
     sendMenuCta: SendMenuCta;
     quoteDynamicDelivery?: QuoteDynamicDelivery;
     quoteStandaloneLocation?: QuoteStandaloneLocation;
+    attachLooseLocation?: AttachLooseLocation;
+    expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
   },
 ): Promise<EnvelopeResult[]> {
@@ -1409,6 +1619,8 @@ async function runBusiness(
       sendMenuCta,
       quoteDynamicDelivery: params.quoteDynamicDelivery,
       quoteStandaloneLocation: params.quoteStandaloneLocation,
+      attachLooseLocation: params.attachLooseLocation,
+      expandMapsLink: params.expandMapsLink,
       askLocationForQuote: params.askLocationForQuote,
     });
 
