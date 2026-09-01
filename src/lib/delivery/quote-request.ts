@@ -173,6 +173,35 @@ export const ASK_LOCATION_FOR_QUOTE_TEXT =
   'botón de WhatsApp y te la cotizo al toque, sin que tengas que armar el pedido antes.';
 
 /**
+ * El link de Google Maps que NO trae la ubicación (0029, 01-09-2026).
+ *
+ * Medido con dos links reales del negocio: hay DOS clases de link corto y solo
+ * una sirve.
+ *
+ *   · Compartir un LUGAR del buscador expande a
+ *     `/maps/place/…/@lat,lng,17z/data=…!3d-17.84!4d-63.17` → hay coordenadas,
+ *     y ese caso se cotiza solo.
+ *   · Compartir "tu ubicación" desde la app expande a
+ *     `maps.google.com/?q=Av+Santos+Dumont,+Santa+Cruz&ftid=0x93f1…` → NO hay
+ *     coordenadas. Google comparte el NOMBRE DE LA CALLE y un identificador
+ *     suyo, y ni el User-Agent ni seguir el segundo salto cambian eso.
+ *
+ * Y no, no se geocodifica ese texto para salir del paso: "Avenida Santos
+ * Dumont" devuelve el punto medio de una avenida de varios kilómetros —a 3,7 km
+ * del local en la prueba— y el tramo del tarifario mide uno. Sería cobrar mal,
+ * que es peor que no cobrar. El mismo geocoder ofrecía como tercera opción una
+ * Santa Cruz de la Sierra en Cáceres, España.
+ *
+ * Así que se dice lo que pasa. El texto NO repite "compartí tu ubicación" —eso
+ * es justo lo que el cliente cree que hizo, y repetírselo lo deja mandando el
+ * mismo link— sino que explica qué le faltó al link y da los toques exactos.
+ */
+export const QUOTE_LINK_WITHOUT_COORDS_TEXT =
+  'Ese link me llega con el nombre de la calle, pero sin el punto exacto 📍 ' +
+  'Mandámela como ubicación y te la cotizo al toque: tocá 📎 → Ubicación → ' +
+  'Enviar tu ubicación actual.';
+
+/**
  * Cupo agotado. NO se le niega el dato: se le manda por el camino que además
  * termina en un pedido.
  *

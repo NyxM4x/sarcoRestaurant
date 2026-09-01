@@ -183,6 +183,8 @@ export type AskLocationForQuote = (input: {
   toDigits: string;
   phoneNumberId: string | null;
   sourceMessageId: string;
+  /** Qué texto toca. Ausente = el de siempre. Ver `askLocationForQuote`. */
+  reason?: 'asked' | 'link_without_coords';
 }) => Promise<{ ok: boolean }>;
 
 /**
@@ -593,6 +595,20 @@ async function processMessage(
   // función. Tener un camino por puerta era lo que hacía que el mismo cliente
   // recibiera su QR o silencio según qué botón hubiera encontrado.
 
+  /**
+   * Qué había en el texto.
+   *
+   * `link_ilegible` es su propio caso y no un `nada` cualquiera: hay una
+   * diferencia enorme entre alguien que escribió algo sin ubicación y alguien
+   * que CREE que acaba de mandarla. Al primero no hay que decirle nada; al
+   * segundo, decirle "compartila con el botón" lo deja mandando el mismo link
+   * otra vez — que es lo que pasó el 01-09-2026, dos veces.
+   */
+  type UbicacionEnTexto =
+    | { tipo: 'coordenadas'; coords: { lat: number; lng: number } }
+    | { tipo: 'link_ilegible' }
+    | { tipo: 'nada' };
+
   /** Una ubicación ya reducida a números, sin importar cómo llegó. */
   interface UbicacionEntrante {
     coords: { lat: number; lng: number };
@@ -695,26 +711,26 @@ async function processMessage(
    * sin red y sin depender del formato de nadie. El link corto es el único que
    * obliga a salir a internet, y solo se sale si de verdad hay uno.
    */
-  const ubicacionEnTexto = async (
-    texto: string,
-  ): Promise<{ lat: number; lng: number } | null> => {
+  const ubicacionEnTexto = async (texto: string): Promise<UbicacionEnTexto> => {
     const escritas = parsePlainCoords(texto);
-    if (escritas) return escritas;
+    if (escritas) return { tipo: 'coordenadas', coords: escritas };
 
     const link = findMapsLink(texto);
-    if (!link) return null;
+    if (!link) return { tipo: 'nada' };
 
     let url = link;
     if (isShortMapsLink(link)) {
       // Sin el puerto no se sale a la red: el mensaje sigue su camino de hoy.
-      if (!deps.expandMapsLink) return null;
+      if (!deps.expandMapsLink) return { tipo: 'nada' };
       const expandida = await deps.expandMapsLink(link);
-      if (!expandida) return null;
+      if (!expandida) return { tipo: 'link_ilegible' };
       url = expandida;
     }
 
     const extraida = extractCoordsFromMapsUrl(url);
-    return extraida ? extraida.coords : null;
+    return extraida
+      ? { tipo: 'coordenadas', coords: extraida.coords }
+      : { tipo: 'link_ilegible' };
   };
 
   // Va DESPUÉS del menú y ANTES de "¿cuánto sale el envío?", y ese orden
@@ -724,12 +740,45 @@ async function processMessage(
   // vez.
   if (menuIntentBody !== null && wamid) {
     const desdeTexto = await ubicacionEnTexto(menuIntentBody);
-    if (desdeTexto) {
+
+    if (desdeTexto.tipo === 'coordenadas') {
       const atendida = await atenderUbicacion({
-        coords: desdeTexto,
+        coords: desdeTexto.coords,
         sourceMessageId: wamid,
       });
       if (atendida) return atendida;
+    }
+
+    /*
+      Un link de Maps del que no se pudo sacar el punto.
+
+      Hay dos clases de link corto y solo una sirve: compartir un LUGAR trae
+      `!3d/!4d`, pero compartir "tu ubicación" desde la app expande a
+      `?q=Av+Santos+Dumont…&ftid=…`, con el nombre de la calle y nada más.
+      Medido con links reales del negocio; ni el User-Agent ni el segundo salto
+      lo cambian, y geocodificar ese texto da el punto medio de una avenida de
+      kilómetros — cobrar mal es peor que no cobrar.
+
+      Antes esto caía al modelo, que contestaba "compartí tu ubicación con el
+      botón" a alguien convencido de haberlo hecho. Ahora se le dice qué le
+      faltó al link y qué tocar, por el camino determinista.
+    */
+    if (desdeTexto.tipo === 'link_ilegible' && deps.askLocationForQuote) {
+      const toDigits = normalizePhone(from ?? conversationPhone ?? '');
+      if (toDigits) {
+        const avisada = await deps.askLocationForQuote({
+          toDigits,
+          phoneNumberId: ctx.phoneNumberId,
+          sourceMessageId: wamid,
+          reason: 'link_without_coords',
+        });
+        return {
+          ok: avisada.ok,
+          handled: 'delivery_quote_prompt',
+          result: avisada.ok ? 'sent' : 'failed',
+          reason: 'link_without_coords',
+        };
+      }
     }
   }
 

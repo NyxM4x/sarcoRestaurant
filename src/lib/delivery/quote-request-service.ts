@@ -9,6 +9,7 @@ import { feeForMeters } from './fee';
 import { readRainSurcharge } from './settings';
 import {
   ASK_LOCATION_FOR_QUOTE_TEXT,
+  QUOTE_LINK_WITHOUT_COORDS_TEXT,
   buildQuoteText,
   hasQuoteQuota,
   isSamePoint,
@@ -190,9 +191,22 @@ async function leerLluvia(supabase: SupabaseClient): Promise<boolean> {
 export async function askLocationForQuote(input: {
   toDigits: string;
   phoneNumberId: string | null;
+  /**
+   * Por qué se le pide. Cambia el TEXTO y nada más.
+   *
+   * `link_without_coords` es el cliente que ya creyó compartir su ubicación y
+   * mandó un link de Maps que no traía el punto. Repetirle el texto de siempre
+   * —"compartila con el botón"— lo deja mandando el mismo link otra vez, que es
+   * exactamente lo que se vio en las dos conversaciones del 01-09-2026.
+   */
+  reason?: 'asked' | 'link_without_coords';
 }): Promise<{ ok: boolean }> {
+  const texto =
+    input.reason === 'link_without_coords'
+      ? QUOTE_LINK_WITHOUT_COORDS_TEXT
+      : ASK_LOCATION_FOR_QUOTE_TEXT;
   try {
-    const enviado = await getKapsoClient().sendText(input.toDigits, ASK_LOCATION_FOR_QUOTE_TEXT, {
+    const enviado = await getKapsoClient().sendText(input.toDigits, texto, {
       phoneNumberId: input.phoneNumberId ?? undefined,
     });
     return { ok: enviado.ok };

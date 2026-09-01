@@ -99,6 +99,40 @@ describe('extractCoordsFromMapsUrl — otros formatos', () => {
   });
 });
 
+describe('el link que comparte "tu ubicacion" y NO trae el punto', () => {
+  /**
+   * El fallo real del 01-09-2026, con el link que mandó el negocio
+   * (`maps.app.goo.gl/EdpqyyUHJW2iQR8w6`). Google lo expande a esto:
+   */
+  const SIN_PUNTO =
+    'https://maps.google.com?q=Av+Santos+Dumont,+Santa+Cruz+de+la+Sierra' +
+    '&ftid=0x93f1ea1cbec3efe5:0xf4d403845c2d52b7&entry=gps&shh=CAE&g_st=ic';
+
+  it('devuelve null en vez de inventarse un punto', () => {
+    /*
+      Hay DOS clases de link corto:
+
+        · compartir un LUGAR del buscador  → /maps/place/…!3d…!4d…  → hay punto
+        · compartir "TU UBICACIÓN" desde la app → ?q=<calle>&ftid=… → no hay
+
+      En el segundo, Google comparte el NOMBRE DE LA CALLE y un identificador
+      suyo. Ni el User-Agent ni seguir el segundo salto cambian eso: se probó.
+    */
+    expect(extractCoordsFromMapsUrl(SIN_PUNTO)).toBeNull();
+  });
+
+  it('el `ftid` hexadecimal NO se confunde con coordenadas', () => {
+    // `0x93f1ea1cbec3efe5:0xf4d403845c2d52b7` está lleno de dígitos y puntos
+    // suspendidos de letras. Un extractor descuidado saca números de ahí.
+    const res = extractCoordsFromMapsUrl(SIN_PUNTO);
+    expect(res).toBeNull();
+  });
+
+  it('y el nombre de la calle tampoco se lee como coordenadas escritas', () => {
+    expect(parsePlainCoords(SIN_PUNTO)).toBeNull();
+  });
+});
+
 describe('isGoogleMapsUrl — la allowlist', () => {
   it.each([
     'https://maps.app.goo.gl/5biYBaWPiPGPPcyB9',

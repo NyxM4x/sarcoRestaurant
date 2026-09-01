@@ -506,9 +506,59 @@ Sin eso, "cotízame aquí `<link>`" lleva palabra de coste y palabra de lugar, a
 que el detector del 5d lo reconocería y le pediría la ubicación que acaba de
 mandar.
 
+### 5h.1 — El link que no trae la ubicación (corregido el mismo día)
+
+El 5h se probó en producción y **falló con dos clientes reales**. Los dos
+mandaron el mismo link, los dos recibieron *"compartí tu ubicación con el botón
+de WhatsApp"* y los dos se quedaron sin cotización.
+
+La primera sospecha fue el prompt del agente. **No era eso**: el modelo contestó
+exactamente lo que le toca. El fallo estaba en que el determinista nunca llegó a
+atender el link, y la causa aparece al expandirlo de verdad:
+
+```
+maps.app.goo.gl/EdpqyyUHJW2iQR8w6
+  → maps.google.com?q=Av+Santos+Dumont,+Santa+Cruz&ftid=0x93f1ea1c…&entry=gps
+```
+
+**No hay coordenadas.** Hay un nombre de calle y un identificador de Google.
+
+Hay **dos clases de link corto** y solo una sirve:
+
+| Cómo lo compartió el cliente | A qué expande | ¿Sirve? |
+|---|---|---|
+| Buscó un LUGAR y lo compartió | `/maps/place/…/@lat,lng/data=…!3d…!4d…` | **Sí** |
+| Compartió "tu ubicación" desde la app | `?q=<calle>&ftid=<hex>&entry=gps` | **No** |
+
+Y el segundo es, con diferencia, el que más manda la gente — es el que sale al
+tocar "compartir mi ubicación" en Google Maps.
+
+Se comprobó que no hay nada que rascar: ni cambiando el User-Agent (móvil, PC,
+ninguno) ni siguiendo el segundo salto aparecen coordenadas. Tampoco están en el
+HTML.
+
+**Y no se geocodifica ese texto para salir del paso.** Medido con el geocoder
+que ya usamos: "Avenida Santos Dumont" devuelve el punto medio de una avenida de
+varios kilómetros, a 3,7 km del local. El tramo del tarifario mide uno, así que
+el error son dos o tres escalones de tarifa — cobrar mal es peor que no cobrar.
+El mismo geocoder ofrecía como tercera opción una *Santa Cruz de la Sierra en
+Cáceres, España*.
+
+**Lo que se hace entonces:** se le dice qué pasó. Un texto determinista propio,
+distinto del genérico:
+
+> Ese link me llega con el nombre de la calle, pero sin el punto exacto 📍
+> Mandámela como ubicación y te la cotizo al toque: tocá 📎 → Ubicación →
+> Enviar tu ubicación actual.
+
+Que sea **distinto** es el punto entero. Repetirle "compartí tu ubicación" a
+alguien convencido de que acaba de hacerlo lo deja mandando el mismo link otra
+vez, que es exactamente lo que se vio en las dos conversaciones.
+
 Archivos: `src/lib/delivery/maps-link.ts` (puro: detección, cascada y
-coordenadas escritas), `maps-link-service.ts` (la expansión, lo único con red) y
-el enganche en `src/lib/webhook/kapso.ts`. Sin migraciones.
+coordenadas escritas), `maps-link-service.ts` (la expansión, lo único con red),
+`QUOTE_LINK_WITHOUT_COORDS_TEXT` en `quote-request.ts` y el enganche en
+`src/lib/webhook/kapso.ts`. Sin migraciones.
 
 ---
 

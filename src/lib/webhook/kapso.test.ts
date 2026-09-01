@@ -18,6 +18,10 @@ import {
 } from './kapso';
 import { FakeWebhookEventStore } from './fake-store';
 import { MENU_TRIGGER_TEXT } from './menu-trigger';
+import {
+  ASK_LOCATION_FOR_QUOTE_TEXT,
+  QUOTE_LINK_WITHOUT_COORDS_TEXT,
+} from '@/lib/delivery/quote-request';
 import type { ConfirmOrderInput, ConfirmOrderResult } from '@/lib/orders/confirm';
 import type { EnsureLocationResult } from '@/lib/orders/location';
 import type { AttachLocationInput, AttachLocationResult } from '@/lib/orders/attach-location';
@@ -1746,6 +1750,85 @@ describe('handleKapsoWebhook — ubicación compartida por link de Google Maps',
 
     expect(standalone.calls).toEqual([]);
     expect(res.body.handled).toBe('ignored');
+  });
+
+  it('un link SIN punto no cae en el modelo: se le dice qué le faltó', async () => {
+    /*
+      El fallo del 01-09-2026. El cliente mandó
+      `maps.app.goo.gl/EdpqyyUHJW2iQR8w6`, que Google expande a
+      `?q=Av+Santos+Dumont…&ftid=…` — sin coordenadas.
+
+      Antes esto se iba al modelo, que contestaba "compartí tu ubicación con el
+      botón de WhatsApp" a alguien convencido de que acababa de hacerlo. Lo hizo
+      dos veces, con dos clientes, y los dos se quedaron sin cotización.
+    */
+    const SIN_PUNTO =
+      'https://maps.google.com?q=Av+Santos+Dumont,+Santa+Cruz&ftid=0x93f1ea:0xf4d403&entry=gps';
+    const ask: Array<Parameters<AskLocationForQuote>[0]> = [];
+    const askFn: AskLocationForQuote = async (input) => {
+      ask.push(input);
+      return { ok: true };
+    };
+    const standalone = fakeStandalone();
+
+    const res = await callTexto(CORTO, {
+      expand: fakeExpand(SIN_PUNTO).fn,
+      standalone: standalone.fn,
+      ask: askFn,
+    });
+
+    // Se le contesta, y por el camino determinista.
+    expect(ask).toHaveLength(1);
+    expect(ask[0].reason).toBe('link_without_coords');
+    // No se cotiza nada: no hay punto que medir.
+    expect(standalone.calls).toEqual([]);
+    // Y NO queda para el agente.
+    expect(res.body.handled).toBe('delivery_quote_prompt');
+  });
+
+  it('el aviso del link no se confunde con el "¿cuánto sale el envío?" de siempre', () => {
+    // Dos textos distintos para dos situaciones distintas. Repetirle al del
+    // link el texto genérico es lo que lo deja mandando el mismo link.
+    expect(QUOTE_LINK_WITHOUT_COORDS_TEXT).not.toBe(ASK_LOCATION_FOR_QUOTE_TEXT);
+    // Dice qué le faltó al link, no "compartí tu ubicación" a secas.
+    expect(QUOTE_LINK_WITHOUT_COORDS_TEXT).toMatch(/punto exacto|sin el punto/i);
+    // Y da el camino concreto, con los toques que hay que dar.
+    expect(QUOTE_LINK_WITHOUT_COORDS_TEXT).toContain('Ubicación');
+  });
+
+  it('un link que SÍ trae punto sigue cotizando, no avisando', async () => {
+    // La regresión que hay que evitar: el aviso nuevo no puede comerse el caso
+    // que ya funcionaba.
+    const ask: Array<Parameters<AskLocationForQuote>[0]> = [];
+    const askFn: AskLocationForQuote = async (input) => {
+      ask.push(input);
+      return { ok: true };
+    };
+    const standalone = fakeStandalone();
+
+    await callTexto(CORTO, {
+      expand: fakeExpand().fn, // el LARGO, con !3d/!4d
+      loose: fakeLoose({ result: 'not_found' }).fn,
+      standalone: standalone.fn,
+      ask: askFn,
+    });
+
+    expect(standalone.calls).toHaveLength(1);
+    expect(ask).toEqual([]);
+  });
+
+  it('si el link no se puede expandir tampoco se calla', async () => {
+    // Google caído o formato cambiado: sigue siendo un cliente que cree que
+    // mandó su ubicación.
+    const ask: Array<Parameters<AskLocationForQuote>[0]> = [];
+    const askFn: AskLocationForQuote = async (input) => {
+      ask.push(input);
+      return { ok: true };
+    };
+
+    await callTexto(CORTO, { expand: fakeExpand(null).fn, ask: askFn });
+    expect(ask).toHaveLength(1);
+    expect(ask[0].reason).toBe('link_without_coords');
   });
 
   it('la intención de MENÚ sigue ganando: quien quiere pedir, pide', async () => {
