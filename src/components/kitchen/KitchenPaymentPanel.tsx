@@ -73,21 +73,28 @@ export function KitchenPaymentPanel({
   const sueltos = payment?.unlinkedProofs ?? [];
 
   return (
-    <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2.5">
+    <div className="rounded-md bg-zinc-100 px-2 py-1.5">
+      {/* Rótulo y cifra en UNA línea.
+ 
+          Apilados ocupaban 42 px de los 310 que mide la tarjeta en la tablet de
+          cocina, y no por decir más: el rótulo es corto y la cifra es corta.
+          Puestos en la misma línea dicen lo mismo en 20 px, y la mitad
+          recuperada es una línea de producto que ahora se ve sin scroll.
+ 
+          El rótulo dice QUÉ es la cifra. "Pago: Bs 48" invita a compararla con
+          cualquier cosa; "A cobrar por QR" dice exactamente qué tiene que decir
+          el comprobante que se está mirando. */}
       <div className="flex items-baseline justify-between gap-2">
-        {/* El rótulo dice QUÉ es la cifra. "Pago: Bs 48" invita a compararla con
-            cualquier cosa; "A cobrar por QR" dice exactamente qué tiene que
-            decir el comprobante que se está mirando. */}
-        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+        <p className="text-[10px] font-bold uppercase leading-none tracking-wider text-zinc-500">
           A cobrar por QR
         </p>
-        <p className="text-lg font-extrabold tabular-nums text-zinc-900">
+        <p className="text-base font-extrabold leading-none tabular-nums text-zinc-900">
           {formatBs(amountDueByQr)}
         </p>
       </div>
 
       {attempt === null ? (
-        <p className="mt-1 text-sm font-semibold text-zinc-500">
+        <p className="mt-1 text-xs font-semibold leading-tight text-zinc-500">
           {sueltos.length > 0 ? 'Comprobante sin asociar' : 'Sin comprobante'}
         </p>
       ) : (
@@ -98,7 +105,7 @@ export function KitchenPaymentPanel({
           Se muestran igualmente: es la señal de que algo llegó y alguien tiene
           que mirarlo, que es justo lo que se perdía cuando no se pintaban. */}
       {sueltos.length > 0 && (
-        <ul className="mt-2 space-y-1.5">
+        <ul className="mt-1.5 space-y-1">
           {sueltos.map((p) => (
             <ProofRow key={p.id} proof={p} />
           ))}
@@ -166,7 +173,7 @@ function AttemptBlock({
       {!mostrarAcciones && (
         <div className="mt-1.5">
           <span
-            className={`rounded px-2 py-1 text-sm font-bold ring-1 ${TONE_CLASSES[attempt.tone]}`}
+            className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-bold leading-tight ring-1 ${TONE_CLASSES[attempt.tone]}`}
           >
             {attempt.statusLabel}
           </span>
@@ -174,7 +181,7 @@ function AttemptBlock({
       )}
 
       {attempt.proofs.length > 0 && (
-        <ul className="mt-2 space-y-1.5">
+        <ul className="mt-1.5 space-y-1">
           {attempt.proofs.map((p) => (
             <ProofRow key={p.id} proof={p} />
           ))}
@@ -182,24 +189,24 @@ function AttemptBlock({
       )}
 
       {error && (
-        <p role="alert" className="mt-2 text-sm font-semibold text-red-700">
+        <p role="alert" className="mt-1.5 text-xs font-semibold leading-tight text-red-700">
           {error}
         </p>
       )}
       {notice && (
-        <p role="status" className="mt-2 text-sm font-semibold text-amber-800">
+        <p role="status" className="mt-1.5 text-xs font-semibold leading-tight text-amber-800">
           {notice}
         </p>
       )}
 
       {mostrarAcciones && (
-        <div className="mt-2.5">
+        <div className="mt-1.5">
           {/* Doble confirmación en AMBAS decisiones, igual que en el panel: en
               una pantalla táctil de cocina un roce accidental es más probable,
               no menos, y esto manda un WhatsApp al cliente. */}
           {confirmar !== null ? (
             <div>
-              <p className="mb-1.5 text-sm font-bold text-zinc-800">
+              <p className="mb-1 text-xs font-bold leading-tight text-zinc-800">
                 {confirmar === 'accept'
                   ? '¿Confirmar que este pago es correcto?'
                   : '¿Rechazar este pago?'}
@@ -209,7 +216,7 @@ function AttemptBlock({
                   type="button"
                   disabled={pending}
                   onClick={() => decide(confirmar)}
-                  className={`h-12 flex-1 rounded-lg text-base font-extrabold text-white disabled:opacity-50 ${
+                  className={`h-11 flex-1 rounded-lg text-sm font-extrabold text-white disabled:opacity-50 ${
                     confirmar === 'accept'
                       ? 'bg-emerald-600 active:bg-emerald-700'
                       : 'bg-red-600 active:bg-red-700'
@@ -221,7 +228,7 @@ function AttemptBlock({
                   type="button"
                   disabled={pending}
                   onClick={() => setConfirmar(null)}
-                  className="h-12 w-20 rounded-lg bg-zinc-300 text-base font-bold text-zinc-800 active:bg-zinc-400 disabled:opacity-50"
+                  className="h-11 w-16 rounded-lg bg-zinc-300 text-sm font-bold text-zinc-800 active:bg-zinc-400 disabled:opacity-50"
                 >
                   No
                 </button>
@@ -233,7 +240,7 @@ function AttemptBlock({
                 type="button"
                 disabled={pending}
                 onClick={() => setConfirmar('accept')}
-                className="h-12 flex-1 rounded-lg bg-emerald-600 text-base font-extrabold text-white active:bg-emerald-700 disabled:opacity-50"
+                className="h-11 flex-1 rounded-lg bg-emerald-600 text-sm font-extrabold text-white active:bg-emerald-700 disabled:opacity-50"
               >
                 Confirmar pago
               </button>
@@ -241,7 +248,7 @@ function AttemptBlock({
                 type="button"
                 disabled={pending}
                 onClick={() => setConfirmar('reject')}
-                className="h-12 rounded-lg border-2 border-red-600 px-4 text-base font-extrabold text-red-700 active:bg-red-50 disabled:opacity-50"
+                className="h-11 rounded-lg border-2 border-red-600 px-3 text-sm font-extrabold text-red-700 active:bg-red-50 disabled:opacity-50"
               >
                 Rechazar
               </button>
@@ -261,12 +268,12 @@ function AttemptBlock({
 function ProofRow({ proof }: { proof: ProofView }) {
   if (!proof.isAvailable) {
     return (
-      <li className="flex items-center gap-2 rounded-md bg-red-50 px-2 py-1.5">
-        <span className="text-xs font-bold uppercase tracking-wide text-red-700">
+      <li className="flex items-center gap-1.5 rounded bg-red-50 px-2 py-1">
+        <span className="text-[11px] font-bold uppercase leading-tight tracking-wide text-red-700">
           Archivo no disponible
         </span>
         {proof.declaredLabel && (
-          <span className="text-xs font-semibold text-red-600">({proof.declaredLabel})</span>
+          <span className="text-[11px] font-semibold text-red-600">({proof.declaredLabel})</span>
         )}
       </li>
     );
@@ -278,7 +285,7 @@ function ProofRow({ proof }: { proof: ProofView }) {
         href={fileUrl(proof.id)}
         target="_blank"
         rel="noreferrer"
-        className="flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 text-sm font-bold uppercase tracking-wide text-white active:bg-zinc-900"
+        className="flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 text-xs font-bold uppercase tracking-wide text-white active:bg-zinc-900"
       >
         Ver comprobante
         {proof.isDuplicate && (

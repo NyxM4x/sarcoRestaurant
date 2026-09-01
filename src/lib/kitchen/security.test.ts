@@ -203,9 +203,57 @@ describe('pantalla de cocina — accesibilidad y toque', () => {
   });
 
   it('los botones primarios son objetivos táctiles grandes (>= 56 px)', () => {
+    /*
+      El listón sigue siendo 56 px, aunque la tarjeta se rediseñó para que
+      cupieran seis pedidos en la tablet de 12,5" en vez de tres.
+ 
+      Al compactar, estos dos botones bajaron a 48 px —que cumple de sobra el
+      mínimo de la WCAG (44)— y este test lo cazó. Se revirtieron: 44 es el
+      mínimo para un dedo cualquiera, y este proyecto decidió pedir más para una
+      mano con grasa y prisa. Los píxeles se recortaron del bloque de pago, que
+      se lee y no se pulsa.
+    */
     const card = componentSrc('KitchenTicketCard.tsx');
-    expect(card).toMatch(/h-16 flex-1/); // botón gigante de avance: 64 px
-    expect(card).toMatch(/h-16 w-16/); // basurero cuadrado: 64 px
+    expect(card).toMatch(/h-14 flex-1/); // botón de avance: 56 px
+    expect(card).toMatch(/h-14 w-14/); // basurero cuadrado: 56 px
+  });
+
+  it('ningún control de la tarjeta baja del mínimo táctil de 44 px', () => {
+    /*
+      La otra mitad de lo anterior: los secundarios.
+
+      Al compactar la tarjeta para la tablet de 12,5", el botón de RETORNAR bajó
+      a 36 px y el enlace del comprobante a 40. Se tocan menos que INICIAR, no
+      menos fuerte — y el tamaño de un dedo no depende de la frecuencia con la
+      que se usa.
+
+      Se recorren las cadenas de clases del fuente y se mira la altura de las
+      que tienen forma de control: `rounded` más un fondo o un borde. No se usa
+      un regex de una línea a propósito: el que había aquí antes no cazaba un
+      `h-9` inyectado a mano, y un test de accesibilidad que no falla nunca es
+      peor que no tenerlo, porque además da tranquilidad.
+    */
+    const MINIMO_PX = 44;
+    const REM = 4; // Tailwind: h-11 = 11 × 4 px = 44 px.
+
+    for (const archivo of ['KitchenTicketCard.tsx', 'KitchenPaymentPanel.tsx']) {
+      const src = componentSrc(archivo);
+      const chicos: string[] = [];
+
+      // Toda cadena entrecomillada del fuente: las clases viajan así, tanto en
+      // `className="…"` como en las ramas de un ternario.
+      for (const [, cadena] of src.matchAll(/["']([^"'\n]{10,})["']/g)) {
+        const alto = /(?:^|\s)h-(\d+)(?:\s|$)/.exec(cadena);
+        if (!alto) continue;
+        const pareceControl =
+          cadena.includes('rounded') &&
+          (cadena.includes('bg-') || cadena.includes('border-'));
+        if (!pareceControl) continue;
+        if (Number(alto[1]) * REM < MINIMO_PX) chicos.push(cadena.slice(0, 60));
+      }
+
+      expect(chicos, `${archivo}: control(es) por debajo de ${MINIMO_PX} px`).toEqual([]);
+    }
   });
 
   it('un solo reloj compartido alimenta todos los temporizadores', () => {
@@ -222,12 +270,26 @@ describe('pantalla de cocina — accesibilidad y toque', () => {
     expect(componentSrc('KitchenBoardScreen.tsx')).toContain('useState<number>(serverNow)');
   });
 
-  it('el grid desborda en horizontal y solo scrollea la lista de productos', () => {
+  it('el tablero desborda en horizontal y la tarjeta scrollea por dentro', () => {
+    /*
+      Lo que este test protege no cambió con el rediseño: el tablero crece a la
+      DERECHA y el único scroll vertical vive dentro de la tarjeta.
+ 
+      Lo que cambió es cómo se consigue. Antes era `flex-col flex-wrap`: las
+      tarjetas se apilaban hacia abajo hasta llenar la altura y saltaban de
+      columna. Como cada tarjeta crecía con su contenido, en los 608 px útiles
+      de la tablet de cocina cabía UNA por columna y el tablero enseñaba tres
+      pedidos de la jornada. Ahora la rejilla fija DOS filas y las columnas
+      fluyen a la derecha: 3 × 2 = 6 pedidos a la vista, y la tarjeta ya no
+      decide su tamaño — lo decide la celda.
+    */
     const screen = componentSrc('KitchenBoardScreen.tsx');
     expect(screen).toContain('overflow-x-auto');
-    expect(screen).toContain('inline-flex h-full flex-col flex-wrap');
+    expect(screen).toMatch(/grid-flow-col grid-rows-2/);
+    // La tarjeta llena su celda en vez de estirarse hasta donde le quepa.
     const card = componentSrc('KitchenTicketCard.tsx');
-    expect(card).toContain('max-h-full');
+    expect(card).toContain('h-full min-h-0 w-full');
+    expect(card).not.toContain('max-h-full');
     expect((card.match(/overflow-y-auto/g) ?? []).length).toBe(1);
   });
 });

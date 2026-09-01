@@ -15,6 +15,28 @@ import { KitchenPaymentPanel } from './KitchenPaymentPanel';
  *
  * El color NUNCA comunica solo: el header amarillo/azul/rojo va siempre
  * acompanado de la etiqueta de etapa y, en alerta, de la palabra "Atrasado".
+ *
+ * ── Por qué la tarjeta tiene esta forma (12,5") ────────────────────────────
+ *
+ * El tablero corre en una Latitude 5290: 12,5 pulgadas, 1920×1080 físicos que
+ * con el escalado de Windows al 150 % dan un viewport de **1280×720 CSS**. En
+ * esa pantalla la tarjeta anterior medía casi 500 px de alto, así que solo
+ * cabía UNA por columna y el tablero enseñaba tres pedidos.
+ *
+ * El culpable no eran las fuentes: era el footer, que crecía sin límite —pago,
+ * chips, avisos, notas y botones, todo apilado— y empujaba la tarjeta hasta
+ * donde hiciera falta. Ahora la tarjeta ocupa su celda del grid y NO crece:
+ *
+ *   · cabecera        fija arriba, siempre visible
+ *   · zona scrollable platos, pago, avisos y notas
+ *   · botones         fijos abajo, siempre alcanzables con el pulgar
+ *
+ * Lo que no cabe se scrollea dentro de la tarjeta en vez de robarle sitio al
+ * pedido de al lado. Y lo que va primero dentro del scroll es lo que hay que
+ * HACER, no lo que hay que saber: normalmente los platos, pero el pago cuando es
+ * lo que impide arrancar. Con el pago siempre al final, sus botones salían
+ * cortados por la mitad en el borde del scroll, y medio botón verde asomando es
+ * peor que ninguno — se lee como una pantalla rota.
  */
 export interface KitchenTicketCardProps {
   ticket: KitchenTicket;
@@ -30,7 +52,7 @@ export interface KitchenTicketCardProps {
 
 const DELIVERY_LABELS = {
   delivery: 'Delivery',
-  pickup: 'Recojo en local',
+  pickup: 'Recojo',
 } as const;
 
 export function KitchenTicketCard({
@@ -84,48 +106,78 @@ export function KitchenTicketCard({
    */
   const pagoBloqueaInicio = ticket.stage === 'new' && !ticket.gate.canStart;
 
+  /**
+   * El pago, en un sitio o en otro según lo que haga falta hacer con él.
+   *
+   * Es el MISMO componente y el mismo estado; lo único que cambia es dónde se
+   * pinta. Cuando el pago impide arrancar, sus botones son la tarea pendiente
+   * del ticket y van arriba del todo; cuando no, es un dato de consulta y va
+   * detrás de los platos.
+   */
+  const bloquePago = (
+    <KitchenPaymentPanel
+      payment={ticket.payment}
+      amountDueByQr={ticket.amountDueByQr}
+      onDecided={onPaymentDecided ?? (() => {})}
+    />
+  );
+
   return (
-    <article className="flex max-h-full w-80 shrink-0 flex-col overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-black/5">
-      <header className={`shrink-0 px-4 py-3 ${headerTone}`}>
-        <div className="flex items-baseline justify-between gap-3">
+    <article className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-black/5">
+      {/* ── Cabecera: fija ─────────────────────────────────────────────────
+          El número y el reloj no se scrollean nunca. Son lo que se busca con
+          la vista desde dos metros para localizar un pedido concreto. */}
+      <header className={`shrink-0 px-3 py-2 ${headerTone}`}>
+        <div className="flex items-baseline justify-between gap-2">
           {/* El número como se dice en voz alta. El tablero muestra UNA sola
               jornada, así que aquí no hace falta la fecha para desambiguar. */}
-          <h2 className="truncate text-3xl font-extrabold tracking-tight">
+          <h2 className="truncate text-2xl font-extrabold leading-none tracking-tight">
             {shortOrderNumber(ticket.orderNumber)}
           </h2>
-          <span className="shrink-0 text-2xl font-bold tabular-nums">
+          <span className="shrink-0 text-xl font-bold leading-none tabular-nums">
             {formatElapsedSince(ticket.enteredAt, nowMs)}
           </span>
         </div>
-        <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide opacity-90">
+        <p className="mt-1 truncate text-[10px] font-bold uppercase leading-tight tracking-wide opacity-90">
           {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
           {late && ' · Atrasado'}
-          {noSumaTodavia && ' · No suma al resumen'}
+          {noSumaTodavia && ' · No suma'}
         </p>
       </header>
 
-      {/* Unica zona scrollable: un pedido enorme no rompe la columna. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      {/* ── Zona scrollable ────────────────────────────────────────────────
+          Es la única parte elástica de la tarjeta. Todo lo que antes hacía
+          crecer el footer vive aquí dentro, así que un pedido con aviso, chip
+          de monto y notas ya no le quita altura a la fila de abajo.
+
+          El ORDEN de lo que va dentro no es fijo: lo decide `pagoBloqueaInicio`.
+          Ver `bloquePago`. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+        {/* Pago ARRIBA cuando es lo que impide cocinar: sus botones son la
+            acción a hacer ahora, y al final del scroll salían cortados por la
+            mitad — medio botón verde asomando es peor que ninguno. */}
+        {pagoBloqueaInicio && <div className="mb-2">{bloquePago}</div>}
+
         {ticket.lines.length === 0 ? (
           <p className="text-sm italic text-zinc-400">Sin productos registrados</p>
         ) : (
-          <ul className="flex flex-col gap-2.5">
+          <ul className="flex flex-col gap-1.5">
             {ticket.lines.map((line, i) => (
               <li key={`${line.name}-${i}`}>
-                <div className="flex items-baseline gap-2.5">
-                  <span className="text-2xl font-extrabold tabular-nums text-zinc-900">
+                <div className="flex items-baseline gap-2">
+                  <span className="w-6 shrink-0 text-right text-xl font-extrabold leading-tight tabular-nums text-zinc-900">
                     {line.quantity}
                   </span>
-                  <span className="text-base font-semibold leading-snug text-zinc-800">
+                  <span className="text-[15px] font-semibold leading-tight text-zinc-800">
                     {line.name}
                   </span>
                 </div>
                 {/* Modificadores: hoy siempre vacios (la base aun no los guarda),
                     pero la tarjeta ya esta lista para pintarlos. */}
                 {line.modifiers.length > 0 && (
-                  <ul className="mt-1 pl-8">
+                  <ul className="mt-0.5 pl-8">
                     {line.modifiers.map((m, j) => (
-                      <li key={`${m}-${j}`} className="text-sm font-medium text-orange-700">
+                      <li key={`${m}-${j}`} className="text-xs font-medium text-orange-700">
                         – {m}
                       </li>
                     ))}
@@ -135,38 +187,54 @@ export function KitchenTicketCard({
             ))}
           </ul>
         )}
+
+        {/* Con la puerta abierta el pago va DESPUÉS de los platos: no hay nada
+            que decidir, así que es una referencia y no una tarea, y lo que se
+            cocina manda sobre lo que se cobra. */}
+        <div className="mt-2 border-t border-zinc-200 pt-2">
+          {!pagoBloqueaInicio && bloquePago}
+
+          {/* El aviso va JUNTO a la nota de cocina y encima de ella: las dos
+              cosas son "lee esto antes de tocar nada", y lo que se lee primero
+              tiene que ser lo que puede costar dinero. */}
+          {alerta && <ProofAlertBox alert={alerta} />}
+
+          {/* Qué pagó: lo que el repartidor pregunta al llegar. Va junto al pago
+              y antes de las notas, porque decide si hay que cobrar en la puerta. */}
+          {ticket.amountLabel && <AmountLabelChip label={ticket.amountLabel} />}
+
+          {ticket.notes && (
+            <div className="mt-1.5 rounded-md bg-zinc-100 px-2 py-1.5">
+              <p className="text-[10px] font-bold uppercase leading-none tracking-wider text-zinc-500">
+                Notas
+              </p>
+              <p className="mt-1 text-[13px] font-medium leading-tight text-zinc-800">
+                {ticket.notes}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
-      <footer className="shrink-0 px-4 pb-4">
-        {/* El pago va ANTES de las notas y de los botones: es lo que hay que
-            mirar para decidir si se empieza. Nunca bloquea INICIAR — revisar un
-            pago y avanzar el pedido son dimensiones separadas. */}
-        <KitchenPaymentPanel
-          payment={ticket.payment}
-          amountDueByQr={ticket.amountDueByQr}
-          onDecided={onPaymentDecided ?? (() => {})}
-        />
+      {/* ── Botones: fijos abajo ───────────────────────────────────────────
+          Nunca se scrollean. En cocina se toca con las manos ocupadas y a
+          medio metro; un botón que hay que ir a buscar con el dedo es un botón
+          que se pulsa mal.
 
-        {/* El aviso va JUNTO a la nota de cocina y encima de ella: las dos cosas
-            son "lee esto antes de tocar nada", y lo que se lee primero tiene que
-            ser lo que puede costar dinero. */}
-        {alerta && <ProofAlertBox alert={alerta} />}
-
-        {/* Qué pagó: lo que el repartidor pregunta al llegar. Va junto al pago
-            y antes de las notas, porque decide si hay que cobrar en la puerta. */}
-        {ticket.amountLabel && <AmountLabelChip label={ticket.amountLabel} />}
-
-        {ticket.notes && (
-          <div className="mb-3 rounded-lg bg-zinc-100 px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Notas</p>
-            <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800">{ticket.notes}</p>
-          </div>
-        )}
-
+          56 px de alto y no 48. Los 48 cumplen de sobra el mínimo táctil de la
+          WCAG (44), pero este proyecto se puso un listón más alto para cocina
+          —hay un test que lo exige— y bajarlo aquí habría sido cobrarle la
+          densidad a la mano que trabaja con grasa y prisa. Los 8 px salen del
+          bloque de pago, que solo se lee. */}
+      {/* El borde superior no es decoración: es lo que convierte el corte del
+          scroll en "esto sigue detrás" en vez de "esto está roto". Sin él, un
+          chip cortado por la mitad justo encima de los botones se lee como un
+          fallo de pintado — y en cocina un fallo de pintado detiene a alguien. */}
+      <footer className="shrink-0 border-t border-zinc-200 px-3 pb-3 pt-2">
         {/* POR QUÉ no se puede empezar. Un botón gris sin explicación se lee
             como una pantalla rota, y en cocina eso acaba en una llamada. */}
         {pagoBloqueaInicio && (
-          <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-900 ring-1 ring-amber-300">
+          <p className="mb-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-bold leading-tight text-amber-900 ring-1 ring-amber-300">
             {GATE_REASONS[ticket.gate.state]}
           </p>
         )}
@@ -185,8 +253,8 @@ export function KitchenTicketCard({
                 aria-label={b.kind === 'danger' ? 'Cancelar pedido' : undefined}
                 className={
                   b.kind === 'danger'
-                    ? 'grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:opacity-50'
-                    : 'h-16 flex-1 rounded-xl bg-emerald-600 text-xl font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600'
+                    ? 'grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:opacity-50'
+                    : 'h-14 flex-1 rounded-lg bg-emerald-600 text-lg font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600'
                 }
               >
                 {b.kind === 'danger' ? <TrashIcon /> : b.label}
@@ -202,7 +270,7 @@ export function KitchenTicketCard({
               type="button"
               disabled={busy}
               onClick={() => onAction(ticket.orderNumber, b.action)}
-              className="mt-2 h-11 w-full rounded-lg bg-zinc-200 text-sm font-bold uppercase tracking-wide text-zinc-700 hover:bg-zinc-300 active:bg-zinc-400 disabled:opacity-50"
+              className="mt-1.5 h-11 w-full rounded-md bg-zinc-200 text-xs font-bold uppercase tracking-wide text-zinc-700 hover:bg-zinc-300 active:bg-zinc-400 disabled:opacity-50"
             >
               {b.label}
             </button>
@@ -245,9 +313,11 @@ function AmountLabelChip({ label }: { label: ProofAmountLabelView }) {
         ? 'bg-sky-50 ring-sky-300 text-sky-900'
         : 'bg-red-50 ring-red-300 text-red-900';
   return (
-    <div className={`mb-3 rounded-lg px-3 py-2 ring-1 ${tono}`}>
-      <p className="text-sm font-extrabold uppercase tracking-wide">{label.text}</p>
-      <p className="mt-0.5 text-xs font-medium leading-snug opacity-90">{label.hint}</p>
+    <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tono}`}>
+      <p className="text-[11px] font-extrabold uppercase leading-tight tracking-wide">
+        {label.text}
+      </p>
+      <p className="mt-0.5 text-[11px] font-medium leading-tight opacity-90">{label.hint}</p>
     </div>
   );
 }
@@ -266,14 +336,14 @@ function ProofAlertBox({ alert }: { alert: KitchenProofAlert }) {
       ? 'bg-red-50 ring-red-300 text-red-900'
       : 'bg-amber-50 ring-amber-300 text-amber-900';
   return (
-    <div role="status" className={`mb-3 rounded-lg px-3 py-2.5 ring-2 ${tono}`}>
-      <p className="text-sm font-extrabold uppercase leading-tight tracking-wide">
+    <div role="status" className={`mt-1.5 rounded-md px-2 py-1.5 ring-2 ${tono}`}>
+      <p className="text-xs font-extrabold uppercase leading-tight tracking-wide">
         {alert.headline}
       </p>
       {alert.reasons.length > 0 && (
-        <ul className="mt-1.5 space-y-1">
+        <ul className="mt-1 space-y-0.5">
           {alert.reasons.map((r) => (
-            <li key={r} className="text-sm font-semibold leading-snug">
+            <li key={r} className="text-[11px] font-semibold leading-tight">
               · {r}
             </li>
           ))}
@@ -286,8 +356,8 @@ function ProofAlertBox({ alert }: { alert: KitchenProofAlert }) {
 function TrashIcon() {
   return (
     <svg
-      width="26"
-      height="26"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

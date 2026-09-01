@@ -262,7 +262,7 @@ export function KitchenBoardScreen({
         {/* Grid central: las tarjetas llenan una columna hacia abajo y desbordan
             a la derecha. El wrap vertical exige altura definida: la da `h-full`
             dentro de este contenedor flex. */}
-        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-4">
+        <main className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-3">
           {grid.length === 0 ? (
             <div className="grid h-full place-items-center">
               <div className="text-center">
@@ -273,7 +273,32 @@ export function KitchenBoardScreen({
               </div>
             </div>
           ) : (
-            <div className="inline-flex h-full flex-col flex-wrap content-start gap-4">
+            /*
+              Rejilla de DOS FILAS con las columnas fluyendo a la derecha.
+ 
+              Antes era `flex-col flex-wrap`: las tarjetas se apilaban hacia
+              abajo hasta llenar la altura y saltaban a la columna siguiente.
+              Con tarjetas que crecían con su contenido —una podía medir 500 px—
+              en los 608 px útiles de la tablet de cocina cabía UNA por columna,
+              y el tablero enseñaba tres pedidos de la jornada entera.
+ 
+              `grid-rows-2` fija el reparto en vez de dejarlo a merced del
+              contenido: dos filas siempre, columnas de 330 px que se van a la
+              derecha, y cada tarjeta ocupa su celda exacta. En la Latitude 5290
+              (1280×720 CSS) son 3 columnas visibles = 6 pedidos, y el resto
+              entra deslizando en horizontal. En una pantalla más ancha aparecen
+              más columnas solas, sin tocar nada.
+ 
+              Las tarjetas ya no deciden su tamaño: lo decide la celda, y lo que
+              no cabe se scrollea dentro de la tarjeta.
+
+              La tercera fila a partir de 900 px de alto es para la pantalla que
+              no es esta: con el escalado al 100 % o en un monitor grande, dos
+              filas dejaban tarjetas de 500 px medio vacías. El umbral mira la
+              ALTURA y no el ancho porque lo que decide cuántas filas caben es
+              cuánto hay de arriba abajo.
+            */
+            <div className="grid h-full grid-flow-col grid-rows-2 gap-3 auto-cols-[330px] [@media(min-height:900px)]:grid-rows-3">
               {grid.map((ticket) => (
                 <KitchenTicketCard
                   key={ticket.orderNumber}
