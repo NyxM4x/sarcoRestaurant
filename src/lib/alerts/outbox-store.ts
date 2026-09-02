@@ -93,7 +93,15 @@ export function createSupabaseAlertOutbox(
           updated_at: sentAtIso,
         })
         .eq('id', id);
-      if (error) throw new Error('alert_mark_sent_failed');
+      if (error) {
+        // Un desenlace que no se escribe es un aviso que SE REPITE: la fila se
+        // queda en `sending` y el worker la recupera al vencer el lease, con el
+        // mismo body. Sin esta línea el tick reporta éxito mientras el grupo de
+        // reparto recibe el mismo mensaje cada minuto — que es exactamente cómo
+        // pasó inadvertido el `not null` que arregló 0029.
+        log.error('alert_mark_sent_failed', { code: error.code });
+        throw new Error('alert_mark_sent_failed');
+      }
     },
 
     async reschedule(id, nextAttemptAtIso, errorCode) {
@@ -107,7 +115,11 @@ export function createSupabaseAlertOutbox(
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
-      if (error) throw new Error('alert_reschedule_failed');
+      if (error) {
+        // Igual que arriba: sin cita nueva, la fila vuelve por lease vencido.
+        log.error('alert_reschedule_failed', { code: error.code });
+        throw new Error('alert_reschedule_failed');
+      }
     },
 
     async markFailed(id, errorCode) {
@@ -121,7 +133,11 @@ export function createSupabaseAlertOutbox(
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
-      if (error) throw new Error('alert_mark_failed_failed');
+      if (error) {
+        // La alerta se rindió pero no consta: no aparecerá en el panel.
+        log.error('alert_mark_failed_failed', { code: error.code });
+        throw new Error('alert_mark_failed_failed');
+      }
     },
   };
 }
