@@ -16,13 +16,18 @@
  * La diferencia está en el destino, no en el descuido: este texto va al grupo
  * privado de reparto del negocio. No se registra en logs ni se expone por HTTP.
  *
- * ── Sobre la ubicación ──────────────────────────────────────────────────────
+ * ── Sobre la ubicación: solo el enlace ──────────────────────────────────────
  *
- * El dato que de verdad sirve es el enlace de mapa: se toca y abre la
- * navegación al punto exacto. La dirección en texto va como contexto —ayuda a
- * saber si es lejos antes de abrir nada— pero NUNCA la sustituye: el geocoding
- * inverso en Santa Cruz devuelve cosas como "Calle 1", que no identifican nada.
- * Por eso el enlace siempre está y la dirección es opcional.
+ * El aviso llevaba también la dirección en texto, como contexto para saber si
+ * era lejos antes de abrir nada. Se quitó el 02-09-2026, y el motivo es que ese
+ * contexto no existía: el geocoding inverso en Santa Cruz devuelve "Calle 1,
+ * Santa Cruz de la Sierra, Departamento de Santa Cruz, Bolivia" —una línea que
+ * ocupa dos renglones en el celular y no distingue un punto de otro—.
+ *
+ * La distancia, que sí dice si es lejos, ya va en la línea del envío.
+ *
+ * De paso deja de pedirse un geocoding inverso por pedido: era una llamada de
+ * pago a Mapbox para producir un adorno que nadie podía usar.
  */
 
 /** Línea de producto ya resuelta (nombre real del pedido, no del catálogo). */
@@ -43,8 +48,6 @@ export interface DeliveryNoticeInput {
   totalAmount: number;
   latitude: number;
   longitude: number;
-  /** Dirección aproximada (geocoding inverso o la que mandó WhatsApp). */
-  address: string | null;
   /** Distancia de ruta en metros, si se conoce. */
   distanceMeters: number | null;
 }
@@ -100,12 +103,6 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   lines.push(`Total a cobrar: Bs ${formatBs(input.totalAmount)}`);
   lines.push('');
 
-  const direccion = (input.address ?? '').trim();
-  if (direccion !== '') {
-    // "aprox." es literal y deliberado: viene de geocoding inverso y puede
-    // estar a cuadras del punto real. Quien reparte debe guiarse por el enlace.
-    lines.push(`Zona (aprox.): ${direccion}`);
-  }
   lines.push(`Ubicación: ${mapsLink(input.latitude, input.longitude)}`);
 
   return lines.join('\n');

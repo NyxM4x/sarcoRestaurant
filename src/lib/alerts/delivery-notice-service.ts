@@ -3,8 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
-import { reverseGeocode } from '@/lib/delivery/geocode';
-import { parseDeliveryConfig } from '@/lib/delivery/config';
 import { buildDeliveryNotice, type DeliveryNoticeItem } from './delivery-notice';
 import { createAlertRunnerDeps, enqueueAlert } from './outbox-store';
 import { trySendNow } from './outbox-runner';
@@ -13,8 +11,8 @@ import { trySendNow } from './outbox-runner';
  * Envío del aviso de pedido al grupo de reparto — wiring server-only.
  *
  * Se dispara cuando un delivery queda confirmado y cotizado. Ensambla los datos
- * reales (Supabase + geocoding) y manda el texto de `./delivery-notice` por el
- * mismo transporte de Telegram que usan las alertas técnicas.
+ * reales de Supabase y manda el texto de `./delivery-notice` por el mismo
+ * transporte de Telegram que usan las alertas técnicas.
  *
  * ── Idempotencia ────────────────────────────────────────────────────────────
  *
@@ -43,7 +41,7 @@ import { trySendNow } from './outbox-runner';
 const NOTICE_SELECT =
   'id, order_number, customer_name, customer_phone, delivery_type, status, ' +
   'delivery_quote_status, delivery_amount, total_amount, delivery_latitude, ' +
-  'delivery_longitude, delivery_address, delivery_distance_meters, ' +
+  'delivery_longitude, delivery_distance_meters, ' +
   'order_items ( product_name_snapshot, quantity )';
 
 function num(value: unknown): number | null {
@@ -97,27 +95,6 @@ export async function notifyDeliveryGroup(
       return;
     }
 
-    // La dirección es un adorno: si el geocoder no contesta, el aviso sale
-    // igual con el enlace de mapa. Se prefiere la que mandó WhatsApp cuando
-    // existe, porque suele ser un lugar con nombre elegido por el cliente.
-    const whatsappAddress =
-      typeof order.delivery_address === 'string' && order.delivery_address.trim() !== ''
-        ? order.delivery_address.trim()
-        : null;
-
-    // `parseDeliveryConfig` en vez de `getDeliveryConfig()`: la segunda LANZA
-    // si falta una variable de Mapbox, y eso tumbaría un aviso que puede salir
-    // perfectamente sin dirección. El token de Mapbox no está en el esquema
-    // general del entorno; vive en el de delivery.
-    const deliveryConfig = parseDeliveryConfig(process.env);
-    const address =
-      whatsappAddress ??
-      (deliveryConfig.ok
-        ? await reverseGeocode(latitude, longitude, {
-            accessToken: deliveryConfig.config.mapboxAccessToken,
-          })
-        : null);
-
     const rawItems = Array.isArray(order.order_items) ? order.order_items : [];
     const items: DeliveryNoticeItem[] = rawItems.map((raw) => {
       const item = raw as Record<string, unknown>;
@@ -136,7 +113,6 @@ export async function notifyDeliveryGroup(
       totalAmount: num(order.total_amount) ?? 0,
       latitude,
       longitude,
-      address,
       distanceMeters: num(order.delivery_distance_meters),
     });
 

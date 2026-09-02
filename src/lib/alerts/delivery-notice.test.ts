@@ -19,7 +19,6 @@ const BASE: DeliveryNoticeInput = {
   totalAmount: 94,
   latitude: -17.842950820923,
   longitude: -63.179233551025,
-  address: 'Calle 1, Santa Cruz de la Sierra',
   distanceMeters: 5762,
 };
 
@@ -67,14 +66,12 @@ describe('aviso al grupo de reparto', () => {
     expect(text).not.toContain('0.0 km');
   });
 
-  it('marca la dirección como aproximada: el geocoding inverso no es exacto', () => {
-    expect(buildDeliveryNotice(BASE)).toContain('Zona (aprox.)');
-  });
-
-  it('sin dirección, el aviso sale igual con el enlace', () => {
-    const text = buildDeliveryNotice({ ...BASE, address: null });
-    expect(text).not.toContain('Zona (aprox.)');
-    expect(text).toContain(mapsLink(BASE.latitude, BASE.longitude));
+  it('no lleva dirección en texto: el enlace es el único dato del dónde', () => {
+    const text = buildDeliveryNotice(BASE);
+    // El geocoding inverso devolvía "Calle 1, Santa Cruz de la Sierra…", que
+    // ocupaba dos renglones sin distinguir un punto de otro.
+    expect(text).not.toContain('Zona');
+    expect(text).toContain(`Ubicación: ${mapsLink(BASE.latitude, BASE.longitude)}`);
   });
 
   it('un pedido sin nombre no deja el campo en blanco', () => {
