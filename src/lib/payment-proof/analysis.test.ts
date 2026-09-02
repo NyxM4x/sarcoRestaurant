@@ -4,7 +4,7 @@ import type { ExpectedAccount } from './expected-account';
 
 const CUENTA: ExpectedAccount = {
   bankNames: ['Banco Unión', 'BUN'],
-  accountNumber: '1234567890',
+  accountNumbers: ['1234567890'],
   holderNames: ['DON ZARCO', 'DON ZARCO SRL'],
 };
 

@@ -37,8 +37,20 @@ export interface ExpectedAccount {
    * últimos dígitos —una entre diez mil— pasarían por la misma.
    */
   bankNames: string[];
-  /** Número de cuenta destino. Se compara por sus dígitos finales. */
-  accountNumber: string | null;
+  /**
+   * Cuentas destino válidas. Se comparan por sus dígitos finales.
+   *
+   * Una LISTA y no una sola porque el negocio puede cobrar por más de una
+   * billetera —Yape y Altoke, por ejemplo— y ambas son igual de legítimas. Con
+   * una sola cuenta configurada, cada pago a la otra saldría `account_mismatch`
+   * y la alerta acusaría a clientes que pagaron bien.
+   *
+   * Basta con que UNA coincida, igual que con los alias del banco y del
+   * titular. No se exige que además cuadre el banco de esa misma billetera:
+   * quien cobra es la misma persona en las dos, y `matchesBank` ya vigila que
+   * el dinero no se haya ido a una institución ajena.
+   */
+  accountNumbers: string[];
   /**
    * Nombres válidos del titular: el de la cuenta y cuantas variantes pinte cada
    * banco. Basta con que UNO coincida.
@@ -88,7 +100,7 @@ function significantTokens(name: string): string[] {
  * son 1 entre 10 000: suficiente para reconocer la cuenta propia, y no es una
  * defensa criptográfica sino una comprobación de que el dinero fue al sitio.
  */
-export function matchesAccount(read: string | null, expected: string | null): FieldMatch {
+function matchesOneAccount(read: string | null, expected: string | null): FieldMatch {
   const leido = digitsOf(read);
   const esperado = digitsOf(expected);
   if (!leido || !esperado) return 'unknown';
@@ -105,6 +117,28 @@ export function matchesAccount(read: string | null, expected: string | null): Fi
   if (leido.includes(esperado) || esperado.includes(leido)) return 'match';
   const cola = (v: string) => v.slice(-ACCOUNT_TAIL_DIGITS);
   return cola(leido) === cola(esperado) ? 'match' : 'mismatch';
+}
+
+/**
+ * ¿Fue el dinero a alguna de nuestras cuentas?
+ *
+ * El orden de preferencia es el único que no acusa de más: una coincidencia con
+ * CUALQUIERA de las cuentas basta para aprobar, y solo se acusa cuando ninguna
+ * coincidió y al menos una pudo compararse de verdad. Si todas quedaron en
+ * `unknown` —la lectura trae dos dígitos sueltos, o no hay nada configurado—, la
+ * respuesta es `unknown`: no saber a dónde fue el dinero no es lo mismo que
+ * saber que fue a otro sitio.
+ */
+export function matchesAccount(read: string | null, expected: string[]): FieldMatch {
+  let huboComparacion = false;
+
+  for (const cuenta of expected) {
+    const veredicto = matchesOneAccount(read, cuenta);
+    if (veredicto === 'match') return 'match';
+    if (veredicto === 'mismatch') huboComparacion = true;
+  }
+
+  return huboComparacion ? 'mismatch' : 'unknown';
 }
 
 /**
@@ -196,12 +230,14 @@ export function parseExpectedAccount(raw: {
   const separadas = (v: string | null | undefined, primera?: string | null) =>
     [primera ?? '', ...(v ?? '').split('|')].map((n) => n.trim()).filter((n) => n.length > 0);
 
-  const accountNumber = (raw.accountNumber ?? '').trim() || null;
+  // Las cuentas se separan con `|` como los alias: una barra es "y también
+  // esta", que es exactamente lo que significa cobrar por dos billeteras.
+  const cuentas = separadas(raw.accountNumber);
   const nombres = separadas(raw.holderAliases, raw.holder);
-  if (accountNumber === null && nombres.length === 0) return null;
+  if (cuentas.length === 0 && nombres.length === 0) return null;
   return {
     bankNames: separadas(raw.bankAliases, raw.bank),
-    accountNumber,
+    accountNumbers: cuentas,
     holderNames: nombres,
   };
 }

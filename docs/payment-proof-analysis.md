@@ -85,7 +85,7 @@ intenta. El número del banco sí.
 
 ```
 PAYMENT_PROOF_ANALYSIS_ENABLED=true
-PAYMENT_PROOF_ACCOUNT_NUMBER=...
+PAYMENT_PROOF_ACCOUNT_NUMBER=...|...   # varias si se cobra por dos billeteras
 PAYMENT_PROOF_ACCOUNT_HOLDER=...
 PAYMENT_PROOF_ACCOUNT_HOLDER_ALIASES=...|...
 PAYMENT_PROOF_ACCOUNT_BANK=...
@@ -114,7 +114,10 @@ los datos de forma que el lector no reconoce. Para comprobarlo:
    ("Cuenta destino", "Beneficiario", "Para", "Cuenta abonada"…).
 3. Si el titular falla, casi siempre se arregla añadiendo el alias en
    `PAYMENT_PROOF_ACCOUNT_HOLDER_ALIASES` — sin tocar código.
-4. Si falla el banco, lo mismo con `PAYMENT_PROOF_ACCOUNT_BANK_ALIASES`. La
+4. Si un pago legítimo a la SEGUNDA billetera sale como cuenta ajena, es que
+   falta su número en `PAYMENT_PROOF_ACCOUNT_NUMBER`: van todas separadas por
+   `|` y basta con que una coincida.
+5. Si falla el banco, lo mismo con `PAYMENT_PROOF_ACCOUNT_BANK_ALIASES`. La
    sigla es obligatoria: `BNB` y `Banco Nacional de Bolivia` no comparten ni una
    palabra, así que sin el alias el comprobante que use la sigla acusa a un pago
    bueno.

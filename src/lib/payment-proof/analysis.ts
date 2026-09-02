@@ -294,7 +294,7 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
   }
 
   const checks: ProofChecks = {
-    account: matchesAccount(facts.destinationAccount, ctx.expected.accountNumber),
+    account: matchesAccount(facts.destinationAccount, ctx.expected.accountNumbers),
     holder: matchesHolder(facts.destinationHolder, ctx.expected.holderNames),
     bank: matchesBank(facts.destinationBank, ctx.expected.bankNames),
   };
