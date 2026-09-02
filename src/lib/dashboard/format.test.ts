@@ -67,7 +67,7 @@ describe('format — normalización visual de nombres', () => {
 
 describe('format — teléfono visual (solo presentación)', () => {
   it('formatea el móvil boliviano inequívoco (591 + 8 dígitos que empiezan en 6/7)', () => {
-    expect(formatPhone('59165006685')).toBe('+591 65006685');
+    expect(formatPhone('59176543210')).toBe('+591 76543210');
     expect(formatPhone('59171234567')).toBe('+591 71234567');
   });
 

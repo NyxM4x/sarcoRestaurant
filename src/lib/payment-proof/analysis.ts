@@ -8,7 +8,7 @@
  * ── Por qué el modelo NO decide ─────────────────────────────────────────────
  *
  * La lectura óptica y el juicio son dos trabajos distintos, y solo uno de ellos
- * es opinable. Leer "2505098350" en una imagen es algo que un modelo hace bien;
+ * es opinable. Leer un numero de cuenta en una imagen es algo que un modelo hace bien;
  * decidir que esa cuenta no es la nuestra es una regla del negocio, y una regla
  * del negocio tiene que poder leerse, discutirse y probarse sin gastar un token.
  *

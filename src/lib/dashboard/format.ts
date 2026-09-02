@@ -41,7 +41,7 @@ export function formatCustomerName(name: string | null | undefined): string | nu
 /**
  * Formatea SOLO visualmente un telefono. Cuando el valor es inequivocamente
  * boliviano —codigo 591 + movil de 8 digitos que empieza en 6 o 7— lo muestra
- * como `+591 65006685`. Cualquier otro formato se devuelve tal cual (sanitizado
+ * como `+591 76543210`. Cualquier otro formato se devuelve tal cual (sanitizado
  * con trim). No altera el dato almacenado, las APIs, WhatsApp ni Supabase.
  */
 export function formatPhone(phone: string | null | undefined): string | null {

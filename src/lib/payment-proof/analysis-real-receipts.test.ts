@@ -2,9 +2,21 @@
  * Los comprobantes que de verdad llegan — banco por banco.
  *
  * Los otros tests prueban la regla con datos inventados; este prueba la regla
- * contra lo que imprimen los bancos bolivianos de verdad. Los hechos de aquí
- * abajo están transcritos, campo por campo, de cinco comprobantes reales de un
- * mismo día (28/08/2026, transferencias de Bs 1 a la cuenta del QR).
+ * contra lo que imprimen los bancos bolivianos de verdad.
+ *
+ * ── Qué de aquí abajo es real y qué es marcador ─────────────────────────────
+ *
+ * REAL, y es lo que da valor a este archivo: la FORMA de cada banco. Quién sale
+ * como destino y con qué palabra lo llama, en qué orden pinta el nombre, cómo
+ * enmascara la cuenta, qué largo tiene su número de operación. Eso está
+ * transcrito de cinco comprobantes de un mismo día y no cambia porque cambie el
+ * titular.
+ *
+ * MARCADOR, pendiente de sustituir: la identidad. Titular, número de cuenta y
+ * números de operación son datos de una persona concreta y se retiraron de aquí
+ * (02-09-2026). Los valores actuales son inventados y solo conservan el FORMATO.
+ * Cuando lleguen los comprobantes reales del cliente se sustituyen por los
+ * suyos, banco por banco, y este aviso se borra.
  *
  * Sirven para lo que ningún dato inventado sirve: cada banco ordena el nombre a
  * su manera, enmascara la cuenta a su manera y llama "solicitante", "destino" o
@@ -18,13 +30,16 @@ import { describe, it, expect } from 'vitest';
 import { judgeProof, type ProofFacts, type ProofJudgeContext } from './analysis';
 import { parseExpectedAccount } from './expected-account';
 
-/** La cuenta del QR, con los mismos valores que van en el entorno. */
+/**
+ * La cuenta del QR. Los mismos CAMPOS que van en el entorno; los valores son
+ * marcadores hasta que lleguen los del cliente (ver la cabecera).
+ */
 const CUENTA = parseExpectedAccount({
   bank: 'Banco Nacional de Bolivia',
   bankAliases: 'BNB|BANCO NACIONAL DE BOLIVIA',
-  accountNumber: '2505098350',
-  holder: 'GRAGEDA ROJAS ADALID',
-  holderAliases: 'ADALID GRAGEDA ROJAS',
+  accountNumber: '4010775520',
+  holder: 'MAMANI TERCEROS LUCIA',
+  holderAliases: 'LUCIA MAMANI TERCEROS',
 })!;
 
 /** El comprobante llega por WhatsApp a los pocos minutos: 13:20 en Bolivia. */
@@ -66,9 +81,9 @@ const AL_QR: Array<{ banco: string; facts: ProofFacts }> = [
     facts: leido({
       bank: 'Banco de Crédito de Bolivia S.A.',
       destinationBank: 'Banco Nacional de Bolivia',
-      destinationAccount: '2505098350',
-      destinationHolder: 'GRAGEDA ROJAS ADALID',
-      transactionRef: '0726082800094640',
+      destinationAccount: '4010775520',
+      destinationHolder: 'MAMANI TERCEROS LUCIA',
+      transactionRef: '0726082800047315',
       paidAtLocal: '2026-08-28T13:14',
     }),
   },
@@ -78,9 +93,9 @@ const AL_QR: Array<{ banco: string; facts: ProofFacts }> = [
     facts: leido({
       bank: 'Mercantil Santa Cruz',
       destinationBank: 'Banco Nacional de Bolivia',
-      destinationAccount: '2505098350',
-      destinationHolder: 'GRAGEDA ROJAS ADALID',
-      transactionRef: '1003202608281832878',
+      destinationAccount: '4010775520',
+      destinationHolder: 'MAMANI TERCEROS LUCIA',
+      transactionRef: '1003202608281400273',
       paidAtLocal: '2026-08-28T13:12',
     }),
   },
@@ -91,9 +106,9 @@ const AL_QR: Array<{ banco: string; facts: ProofFacts }> = [
     facts: leido({
       bank: 'Yape',
       destinationBank: 'Banco Nacional De Bolivia',
-      destinationAccount: '2505098350',
-      destinationHolder: 'Grageda Rojas Adalid',
-      transactionRef: '912725111',
+      destinationAccount: '4010775520',
+      destinationHolder: 'Mamani Terceros Lucia',
+      transactionRef: '904331782',
       paidAtLocal: '2026-08-28T13:11',
     }),
   },
@@ -104,9 +119,9 @@ const AL_QR: Array<{ banco: string; facts: ProofFacts }> = [
     facts: leido({
       bank: 'Banco Económico',
       destinationBank: 'Banco Nacional de Bolivia',
-      destinationAccount: '2505098350',
-      destinationHolder: 'GRAGEDA ROJAS ADALID',
-      transactionRef: '378599238',
+      destinationAccount: '4010775520',
+      destinationHolder: 'MAMANI TERCEROS LUCIA',
+      transactionRef: '351408967',
       paidAtLocal: '2026-08-28T13:15',
     }),
   },
@@ -138,9 +153,9 @@ describe('comprobantes reales — el que fue a otra cuenta', () => {
     bank: 'BNB',
     destinationBank: 'Banco de Crédito',
     // El BNB enmascara así: tres dígitos, asteriscos y tres dígitos.
-    destinationAccount: '756**881',
-    destinationHolder: 'ADALID GRAGEDA ROJAS',
-    transactionRef: '2P22947996',
+    destinationAccount: '318**402',
+    destinationHolder: 'LUCIA MAMANI TERCEROS',
+    transactionRef: '2P31586402',
     paidAtLocal: '2026-08-28T12:46',
   });
 
