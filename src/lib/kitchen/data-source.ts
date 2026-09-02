@@ -5,6 +5,10 @@ import type { OrderStatus, PaymentMethod } from '@/types';
 import { KITCHEN_BOARD_STATUSES } from './kds-status';
 import type { PaymentAttempt } from '@/types';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
+import {
+  promotionsToKitchenLines,
+  type KitchenPromotionRow,
+} from '@/lib/promotions/kitchen-lines';
 import type { RawKitchenItemRow, RawKitchenOrderRow } from './ticket-view';
 import type {
   KitchenBoardRows,
@@ -88,14 +92,31 @@ export function createSupabaseKitchenDataSource(
       const ids = rows.map((r) => r.id);
       if (ids.length === 0) return { rows, items: [] };
 
-      // Una SOLA consulta para los items de todos los pedidos del tablero.
-      const { data: itemRows, error: itemsError } = await client
-        .from('order_items')
-        .select('order_id,product_name_snapshot,quantity')
-        .in('order_id', ids);
-      if (itemsError) throw new Error('kitchen_items_failed');
+      // Una SOLA consulta para los items, y otra para los combos. Las dos en
+      // paralelo: el tablero se recarga cada pocos segundos y encadenarlas
+      // duplicaría la latencia de cada ciclo.
+      const [itemsRes, promosRes] = await Promise.all([
+        client
+          .from('order_items')
+          .select('order_id,product_name_snapshot,quantity')
+          .in('order_id', ids),
+        client
+          .from('order_promotions')
+          .select('order_id,quantity,components_snapshot')
+          .in('order_id', ids),
+      ]);
+      if (itemsRes.error) throw new Error('kitchen_items_failed');
+      if (promosRes.error) throw new Error('kitchen_promotions_failed');
 
-      return { rows, items: (itemRows ?? []) as unknown as RawKitchenItemRow[] };
+      // Los componentes del combo NO están en `order_items` —irían dos veces
+      // en el subtotal— así que se aplanan aquí. Sin esto, un pedido de solo
+      // promociones llegaría a la cocina sin nada que preparar.
+      const items = (itemsRes.data ?? []) as unknown as RawKitchenItemRow[];
+      const deCombos = promotionsToKitchenLines(
+        (promosRes.data ?? []) as unknown as KitchenPromotionRow[],
+      );
+
+      return { rows, items: [...items, ...deCombos] };
     },
 
     async listPayments(orderIds): Promise<KitchenPaymentRows> {
