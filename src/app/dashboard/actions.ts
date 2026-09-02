@@ -23,6 +23,16 @@ import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
 import { isReviewDecision, type ReviewResult } from '@/lib/payment-proof/review-result';
 import { sweepExpiredOrders } from '@/lib/payment-proof/expiry-service';
+import { createMenuRepository } from '@/lib/menu';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
+import {
+  evaluatePromotion,
+  validatePromotionDraft,
+  type PromotionDraft,
+  type PromotionDraftError,
+  type PromotionStatus,
+} from '@/lib/promotions/promotion';
+import { createPromotionsRepository } from '@/lib/promotions/repository';
 
 export interface LoginState {
   error: 'invalid' | 'not_configured' | null;
@@ -174,4 +184,179 @@ export async function setRainSurchargeAction(
 
   revalidatePath('/dashboard');
   return { ok: true, active };
+}
+
+// ── Disponibilidad de productos ─────────────────────────────────────────────
+
+/**
+ * Retira un producto del menú, o lo devuelve. Solo el encargado.
+ *
+ * Es la acción de "se acabó": lo que cambia es `is_active`, la misma columna con
+ * la que se retiraron las gaseosas. El producto no se borra —los pedidos de
+ * ayer lo nombran— y vuelve a venderse con el mismo botón.
+ *
+ * Revalida también el MENÚ: retirar algo del panel y que los clientes lo sigan
+ * viendo es justo el fallo que esta pantalla viene a evitar. Y las promociones
+ * que lo incluyan pasan solas a "No disponible" —lo calcula
+ * `promotion_availability`— sin que haya que tocarlas.
+ */
+export async function setMenuItemActiveAction(
+  id: string,
+  active: boolean,
+): Promise<
+  { ok: true; active: boolean } | { ok: false; reason: 'unauthorized' | 'not_found' | 'error' }
+> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessAdmin(role)) return { ok: false, reason: 'unauthorized' };
+  if (typeof active !== 'boolean') return { ok: false, reason: 'error' };
+
+  try {
+    const encontrado = await createMenuRepository(getSupabaseAdmin()).setActive(id, active);
+    if (!encontrado) return { ok: false, reason: 'not_found' };
+
+    revalidatePath('/dashboard/configuracion');
+    revalidatePath('/menu');
+    return { ok: true, active };
+  } catch {
+    return { ok: false, reason: 'error' };
+  }
+}
+
+// ── Promociones (0031) ──────────────────────────────────────────────────────
+
+/**
+ * Resultado de guardar. `errors` trae los códigos de `validatePromotionDraft`
+ * para que el formulario señale el campo exacto en vez de decir "revisa los
+ * datos" y dejar a quien edita buscando qué está mal.
+ */
+export type SavePromotionResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: 'unauthorized' | 'not_found' | 'stale' | 'error' }
+  | { ok: false; reason: 'invalid'; errors: PromotionDraftError[] };
+
+/**
+ * Crea o edita una promoción. Solo el encargado.
+ *
+ * ── Por qué se revalida contra el catálogo aquí ─────────────────────────────
+ *
+ * El formulario ya calcula el ahorro mientras se escribe, pero eso es una
+ * comodidad del navegador y no una autorización. Los precios se releen de
+ * `menu_items` en este mismo momento, y la regla monetaria se comprueba con
+ * ellos: entre que se abrió el formulario y se pulsó guardar, alguien pudo
+ * cambiar el precio de un producto.
+ *
+ * `id === null` crea; con `id` edita, y entonces `expectedRevision` es
+ * obligatorio — editar sin decir qué versión se está editando es exactamente
+ * la forma de pisar el trabajo de otra persona sin enterarse.
+ */
+export async function savePromotionAction(input: {
+  id: string | null;
+  expectedRevision: number | null;
+  name: string;
+  description: string | null;
+  promoPrice: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  components: Array<{ menuItemId: string; quantity: number }>;
+}): Promise<SavePromotionResult> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessAdmin(role)) return { ok: false, reason: 'unauthorized' };
+
+  const draft: PromotionDraft = {
+    name: input.name,
+    description: input.description,
+    promoPrice: input.promoPrice,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    components: input.components,
+  };
+
+  try {
+    const catalogo = await createMenuRepository(getSupabaseAdmin()).listAll();
+    const errores = validatePromotionDraft(draft, catalogo);
+    if (errores.length > 0) return { ok: false, reason: 'invalid', errors: errores };
+
+    const repo = createPromotionsRepository();
+
+    if (input.id === null) {
+      const id = await repo.create(draft);
+      revalidateAfterPromotionChange();
+      return { ok: true, id };
+    }
+
+    if (input.expectedRevision === null) return { ok: false, reason: 'stale' };
+
+    const resultado = await repo.update(input.id, draft, input.expectedRevision);
+    if (resultado !== 'ok') return { ok: false, reason: resultado };
+
+    revalidateAfterPromotionChange();
+    return { ok: true, id: input.id };
+  } catch {
+    return { ok: false, reason: 'error' };
+  }
+}
+
+/**
+ * Enciende o apaga una promoción. Determinista: recibe el estado QUE SE QUIERE,
+ * no un "cambia lo que haya".
+ *
+ * Dos peticiones idénticas dejan el mismo resultado, que es lo que hace segura
+ * una doble pulsación o un reintento por red lenta. Un `toggle` con la misma
+ * doble pulsación acabaría apagando lo que se quería encender.
+ *
+ * ── Encender vuelve a comprobarlo todo ──────────────────────────────────────
+ *
+ * No basta con que el combo estuviera bien cuando se creó. Se releen los
+ * componentes y sus precios de AHORA y se evalúa como si ya estuviera
+ * encendida: si le falta un producto, si se quedó sin unidades o si dejó de
+ * haber ahorro, no se enciende y se dice cuál de las tres cosas pasa.
+ *
+ * `scheduled` sí se admite: encender algo que empieza el viernes es
+ * exactamente lo que hace el botón de programar.
+ */
+export async function setPromotionActiveAction(
+  id: string,
+  active: boolean,
+): Promise<
+  | { ok: true; active: boolean }
+  | { ok: false; reason: 'unauthorized' | 'not_found' | 'error' }
+  | { ok: false; reason: 'not_publishable'; status: PromotionStatus }
+> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessAdmin(role)) return { ok: false, reason: 'unauthorized' };
+  if (typeof active !== 'boolean') return { ok: false, reason: 'error' };
+
+  try {
+    const repo = createPromotionsRepository();
+
+    if (active) {
+      const promocion = await repo.find(id);
+      if (promocion === null) return { ok: false, reason: 'not_found' };
+
+      const evaluada = evaluatePromotion({ ...promocion, isActive: true }, Date.now());
+      if (evaluada.status !== 'available' && evaluada.status !== 'scheduled') {
+        return { ok: false, reason: 'not_publishable', status: evaluada.status };
+      }
+    }
+
+    const resultado = await repo.setActive(id, active);
+    if (resultado === 'not_found') return { ok: false, reason: 'not_found' };
+
+    revalidateAfterPromotionChange();
+    return { ok: true, active };
+  } catch {
+    return { ok: false, reason: 'error' };
+  }
+}
+
+/**
+ * El panel y el MENÚ PÚBLICO. Los dos, siempre.
+ *
+ * Revalidar solo el panel dejaría al encargado viendo su cambio aplicado
+ * mientras los clientes siguen con la versión anterior — que es la forma de
+ * "apagué la promoción y se sigue vendiendo".
+ */
+function revalidateAfterPromotionChange(): void {
+  revalidatePath('/dashboard/configuracion');
+  revalidatePath('/menu');
 }

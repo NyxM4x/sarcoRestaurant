@@ -73,6 +73,21 @@ const DATE_LONG = new Intl.DateTimeFormat('es-BO', {
   timeZone: 'America/La_Paz',
 });
 
+/**
+ * Fecha Y hora, en la zona del local.
+ *
+ * Sin `timeZone` explícito, `toLocaleString` usa la del navegador: el mismo
+ * instante se leería distinto según dónde esté quien mira el panel, y en un
+ * negocio que cierra a las 04:00 esa diferencia confunde de verdad.
+ */
+const DATE_TIME = new Intl.DateTimeFormat('es-BO', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'America/La_Paz',
+});
+
 function parse(iso: string): Date | null {
   const t = Date.parse(iso);
   return Number.isFinite(t) ? new Date(t) : null;
@@ -86,6 +101,11 @@ export function formatTime(iso: string): string {
 export function formatDate(iso: string): string {
   const d = parse(iso);
   return d ? DATE.format(d) : '';
+}
+
+export function formatDateTime(iso: string): string {
+  const d = parse(iso);
+  return d ? DATE_TIME.format(d) : '';
 }
 
 export function formatLongDate(nowMs: number): string {
