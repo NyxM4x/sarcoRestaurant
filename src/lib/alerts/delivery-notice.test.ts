@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeliveryNotice, mapsLink, type DeliveryNoticeInput } from './delivery-notice';
+import {
+  buildDeliveryNotice,
+  mapsLink,
+  shortOrderNumber,
+  type DeliveryNoticeInput,
+} from './delivery-notice';
 
 /**
  * Lo que se prueba aquí es el CONTRATO del texto que recibe el grupo de
@@ -21,6 +26,33 @@ const BASE: DeliveryNoticeInput = {
   longitude: -63.179233551025,
   distanceMeters: 5762,
 };
+
+describe('el número que se cita al responder', () => {
+  it('se queda con el correlativo y suelta la jornada', () => {
+    expect(shortOrderNumber('ORD-260902-009')).toBe('ORD-009');
+    expect(shortOrderNumber('ORD-260902-001')).toBe('ORD-001');
+  });
+
+  it('no trunca un correlativo que pasó de tres cifras', () => {
+    // `lpad` no recorta: la noche que se pasen los 999, el número sigue siendo
+    // único y sigue teniendo que verse entero.
+    expect(shortOrderNumber('ORD-260902-1004')).toBe('ORD-1004');
+  });
+
+  it('deja intacto lo que no tiene esa forma', () => {
+    // La numeración vieja, sin jornada. Recortarla daría un número inexistente.
+    expect(shortOrderNumber('ORD-000123')).toBe('ORD-000123');
+    expect(shortOrderNumber('cualquier cosa')).toBe('cualquier cosa');
+  });
+
+  it('encabeza el aviso él solo, sin emoji ni etiqueta', () => {
+    // Es la línea que Telegram enseña recortada al citar: lo que vaya delante
+    // empuja fuera el número.
+    const primera = buildDeliveryNotice({ ...BASE, orderNumber: 'ORD-260902-009' })
+      .split('\n')[0];
+    expect(primera).toBe('ORD-009');
+  });
+});
 
 describe('aviso al grupo de reparto', () => {
   it('lleva lo imprescindible para repartir', () => {

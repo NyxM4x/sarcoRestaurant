@@ -63,6 +63,29 @@ function formatDistance(meters: number): string {
 }
 
 /**
+ * El número tal como se lee en Telegram: `ORD-260902-009` → `ORD-009`.
+ *
+ * En el grupo de reparto, quien toma un pedido RESPONDE al mensaje —casi
+ * siempre con un sticker— y de la cita solo queda visible el principio de su
+ * primera línea. Con la jornada dentro del número, `ORD-260902-009` se corta
+ * antes de llegar al correlativo y dos pedidos de la misma noche se citan
+ * idénticos: nadie sabe cuál agarró cada uno, que es justo para lo que se
+ * responde.
+ *
+ * La fecha no se pierde, se deja de PINTAR aquí. `orders.order_number` sigue
+ * siendo el completo en la base, en el panel y en cocina, que es donde sirve
+ * —reinicia la numeración cada jornada y distingue el pedido 9 de anoche del
+ * pedido 9 de hoy—. Este recorte es de presentación y de un solo canal.
+ *
+ * Un número que no tenga esta forma —los de la numeración vieja, `ORD-000123`—
+ * se devuelve entero: recortar a ciegas produciría un número que no existe.
+ */
+export function shortOrderNumber(orderNumber: string): string {
+  const partes = /^ORD-\d{6}-(\d+)$/.exec(orderNumber.trim());
+  return partes === null ? orderNumber : `ORD-${partes[1]}`;
+}
+
+/**
  * Enlace de mapa con las coordenadas exactas.
  *
  * Google Maps y no Mapbox a propósito: es la app que el repartidor ya tiene
@@ -81,7 +104,10 @@ export function mapsLink(latitude: number, longitude: number): string {
 export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   const lines: string[] = [];
 
-  lines.push(`🛵 Pedido ${input.orderNumber}`);
+  // Solo el número, sin emoji y sin la palabra "Pedido": lo que Telegram
+  // enseña al citar el mensaje es el principio de esta línea, y cualquier cosa
+  // por delante empuja fuera lo único que hay que leer ahí.
+  lines.push(shortOrderNumber(input.orderNumber));
   lines.push('');
 
   const nombre = (input.customerName ?? '').trim();
