@@ -388,4 +388,22 @@ describe('resumen — dividido para empaque y plancha', () => {
     const comidas = summarizeProducts([uno, dos]).groups[0];
     expect(comidas.rows).toEqual([{ name: 'Lomito', quantity: 5 }]);
   });
+
+  it('una categoría que esta pantalla no conoce cae en Otros, no se pierde', () => {
+    // La categoría se lee de la base como texto. El día que el catálogo estrene
+    // una —postres— antes de que los bloques la contemplen, el producto tiene
+    // que seguir viéndose: si desapareciera del reparto mientras suma en el
+    // total, alguien pediría algo que nadie prepara.
+    const futuro = ticketCat('G', [
+      ['Lomito', 1, 'plato'],
+      ['Flan', 2, 'postre' as unknown as 'plato'],
+    ]);
+    const resumen = summarizeProducts([futuro]);
+    expect(resumen.groups.find((g) => g.key === 'otros')?.rows).toEqual([
+      { name: 'Flan', quantity: 2 },
+    ]);
+    // Y la promesa de siempre se mantiene: los bloques suman lo mismo que la
+    // lista plana, pase lo que pase con el catálogo.
+    expect(resumen.groups.reduce((s, g) => s + g.units, 0)).toBe(resumen.totalUnits);
+  });
 });

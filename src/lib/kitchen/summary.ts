@@ -152,11 +152,21 @@ export interface KitchenSummaryGroup {
  * un código que ya no existe— NO se reparte en "Comidas" por defecto: cae en
  * "Otros". Meterlo en comidas pondría un refresco en la plancha, y esconderlo
  * sería peor: alguien tiene que preparar eso igual.
+ *
+ * "Otros" recoge todo lo que ningún bloque reclamó, y no solo lo que llega con
+ * la categoría en `null`. La diferencia importa el día que el catálogo estrene
+ * una categoría —postres, digamos— antes de que esta pantalla la conozca: con
+ * el filtro por `null` ese producto desaparecería del reparto mientras sigue
+ * contando en el total, que es la única forma en que los bloques podrían dejar
+ * de sumar lo mismo que la lista. La categoría se lee de la base como texto y
+ * se afirma como `MenuCategory` al leerla; esto es lo que hace que esa promesa
+ * la sostenga el reparto y no el casteo.
  */
 function agruparPorCategoria(
   filas: ReadonlyArray<KitchenSummaryRow & { category: MenuCategory | null }>,
 ): KitchenSummaryGroup[] {
   const grupos: KitchenSummaryGroup[] = [];
+  const conBloque = new Set<string>(SUMMARY_GROUPS.map((g) => g.key));
 
   for (const { key, label } of SUMMARY_GROUPS) {
     const rows = filas.filter((f) => f.category === key).map(({ name, quantity }) => ({ name, quantity }));
@@ -165,7 +175,9 @@ function agruparPorCategoria(
     }
   }
 
-  const sueltos = filas.filter((f) => f.category === null).map(({ name, quantity }) => ({ name, quantity }));
+  const sueltos = filas
+    .filter((f) => f.category === null || !conBloque.has(f.category))
+    .map(({ name, quantity }) => ({ name, quantity }));
   if (sueltos.length > 0) {
     grupos.push({
       key: 'otros',
