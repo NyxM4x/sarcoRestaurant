@@ -182,11 +182,60 @@ async function leerLluvia(supabase: SupabaseClient): Promise<boolean> {
 }
 
 /**
- * Le pide la ubicación al que preguntó cuánto sale el envío. Nunca lanza.
+ * Busca la última cotización que este teléfono YA recibió. `null` si no hay.
  *
- * Un texto fijo y nada más: no mide, no consulta el ledger y no gasta cupo —
- * todavía no hay ningún punto que medir. El cupo empieza a contar cuando llega
- * el pin, que es cuando se paga por Mapbox.
+ * Solo `quoted`: de una fila `out_of_coverage` no sale ninguna cifra que
+ * repetir. La ventana es la misma del reuso de mediciones —si la distancia
+ * sigue valiendo para no volver a pagar Mapbox, la cifra sigue valiendo para
+ * repetírsela al cliente—.
+ *
+ * Fail-safe hacia el comportamiento de antes: ante cualquier fallo devuelve
+ * `null` y se le pide la ubicación, que es lo que se hacía siempre.
+ */
+async function ultimaCotizacion(
+  supabase: SupabaseClient,
+  phoneDigits: string,
+): Promise<number | null> {
+  const desde = new Date(Date.now() - QUOTE_REUSE_WINDOW_HOURS * 3_600_000).toISOString();
+  try {
+    const { data, error } = await supabase
+      .from('delivery_quote_requests')
+      .select('fee_amount')
+      .eq('customer_phone', phoneDigits)
+      .eq('status', 'quoted')
+      .gte('created_at', desde)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const fee = Number((data as { fee_amount: unknown }).fee_amount);
+    return Number.isFinite(fee) ? fee : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Contesta al que preguntó cuánto sale el envío. Nunca lanza.
+ *
+ * No mide y no gasta cupo: el cupo empieza a contar cuando llega el pin, que es
+ * cuando se paga por Mapbox.
+ *
+ * ── Al que ya se le cotizó no se le pide la ubicación otra vez ──────────────
+ *
+ * Visto en producción el 02-09-2026: el cliente mandó su ubicación, se le
+ * respondió "el envío sale Bs 17", y acto seguido escribió "aquí cuánto el
+ * envío" — recibiendo "necesito tu ubicación 📍". Dos mensajes seguidos que se
+ * contradicen, y el segundo pidiéndole algo que acababa de dar.
+ *
+ * El detector de intención no tenía la culpa: "aquí cuánto el envío" ES esa
+ * pregunta. Lo que faltaba era mirar si ya había respuesta. Así que antes de
+ * pedir nada se consulta el ledger, y si hay una cotización viva se repite su
+ * cifra — que es lo que el cliente estaba preguntando.
+ *
+ * `link_without_coords` se queda fuera: ese cliente está intentando cotizar un
+ * punto NUEVO que no se pudo leer, y responderle con la tarifa de otra
+ * ubicación sería darle un precio que no es el suyo.
  */
 export async function askLocationForQuote(input: {
   toDigits: string;
@@ -200,11 +249,14 @@ export async function askLocationForQuote(input: {
    * exactamente lo que se vio en las dos conversaciones del 01-09-2026.
    */
   reason?: 'asked' | 'link_without_coords';
-}): Promise<{ ok: boolean }> {
-  const texto =
-    input.reason === 'link_without_coords'
-      ? QUOTE_LINK_WITHOUT_COORDS_TEXT
-      : ASK_LOCATION_FOR_QUOTE_TEXT;
+}, supabase: SupabaseClient = getSupabaseAdmin()): Promise<{ ok: boolean }> {
+  let texto: string;
+  if (input.reason === 'link_without_coords') {
+    texto = QUOTE_LINK_WITHOUT_COORDS_TEXT;
+  } else {
+    const yaCotizado = await ultimaCotizacion(supabase, input.toDigits);
+    texto = yaCotizado === null ? ASK_LOCATION_FOR_QUOTE_TEXT : buildQuoteText(yaCotizado);
+  }
   try {
     const enviado = await getKapsoClient().sendText(input.toDigits, texto, {
       phoneNumberId: input.phoneNumberId ?? undefined,

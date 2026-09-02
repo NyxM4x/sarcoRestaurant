@@ -167,6 +167,10 @@ export const QUOTE_FAILED_TEXT =
  *
  * Sale por el camino determinista, sin pasar por el modelo. Ver
  * `webhook/delivery-quote-intent.ts` para las dos veces que se intentó al revés.
+ *
+ * NO es lo que se contesta siempre: a quien ya tiene una cotización viva se le
+ * repite su cifra en vez de pedirle lo que acaba de dar. Ver
+ * `askLocationForQuote` en `./quote-request-service`.
  */
 export const ASK_LOCATION_FOR_QUOTE_TEXT =
   'Para decirte cuánto sale el envío necesito tu ubicación 📍 Compartila con el ' +
