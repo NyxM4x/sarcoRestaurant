@@ -8,6 +8,8 @@ import { createMenuSessionRepository } from '@/lib/menu/session-repository';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
 import { MenuHeader } from '@/components/menu/MenuHeader';
 import { MenuStore } from '@/components/menu/MenuStore';
+import { ServiceNoticeBanner } from '@/components/menu/ServiceNoticeBanner';
+import { serviceNoticeAt } from '@/lib/menu/service-hours';
 
 export const metadata: Metadata = {
   title: 'Don Zarco — Menú',
@@ -72,9 +74,17 @@ export default async function MenuPage(props: {
     items = null;
   }
 
+  // El aviso de horario se resuelve con el reloj del SERVIDOR: un celular con
+  // la hora mal puesta vería el cartel equivocado, y el de las 04:00 es
+  // justamente el que no puede fallar. `connection()` arriba ya garantiza que
+  // esto no se congele en el build.
+  // eslint-disable-next-line react-hooks/purity
+  const notice = serviceNoticeAt(Date.now());
+
   return (
     <main className="flex-1 bg-donzarco-surface text-zinc-900">
       <MenuHeader />
+      <ServiceNoticeBanner notice={notice} />
 
       {items === null ? (
         <MenuUnavailable
