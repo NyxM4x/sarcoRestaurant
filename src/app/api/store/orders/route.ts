@@ -28,7 +28,7 @@ export const maxDuration = 60;
  *
  * La ruta solo cablea dependencias. La lógica vive en
  * `@/lib/orders/web-checkout` (testeable sin base de datos) y la escritura
- * completa ocurre dentro de la RPC `public.create_order_web_v3`, que corre en
+ * completa ocurre dentro de la RPC `public.create_order_web_v4`, que corre en
  * una sola transacción. Aquí no hay ningún INSERT ni UPDATE directo.
  */
 function buildDeps(): WebCheckoutDeps {
@@ -45,14 +45,17 @@ function buildDeps(): WebCheckoutDeps {
     },
 
     async callCreateOrderWeb(params: CreateOrderWebParams): Promise<CreateOrderWebOutcome> {
-      // 6D.2C — se llama create_order_web_v3 (misma firma de 7 args que v2). El
-      // servidor deriva delivery_pricing='dynamic' para delivery; el cliente NO
-      // lo envía. v2 y la legacy create_order_web siguen existiendo (rollout sin
-      // downtime), pero este código ya no las invoca.
-      const { data, error } = await supabase.rpc('create_order_web_v3', params);
+      // 0032 — create_order_web_v4: la firma de v3 más `p_promotions_json`. El
+      // servidor deriva delivery_pricing='dynamic' para delivery y relee el
+      // precio de cada combo; el cliente NO envía ninguno de los dos. v3 y las
+      // anteriores siguen existiendo (rollout sin downtime), pero este código ya
+      // no las invoca.
+      const { data, error } = await supabase.rpc('create_order_web_v4', params);
 
-      // `error.code` es el SQLSTATE que lanzó la RPC (P1001/P1002/P1003/22023).
-      if (error) return { data: null, errorCode: error.code ?? null };
+      // `error.code` es el SQLSTATE de la RPC (P1001/P1002/P1003/P1004/22023).
+      if (error) {
+        return { data: null, errorCode: error.code ?? null, errorMessage: error.message ?? null };
+      }
       if (!data) return { data: null, errorCode: null };
 
       return { data: data as CreateOrderWebRow, errorCode: null };

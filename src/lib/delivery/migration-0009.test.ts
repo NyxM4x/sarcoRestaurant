@@ -124,9 +124,12 @@ describe('0009 — grants (solo service_role)', () => {
   }
 });
 
-describe('runtime activa create_order_web_v3 (6D.2C)', () => {
+// 0032 movió el runtime a create_order_web_v4. Lo que este bloque protege es
+// que nadie VUELVA a las versiones anteriores: v3 dejó de ser la vigente,
+// pero v2 y la legacy nunca deben reaparecer.
+describe('runtime no vuelve a las RPC antiguas (6D.2C / 0032)', () => {
   it('la ruta de checkout llama v3 y ya NO llama v2', () => {
-    expect(routeSource).toContain('create_order_web_v3');
+    expect(routeSource).toContain('create_order_web_v4');
     expect(routeSource).not.toContain("rpc('create_order_web_v2'");
   });
 });

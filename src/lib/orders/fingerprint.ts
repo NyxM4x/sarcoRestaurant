@@ -31,6 +31,17 @@ export interface CheckoutFingerprintInput {
   payment_method: PaymentMethod;
   notes: string | null;
   items: ReadonlyArray<{ code: string; quantity: number }>;
+  /**
+   * Combos del carrito (0031). Entran en la huella porque cambian el pedido:
+   * añadir una promoción es otro carrito, y confirmarlo sobre la misma sesión
+   * tiene que dar P1003 igual que cambiar un producto.
+   *
+   * Solo el id y la cantidad. Ni el precio ni el ahorro: los pone el servidor,
+   * y meterlos aquí haría que una promoción reprecificada produjera una huella
+   * distinta para el mismo carrito — un reintento legítimo pasaría por
+   * reutilización de enlace.
+   */
+  promotions?: ReadonlyArray<{ promotion_id: string; quantity: number }>;
 }
 
 /**
@@ -53,13 +64,27 @@ function canonicalize(input: CheckoutFingerprintInput): string {
     .sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0))
     .map((item) => ({ code: item.code, quantity: item.quantity }));
 
-  return JSON.stringify({
+  const promotions = (input.promotions ?? [])
+    .map((p) => ({ promotion_id: p.promotion_id.trim(), quantity: p.quantity }))
+    .sort((a, b) =>
+      a.promotion_id < b.promotion_id ? -1 : a.promotion_id > b.promotion_id ? 1 : 0,
+    );
+
+  const payload: Record<string, unknown> = {
     customer_name: input.customer_name.trim(),
     delivery_type: input.delivery_type,
     payment_method: input.payment_method,
     notes: notes === '' ? null : notes,
     items,
-  });
+  };
+
+  // La clave se OMITE cuando no hay combos, y no se escribe como `[]`. Así un
+  // carrito sin promociones produce exactamente la misma huella que antes de
+  // 0031: durante el despliegue, un cliente que estaba reintentando no se
+  // encuentra de pronto con "este enlace ya fue utilizado".
+  if (promotions.length > 0) payload.promotions = promotions;
+
+  return JSON.stringify(payload);
 }
 
 /**

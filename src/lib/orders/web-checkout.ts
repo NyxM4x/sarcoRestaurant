@@ -1,6 +1,10 @@
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
 import { log } from '@/lib/log';
 import type { DispatchResult } from '@/lib/orders/notifications/web-notify';
+import {
+  parsePromotionRejection,
+  promotionRejectionMessage,
+} from '@/lib/promotions/rejection';
 import { calculateCheckoutFingerprint } from './fingerprint';
 import { createWebOrderSchema } from './web-schema';
 import type { DeliveryType, OrderStatus, PaymentMethod } from '@/types';
@@ -12,8 +16,8 @@ import type { DeliveryType, OrderStatus, PaymentMethod } from '@/types';
  * ruta se limita a cablear Supabase y este módulo queda cubierto por tests sin
  * tocar la base de datos.
  *
- * Este módulo NO escribe en `orders` ni en `order_items`. Toda la escritura
- * ocurre dentro de `public.create_order_web_v3`, que es la única responsable de:
+ * Este módulo NO escribe en `orders`, `order_items` ni `order_promotions`. Toda
+ * la escritura ocurre dentro de `public.create_order_web_v4`, responsable de:
  * leer el teléfono desde `menu_sessions`, validar productos activos, leer los
  * precios reales, calcular subtotal y total, derivar delivery_pricing, crear el
  * pedido y sus líneas, y resolver idempotencia y concurrencia.
@@ -46,6 +50,11 @@ export interface CreateOrderWebParams {
   p_checkout_fingerprint: string;
   /** Método de pago (6D.1). Obligatorio: 'cash' | 'qr'. */
   p_payment_method: PaymentMethod;
+  /**
+   * Combos del carrito (0032). Solo id, cantidad y la revisión como testigo:
+   * el precio, el ahorro y los componentes los relee la RPC de la base.
+   */
+  p_promotions_json: Array<{ promotion_id: string; quantity: number; revision?: number }>;
 }
 
 /**
@@ -55,7 +64,16 @@ export interface CreateOrderWebParams {
  */
 export type CreateOrderWebOutcome =
   | { data: CreateOrderWebRow; errorCode: null }
-  | { data: null; errorCode: string | null };
+  | {
+      data: null;
+      errorCode: string | null;
+      /**
+       * Mensaje crudo de la RPC. Solo se LEE para `P1004`, cuyo texto tiene un
+       * formato cerrado que escribimos nosotros; nunca se reenvía al navegador
+       * sin pasar por `parsePromotionRejection`.
+       */
+      errorMessage?: string | null;
+    };
 
 /**
  * Modo de despacho de notificaciones, derivado ÚNICAMENTE de `row.created`.
@@ -116,8 +134,24 @@ function jsonResponse(status: number, body: unknown): Response {
  * Se mapea por código, no por texto: los mensajes de PostgreSQL pueden cambiar
  * y además pueden contener detalles internos que no deben llegar al navegador.
  */
-function mapRpcError(errorCode: string | null): Response {
+function mapRpcError(errorCode: string | null, errorMessage?: string | null): Response {
   switch (errorCode) {
+    case 'P1004': {
+      // Una promoción dejó de ser vendible entre que el cliente la vio y pulsó
+      // confirmar. El pedido NO se crea: la transacción ya hizo rollback.
+      const rechazo = parsePromotionRejection(errorMessage);
+      // Un P1004 con un mensaje que no reconocemos NO se reenvía: cae al
+      // genérico, que registra el SQLSTATE sin exponer el texto crudo.
+      if (rechazo === null) return genericRpcFailure(errorCode);
+      return jsonResponse(422, {
+        error: 'promotion_unavailable',
+        reason: rechazo.reason,
+        // El id permite al navegador señalar EXACTAMENTE cuál quitar en vez de
+        // pedirle al cliente que revise un carrito entero.
+        promotion_ids: [rechazo.promotionId],
+        message: promotionRejectionMessage(rechazo.reason),
+      });
+    }
     case 'P1001':
       return jsonResponse(401, { error: 'invalid_session', message: SESSION_ERROR_MESSAGE });
     case 'P1002':
@@ -133,11 +167,18 @@ function mapRpcError(errorCode: string | null): Response {
         message: 'Los datos del pedido no son válidos. Revisa tu pedido.',
       });
     default:
-      // Cualquier otro error se registra sin detalle de base de datos y se
-      // devuelve genérico: nada de stack traces ni respuestas crudas.
-      log.error('store.orders.rpc_failed', { sqlstate: errorCode ?? 'unknown' });
-      return jsonResponse(500, { error: 'internal_error', message: INTERNAL_ERROR_MESSAGE });
+      return genericRpcFailure(errorCode);
   }
+}
+
+/**
+ * Cualquier fallo que no sabemos traducir: se registra el SQLSTATE y se
+ * devuelve genérico. Nada de stack traces, mensajes crudos de PostgreSQL ni
+ * detalles del esquema.
+ */
+function genericRpcFailure(errorCode: string | null): Response {
+  log.error('store.orders.rpc_failed', { sqlstate: errorCode ?? 'unknown' });
+  return jsonResponse(500, { error: 'internal_error', message: INTERNAL_ERROR_MESSAGE });
 }
 
 /** `pickup` queda confirmado; `delivery` necesita la ubicación por WhatsApp. */
@@ -233,6 +274,7 @@ export async function handleCreateWebOrder(
     payment_method: body.payment_method,
     notes: body.notes,
     items: body.items,
+    promotions: body.promotions,
   });
 
   // 5. RPC transaccional: única vía de escritura.
@@ -246,6 +288,11 @@ export async function handleCreateWebOrder(
       p_items_json: body.items.map((item) => ({ code: item.code, quantity: item.quantity })),
       p_checkout_fingerprint: checkoutFingerprint,
       p_payment_method: body.payment_method,
+      p_promotions_json: body.promotions.map((p) => ({
+        promotion_id: p.promotion_id,
+        quantity: p.quantity,
+        ...(p.revision === undefined ? {} : { revision: p.revision }),
+      })),
     });
   } catch (error) {
     log.error('store.orders.rpc_threw', {
@@ -255,7 +302,7 @@ export async function handleCreateWebOrder(
   }
 
   if (outcome.errorCode !== null || outcome.data === null) {
-    return mapRpcError(outcome.errorCode);
+    return mapRpcError(outcome.errorCode, outcome.errorMessage);
   }
 
   const row = outcome.data;

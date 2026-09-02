@@ -43,6 +43,19 @@ export interface CheckoutFormErrors {
   items?: string;
 }
 
+/**
+ * Una promoción del carrito, camino del servidor.
+ *
+ * Solo id, cantidad y la revisión que se vio. Ni precio ni ahorro: eso lo relee
+ * la base dentro de la transacción del pedido, y mandarlo desde aquí sería
+ * ofrecerle al navegador un precio que proponer.
+ */
+export interface CheckoutPromotion {
+  promotion_id: string;
+  quantity: number;
+  revision: number;
+}
+
 /** Pedido normalizado, listo para el cliente HTTP. */
 export interface NormalizedCheckout {
   customer_name: string;
@@ -50,6 +63,7 @@ export interface NormalizedCheckout {
   payment_method: PaymentMethod;
   notes: string | null;
   items: CheckoutItem[];
+  promotions: CheckoutPromotion[];
 }
 
 export type CheckoutFormResult =
@@ -99,6 +113,7 @@ function isValidPaymentMethod(value: unknown): value is PaymentMethod {
 export function validateCheckoutForm(
   fields: CheckoutFormFields,
   items: ReadonlyArray<CheckoutItem>,
+  promotions: ReadonlyArray<CheckoutPromotion> = [],
 ): CheckoutFormResult {
   const errors: CheckoutFormErrors = {};
 
@@ -132,7 +147,10 @@ export function validateCheckoutForm(
     quantity: item.quantity,
   }));
 
-  if (normalizedItems.length === 0) {
+  // El carrito está vacío solo si NO hay nada de nada. Desde 0031 un pedido
+  // puede ser únicamente un combo, y exigir un producto suelto obligaría a
+  // añadir algo que el cliente no quiere para poder pagar el que sí quiere.
+  if (normalizedItems.length === 0 && promotions.length === 0) {
     errors.items = 'Tu carrito está vacío.';
   } else if (normalizedItems.length > MAX_CART_LINES) {
     errors.items = `No puedes pedir más de ${MAX_CART_LINES} productos distintos.`;
@@ -162,6 +180,11 @@ export function validateCheckoutForm(
       payment_method: fields.payment_method as PaymentMethod,
       notes,
       items: normalizedItems,
+      promotions: promotions.map((p) => ({
+        promotion_id: p.promotion_id,
+        quantity: p.quantity,
+        revision: p.revision,
+      })),
     },
   };
 }

@@ -396,6 +396,7 @@ describe('handleCreateWebOrder', () => {
         'p_menu_session_id',
         'p_notes',
         'p_payment_method',
+        'p_promotions_json',
       ]);
       expect(deps.rpcCalls[0].p_payment_method).toBe('cash');
     });
@@ -457,10 +458,11 @@ describe('handleCreateWebOrder', () => {
       expect(source).not.toMatch(/\.delete\s*\(/);
       expect(source).not.toMatch(/from\(['"]orders['"]\)/);
       expect(source).not.toMatch(/from\(['"]order_items['"]\)/);
-      // La única vía de escritura es la RPC transaccional. 6D.2C: el código nuevo
-      // llama create_order_web_v3 (7 args); NUNCA la legacy create_order_web ni v2.
-      expect(source).toMatch(/rpc\(['"]create_order_web_v3['"]/);
+      // La única vía de escritura es la RPC transaccional. 0032: el código nuevo
+      // llama create_order_web_v4 (8 args); NUNCA v3, v2 ni la legacy.
+      expect(source).toMatch(/rpc\(['"]create_order_web_v4['"]/);
       expect(source).not.toMatch(/rpc\(['"]create_order_web_v2['"]/);
+      expect(source).not.toMatch(/rpc\(['"]create_order_web_v3['"]/);
       expect(source).not.toMatch(/rpc\(['"]create_order_web['"]/);
     });
 

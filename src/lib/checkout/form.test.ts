@@ -53,6 +53,9 @@ describe('validateCheckoutForm — casos válidos', () => {
         payment_method: 'cash',
         notes: 'Sin cebolla',
         items: [{ code: 'la_fija', quantity: 1 }],
+        // Sin combos en el carrito, la lista viaja vacía pero SÍ existe: el
+        // servidor distingue "no hay promociones" de "no se envió el campo".
+        promotions: [],
       });
     }
   });

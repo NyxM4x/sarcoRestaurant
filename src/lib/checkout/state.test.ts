@@ -27,6 +27,7 @@ const SNAPSHOT: NormalizedCheckout = {
   payment_method: 'cash',
   notes: 'Sin cebolla',
   items: [{ code: 'la_fija', quantity: 1 }],
+  promotions: [],
 };
 
 const OTHER_SNAPSHOT: NormalizedCheckout = {
@@ -35,6 +36,7 @@ const OTHER_SNAPSHOT: NormalizedCheckout = {
   payment_method: 'qr',
   notes: null,
   items: [{ code: 'gaseosa_2l', quantity: 3 }],
+  promotions: [],
 };
 
 const ORDER: CheckoutOrder = {
@@ -168,12 +170,15 @@ describe('envío y bloqueo del doble toque', () => {
 
   it('la fotografía no contiene el token', () => {
     const state = checkoutReducer(readyToSubmit(), { type: 'SUBMIT', snapshot: SNAPSHOT });
+    // La lista es EXACTA a propósito: si algún día se cuela un campo nuevo en
+    // la fotografía, este test obliga a mirarlo antes de que viaje.
     expect(Object.keys(state.snapshot!).sort()).toEqual([
       'customer_name',
       'delivery_type',
       'items',
       'notes',
       'payment_method',
+      'promotions',
     ]);
     expect(JSON.stringify(state.snapshot)).not.toContain('session_token');
   });

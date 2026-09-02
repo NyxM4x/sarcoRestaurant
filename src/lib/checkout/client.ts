@@ -61,6 +61,18 @@ function buildRequestBody(sessionToken: string, checkout: NormalizedCheckout) {
     payment_method: checkout.payment_method,
     notes: checkout.notes,
     items: checkout.items.map((item) => ({ code: item.code, quantity: item.quantity })),
+    // La clave se OMITE cuando no hay combos. El esquema del servidor la acepta
+    // ausente, y así un pedido normal viaja exactamente igual que antes de
+    // 0031 — nada que revisar si alguna vez hay que comparar dos peticiones.
+    ...(checkout.promotions.length === 0
+      ? {}
+      : {
+          promotions: checkout.promotions.map((p) => ({
+            promotion_id: p.promotion_id,
+            quantity: p.quantity,
+            revision: p.revision,
+          })),
+        }),
   };
 }
 

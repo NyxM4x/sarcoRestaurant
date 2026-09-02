@@ -47,6 +47,32 @@ const cartLineSchema = z.strictObject({
     .max(MAX_ITEM_QUANTITY, { error: 'La cantidad máxima es 10.' }),
 });
 
+/**
+ * Una promoción del carrito. El navegador manda el ID, la cantidad y —como
+ * testigo— la revisión que tenía la promoción cuando la pintó.
+ *
+ * NO manda precio, ni ahorro, ni componentes: todo eso lo relee la RPC de la
+ * base dentro de la transacción. La revisión no es una excepción a esa regla:
+ * no impone nada, solo permite detectar que el combo cambió mientras el cliente
+ * miraba y negarse a cobrarle una versión que no vio.
+ */
+const cartPromotionSchema = z.strictObject({
+  promotion_id: z.uuid({ error: 'El identificador de la promoción no es válido.' }),
+  quantity: z
+    .number()
+    .int({ error: 'La cantidad debe ser un número entero.' })
+    .min(MIN_ITEM_QUANTITY, { error: 'La cantidad mínima es 1.' })
+    .max(MAX_ITEM_QUANTITY, { error: 'La cantidad máxima es 10.' }),
+  revision: z
+    .number()
+    .int()
+    .positive()
+    .optional(),
+});
+
+/** Tope de combos distintos por pedido. Espeja el de la RPC. */
+export const MAX_CART_PROMOTIONS = 5;
+
 export const createWebOrderSchema = z.strictObject({
   /** Token opaco de la URL del menú (`?session=TOKEN`). Nunca se registra ni se devuelve. */
   session_token: z
@@ -76,9 +102,11 @@ export const createWebOrderSchema = z.strictObject({
     .nullish()
     .transform((value) => (value == null || value === '' ? null : value)),
 
+  // Puede venir VACÍO desde 0032: un carrito de solo promociones es legítimo.
+  // Que el pedido tenga algo dentro se comprueba abajo, contando las dos
+  // listas juntas — igual que hace la RPC.
   items: z
     .array(cartLineSchema)
-    .min(1, { error: 'El carrito no puede estar vacío.' })
     .max(MAX_CART_LINES, { error: 'El carrito no puede tener más de 20 líneas.' })
     // Los códigos ya llegan recortados por `cartLineSchema`, así que comparar
     // aquí equivale a comparar `btrim(...)` como hace la RPC.
@@ -86,7 +114,23 @@ export const createWebOrderSchema = z.strictObject({
       (items) => new Set(items.map((item) => item.code)).size === items.length,
       { error: 'El carrito tiene productos repetidos.' },
     ),
-});
+
+  promotions: z
+    .array(cartPromotionSchema)
+    .max(MAX_CART_PROMOTIONS, { error: 'El carrito no puede tener más de 5 promociones.' })
+    .refine(
+      (promos) => new Set(promos.map((p) => p.promotion_id)).size === promos.length,
+      { error: 'El carrito tiene promociones repetidas.' },
+    )
+    .optional()
+    .transform((value) => value ?? []),
+})
+  // Un pedido tiene que pedir ALGO. La comprobación vive aquí y no en `items`
+  // porque desde 0031 el carrito tiene dos listas y cualquiera de las dos puede
+  // estar vacía sin que el pedido lo esté.
+  .refine((body) => body.items.length + body.promotions.length > 0, {
+    error: 'El carrito no puede estar vacío.',
+  });
 
 /** Body ya validado y normalizado: nombre y códigos recortados, notas `null` si vacías. */
 export type CreateWebOrderInput = z.infer<typeof createWebOrderSchema>;

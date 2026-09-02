@@ -13,6 +13,7 @@ const CHECKOUT: NormalizedCheckout = {
     { code: 'la_fija', quantity: 1 },
     { code: 'gaseosa_2l', quantity: 2 },
   ],
+  promotions: [],
 };
 
 /** Pedido válido y completo, tal como lo devuelve el backend. */
