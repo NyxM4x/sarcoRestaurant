@@ -2,7 +2,7 @@
 
 Aquí van las **fotos individuales** de cada producto del menú.
 
-> Los nueve productos del catálogo ya tienen foto. Para uno nuevo sin foto,
+> Los quince productos del catálogo ya tienen foto. Para uno nuevo sin foto,
 > dejar `src: null`: `/menu` dibuja un **placeholder propio** (gradiente CSS +
 > emoji, según la categoría), sin pedir nada a la red y sin errores en consola.
 
@@ -33,9 +33,27 @@ cuyo original trae el rótulo "SABOR ÚNICO" arriba y se recortó por debajo.
 | `hamburguesa` | Hamburguesa | `hamburguesa.webp` | ✅ |
 | `lomito` | Lomito | `lomito.webp` | ✅ |
 | `salchipapa` | Salchipapa | `salchipapa.webp` | ✅ |
-| `gaseosa_2l` | Gaseosa 2 L | `gaseosa-2l.webp` | ✅ |
-| `gaseosa_personal` | Gaseosa personal | `gaseosa-personal.webp` | ✅ |
+| `soda_peque` | Soda Peque | `soda-peque.webp` | ✅ |
+| `soda_mini` | Soda Mini | `soda-mini.webp` | ✅ |
+| `vaso_maracuya` | Vaso grande de maracuyá | `vaso-maracuya.webp` | ✅ |
+| `vaso_limonada` | Vaso grande de limonada | `vaso-limonada.webp` | ✅ |
+| `vaso_lima` | Vaso grande de lima | `vaso-lima.webp` | ✅ |
+| `vaso_pina` | Vaso grande de piña | `vaso-pina.webp` | ✅ |
 | `porcion_papas` | Porción de papa | `porcion-papas.webp` | ✅ |
+
+Retirados del menú en 0030, con su foto todavía aquí por si vuelven:
+`gaseosa-2l.webp`, `gaseosa-personal.webp`.
+
+## Promociones
+
+Un combo NO necesita foto propia: si `promotions.image_url` está vacío, la
+tarjeta usa la del **componente protagonista** —plato antes que extra, extra
+antes que bebida, y a igualdad el más caro—, así que "2 lomitos goleadores"
+sale con la foto del lomito sin que nadie suba nada.
+
+Para darle una foto propia, déjala aquí y escribe su ruta (`/menu/archivo.webp`)
+en `image_url`. También admite un `https://` externo; cualquier otra cosa se
+ignora y se cae al componente (ver `isAllowedImageUrl`).
 
 ## Recomendaciones
 

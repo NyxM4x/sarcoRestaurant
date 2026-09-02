@@ -50,6 +50,15 @@ const PRODUCT_DESCRIPTIONS: Record<string, string> = {
   gaseosa_2l: 'Botella de 2 litros para compartir.',
   gaseosa_personal: 'Botella personal bien helada.',
   porcion_papas: 'Papas fritas doradas con sal.',
+
+  // Los cuatro vasos comparten copy porque comparten promesa: es lo que el
+  // negocio quiere decir de ellos, y cuatro frases distintas inventadas aquí
+  // dirían cosas que nadie ha prometido. Las sodas van sin descripción: una
+  // Coca-Cola no necesita que se la presenten.
+  vaso_maracuya: 'Refrescante y natural.',
+  vaso_limonada: 'Refrescante y natural.',
+  vaso_lima: 'Refrescante y natural.',
+  vaso_pina: 'Refrescante y natural.',
 };
 
 /** Descripción de vitrina de un producto, o `null` si no hay copy definido. */
@@ -92,17 +101,16 @@ const PRODUCT_IMAGES: Record<string, ProductImage> = {
   gaseosa_personal: { src: '/menu/gaseosa-personal.webp', file: 'gaseosa-personal.webp', emoji: '🥤' },
   porcion_papas: { src: '/menu/porcion-papas.webp', file: 'porcion-papas.webp', emoji: '🍟' },
 
-  // Bebidas de 0030. Sin foto todavía (`src: null` dibuja el placeholder sin
-  // pedir nada a la red). Van explícitas y no por el fallback de categoría
-  // porque este daría 🥤 a las seis: en la vitrina los jugos quedarían
-  // indistinguibles de las sodas, que es justo lo que el cliente elige de un
-  // vistazo. En cuanto haya fotos reales, cambiar `src` por su ruta.
-  soda_peque: { src: null, file: 'soda-peque.webp', emoji: '🥤' },
-  soda_mini: { src: null, file: 'soda-mini.webp', emoji: '🥤' },
-  vaso_maracuya: { src: null, file: 'vaso-maracuya.webp', emoji: '🧃' },
-  vaso_limonada: { src: null, file: 'vaso-limonada.webp', emoji: '🍋' },
-  vaso_lima: { src: null, file: 'vaso-lima.webp', emoji: '🍋' },
-  vaso_pina: { src: null, file: 'vaso-pina.webp', emoji: '🍍' },
+  // Bebidas de 0030, con foto real del negocio (02-09-2026). El emoji sigue
+  // siendo distinto por bebida: es el fallback si la foto no carga, y el de
+  // categoría daría 🥤 a las seis — en la vitrina los jugos quedarían
+  // indistinguibles de las sodas, que es lo que el cliente elige de un vistazo.
+  soda_peque: { src: '/menu/soda-peque.webp', file: 'soda-peque.webp', emoji: '🥤' },
+  soda_mini: { src: '/menu/soda-mini.webp', file: 'soda-mini.webp', emoji: '🥤' },
+  vaso_maracuya: { src: '/menu/vaso-maracuya.webp', file: 'vaso-maracuya.webp', emoji: '🧃' },
+  vaso_limonada: { src: '/menu/vaso-limonada.webp', file: 'vaso-limonada.webp', emoji: '🍋' },
+  vaso_lima: { src: '/menu/vaso-lima.webp', file: 'vaso-lima.webp', emoji: '🍋' },
+  vaso_pina: { src: '/menu/vaso-pina.webp', file: 'vaso-pina.webp', emoji: '🍍' },
 };
 
 const FALLBACK_EMOJI: Record<MenuCategory, string> = {
