@@ -91,6 +91,18 @@ const PRODUCT_IMAGES: Record<string, ProductImage> = {
   gaseosa_2l: { src: '/menu/gaseosa-2l.webp', file: 'gaseosa-2l.webp', emoji: '🥤' },
   gaseosa_personal: { src: '/menu/gaseosa-personal.webp', file: 'gaseosa-personal.webp', emoji: '🥤' },
   porcion_papas: { src: '/menu/porcion-papas.webp', file: 'porcion-papas.webp', emoji: '🍟' },
+
+  // Bebidas de 0030. Sin foto todavía (`src: null` dibuja el placeholder sin
+  // pedir nada a la red). Van explícitas y no por el fallback de categoría
+  // porque este daría 🥤 a las seis: en la vitrina los jugos quedarían
+  // indistinguibles de las sodas, que es justo lo que el cliente elige de un
+  // vistazo. En cuanto haya fotos reales, cambiar `src` por su ruta.
+  soda_peque: { src: null, file: 'soda-peque.webp', emoji: '🥤' },
+  soda_mini: { src: null, file: 'soda-mini.webp', emoji: '🥤' },
+  vaso_maracuya: { src: null, file: 'vaso-maracuya.webp', emoji: '🧃' },
+  vaso_limonada: { src: null, file: 'vaso-limonada.webp', emoji: '🍋' },
+  vaso_lima: { src: null, file: 'vaso-lima.webp', emoji: '🍋' },
+  vaso_pina: { src: null, file: 'vaso-pina.webp', emoji: '🍍' },
 };
 
 const FALLBACK_EMOJI: Record<MenuCategory, string> = {
