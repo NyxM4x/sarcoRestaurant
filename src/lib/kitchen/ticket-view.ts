@@ -29,7 +29,7 @@
  * importe a validar es el total. La cifra correcta depende del tipo de entrega,
  * y por eso se calcula aqui una vez y no en cada pantalla que la use.
  */
-import type { OrderStatus, DeliveryType, PaymentMethod } from '@/types';
+import type { OrderStatus, DeliveryType, MenuCategory, PaymentMethod } from '@/types';
 import type { PaymentView, ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
 import { amountDueByQrOf } from '@/lib/orders/amount-due';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
@@ -67,6 +67,15 @@ export interface RawKitchenItemRow {
   order_id: string;
   product_name_snapshot: string;
   quantity: number;
+  /**
+   * Categoría del producto, resuelta contra el catálogo al leer.
+   *
+   * `null` cuando no se pudo averiguar —un producto borrado, o un snapshot de
+   * un combo con un código que ya no existe—. Se distingue de las tres
+   * categorías reales a propósito: colocarlo en "comidas" por defecto pondría
+   * un refresco en la plancha.
+   */
+  category?: MenuCategory | null;
 }
 
 /**
@@ -80,6 +89,8 @@ export interface KitchenTicketLine {
   name: string;
   quantity: number;
   modifiers: string[];
+  /** Para agrupar el resumen del planchero. `null` = no se pudo resolver. */
+  category: MenuCategory | null;
 }
 
 export interface KitchenTicket {
@@ -229,6 +240,7 @@ export function groupItemsByOrder(
       name: it.product_name_snapshot,
       quantity: it.quantity,
       modifiers: [],
+      category: it.category ?? null,
     });
   }
   return grouped;

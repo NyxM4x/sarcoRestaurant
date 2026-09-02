@@ -1,7 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import type { OrderStatus, PaymentMethod } from '@/types';
+import type { MenuCategory, OrderStatus, PaymentMethod } from '@/types';
 import { KITCHEN_BOARD_STATUSES } from './kds-status';
 import type { PaymentAttempt } from '@/types';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
@@ -92,29 +92,51 @@ export function createSupabaseKitchenDataSource(
       const ids = rows.map((r) => r.id);
       if (ids.length === 0) return { rows, items: [] };
 
-      // Una SOLA consulta para los items, y otra para los combos. Las dos en
-      // paralelo: el tablero se recarga cada pocos segundos y encadenarlas
-      // duplicaría la latencia de cada ciclo.
-      const [itemsRes, promosRes] = await Promise.all([
+      // Tres consultas en paralelo: el tablero se recarga cada pocos segundos
+      // y encadenarlas triplicaría la latencia de cada ciclo.
+      //
+      // El catálogo entra porque el resumen del planchero reparte lo que hay
+      // en comidas, extras y refrescos, y la CATEGORÍA no viaja con la línea
+      // del pedido: `order_items` guarda el nombre y el precio de entonces,
+      // no a qué parte de la cocina pertenece. Son quince filas.
+      const [itemsRes, promosRes, catalogoRes] = await Promise.all([
         client
           .from('order_items')
-          .select('order_id,product_name_snapshot,quantity')
+          .select('order_id,product_code,product_name_snapshot,quantity')
           .in('order_id', ids),
         client
           .from('order_promotions')
           .select('order_id,quantity,components_snapshot')
           .in('order_id', ids),
+        // Sin filtrar por `is_active`: un producto retirado esta misma noche
+        // sigue estando en los pedidos que ya entraron, y su categoría hace
+        // falta para colocarlo en su bloque.
+        client.from('menu_items').select('code,category'),
       ]);
       if (itemsRes.error) throw new Error('kitchen_items_failed');
       if (promosRes.error) throw new Error('kitchen_promotions_failed');
 
+      // Si el catálogo falla NO se cae el tablero: las líneas se quedan sin
+      // categoría y el resumen las agrupa en "Otros". Perder el reparto es
+      // molesto; perder la pantalla en plena noche no es recuperable.
+      const categoriaDe = new Map<string, MenuCategory>(
+        ((catalogoRes.data ?? []) as unknown as Array<{ code: string; category: MenuCategory }>)
+          .map((m) => [m.code, m.category]),
+      );
+      const conCategoria = <T extends { product_code?: string }>(fila: T) => ({
+        ...fila,
+        category: fila.product_code ? categoriaDe.get(fila.product_code) ?? null : null,
+      });
+
       // Los componentes del combo NO están en `order_items` —irían dos veces
       // en el subtotal— así que se aplanan aquí. Sin esto, un pedido de solo
       // promociones llegaría a la cocina sin nada que preparar.
-      const items = (itemsRes.data ?? []) as unknown as RawKitchenItemRow[];
+      const items = (
+        (itemsRes.data ?? []) as unknown as Array<RawKitchenItemRow & { product_code: string }>
+      ).map(conCategoria);
       const deCombos = promotionsToKitchenLines(
         (promosRes.data ?? []) as unknown as KitchenPromotionRow[],
-      );
+      ).map(conCategoria);
 
       return { rows, items: [...items, ...deCombos] };
     },

@@ -10,6 +10,18 @@ import type { KitchenSummary } from '@/lib/kitchen/summary';
  * resumen ya derivado de la lista de tickets: al completar un pedido baja solo,
  * y al devolverlo a cocina vuelve a subir, sin ningún estado que sincronizar.
  *
+ * ── Dividido por lo que hace cada quien ────────────────────────────────────
+ *
+ * Comidas, extras y refrescos, en ese orden: primero lo que va a la plancha,
+ * después lo que va a la freidora, y al final lo que solo se saca de la
+ * heladera. Antes era una lista sola ordenada por cantidad, y quien empacaba
+ * tenía que separar mentalmente las hamburguesas de las gaseosas cada vez.
+ *
+ * Los rótulos son los de la cocina y no los de la carta —"Comidas" y
+ * "Refrescos", no "Platos" y "Bebidas"— porque esta pantalla no la lee un
+ * cliente. Y un bloque sin nada dentro no se pinta: el rótulo solo ocuparía
+ * sitio en una pantalla que ya va justa de ancho.
+ *
  * ── Lo retenido se dice, no se esconde ─────────────────────────────────────
  *
  * Un pedido cuyo comprobante nadie ha confirmado todavía no entra en el total;
@@ -54,21 +66,33 @@ export function KitchenSummaryPanel({ summary }: { summary: KitchenSummary }) {
               : 'Nada pendiente por cocinar.'}
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5">
-            {summary.rows.map((row) => (
-              <li
-                key={row.name}
-                className="flex items-baseline gap-2 rounded-md px-1.5 py-1.5 odd:bg-white/5"
-              >
-                <span className="w-9 shrink-0 text-right text-lg font-extrabold leading-none tabular-nums text-amber-300">
-                  {row.quantity}x
-                </span>
-                <span className="text-[13px] font-semibold leading-tight text-zinc-100">
-                  {row.name}
-                </span>
-              </li>
+          <div className="flex flex-col gap-3">
+            {summary.groups.map((group) => (
+              <section key={group.key}>
+                {/* El rótulo lleva su propio total: desde la plancha se lee
+                    "12 comidas" sin sumar las filas de abajo. */}
+                <h3 className="flex items-baseline justify-between gap-2 px-1.5 pb-1 text-[10px] font-bold uppercase leading-tight tracking-wider text-zinc-500">
+                  <span>{group.label}</span>
+                  <span className="tabular-nums text-zinc-400">{group.units}</span>
+                </h3>
+                <ul className="flex flex-col gap-0.5">
+                  {group.rows.map((row) => (
+                    <li
+                      key={row.name}
+                      className="flex items-baseline gap-2 rounded-md px-1.5 py-1.5 odd:bg-white/5"
+                    >
+                      <span className="w-9 shrink-0 text-right text-lg font-extrabold leading-none tabular-nums text-amber-300">
+                        {row.quantity}x
+                      </span>
+                      <span className="text-[13px] font-semibold leading-tight text-zinc-100">
+                        {row.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
       </div>
 

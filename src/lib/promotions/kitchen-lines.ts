@@ -27,6 +27,9 @@ import type { RawKitchenItemRow } from '@/lib/kitchen/ticket-view';
  * de cocina no se cobra.
  */
 
+/** Fila de ticket con el código, para que quien lee resuelva la categoría. */
+export type PromotionKitchenLine = RawKitchenItemRow & { product_code: string };
+
 /** Un componente tal como quedó congelado en el snapshot del pedido. */
 interface SnapshotComponent {
   code: string;
@@ -51,8 +54,8 @@ export interface KitchenPromotionRow {
  * campo antes de usarlo, y lo que no encaja se descarta en silencio — un
  * componente ilegible no puede tumbar el tablero entero en plena hora punta.
  */
-export function promotionsToKitchenLines(rows: KitchenPromotionRow[]): RawKitchenItemRow[] {
-  const lineas: RawKitchenItemRow[] = [];
+export function promotionsToKitchenLines(rows: KitchenPromotionRow[]): PromotionKitchenLine[] {
+  const lineas: PromotionKitchenLine[] = [];
 
   for (const row of rows) {
     if (typeof row.order_id !== 'string' || row.order_id === '') continue;
@@ -65,6 +68,10 @@ export function promotionsToKitchenLines(rows: KitchenPromotionRow[]): RawKitche
         order_id: row.order_id,
         product_name_snapshot: componente.name,
         quantity: componente.quantity * vecesElCombo,
+        // El snapshot guarda el código pero no la categoría —se congeló antes
+        // de que el resumen la necesitara—, así que la resuelve quien lee,
+        // igual que para los productos sueltos.
+        product_code: componente.code,
       });
     }
   }

@@ -17,7 +17,14 @@ function ticket(
     enteredAt: iso(minutes),
     stage,
     deliveryType: 'delivery',
-    lines: lines.map(([name, quantity]) => ({ name, quantity, modifiers: [] })),
+    // Categoría por defecto para los fixtures que no la declaran: casi todos
+    // estos tests miden CUÁNTO se suma, no en qué bloque cae.
+    lines: lines.map(([name, quantity]) => ({
+      name,
+      quantity,
+      modifiers: [],
+      category: 'plato' as const,
+    })),
     notes: null,
     completedAt: stage === 'done' ? iso(minutes + 10) : null,
     amountDueByQr: 0,
@@ -103,8 +110,8 @@ describe('resumen — orden y agrupación', () => {
       {
         ...ticket('A', 'new', []),
         lines: [
-          { name: 'Trancapecho', quantity: 2, modifiers: ['sin cebolla'] },
-          { name: 'Trancapecho', quantity: 1, modifiers: ['extra tocino'] },
+          { name: 'Trancapecho', quantity: 2, modifiers: ['sin cebolla'], category: 'plato' as const },
+          { name: 'Trancapecho', quantity: 1, modifiers: ['extra tocino'], category: 'plato' as const },
         ],
       },
     ];
@@ -114,6 +121,7 @@ describe('resumen — orden y agrupación', () => {
   it('sin tickets activos el resumen queda vacío', () => {
     expect(summarizeProducts([])).toEqual({
       rows: [],
+      groups: [],
       totalUnits: 0,
       countedOrders: 0,
       awaitingOrders: 0,
@@ -287,5 +295,97 @@ describe('reparto entre grid e historial', () => {
     const viejo = { ...ticket('A', 'done', [['X', 1]], 0), completedAt: iso(5) };
     const nuevo = { ...ticket('B', 'done', [['X', 1]], 0), completedAt: iso(30) };
     expect(readyTickets([viejo, nuevo]).map((t) => t.orderNumber)).toEqual(['B', 'A']);
+  });
+});
+
+// ── El reparto del planchero ────────────────────────────────────────────────
+
+/** Ticket con la categoría declarada por línea. */
+function ticketCat(
+  orderNumber: string,
+  lines: Array<[string, number, 'plato' | 'bebida' | 'extra' | null]>,
+): KitchenTicket {
+  const base = ticket(orderNumber, 'new', []);
+  return {
+    ...base,
+    lines: lines.map(([name, quantity, category]) => ({
+      name,
+      quantity,
+      modifiers: [],
+      category,
+    })),
+  };
+}
+
+describe('resumen — dividido para empaque y plancha', () => {
+  const MIXTO = ticketCat('A', [
+    ['Trancaburguer', 2, 'plato'],
+    ['Soda Peque', 3, 'bebida'],
+    ['Porción de papa', 1, 'extra'],
+    ['Lomito', 1, 'plato'],
+  ]);
+
+  it('separa comidas, extras y refrescos', () => {
+    const { groups } = summarizeProducts([MIXTO]);
+    expect(groups.map((g) => g.label)).toEqual(['Comidas', 'Extras', 'Refrescos']);
+  });
+
+  it('primero lo que va al fuego y al final lo que solo se sirve', () => {
+    // El orden NO es el del menú del cliente —allí las bebidas van antes que
+    // los extras—: aquí manda el trabajo de cocina.
+    const { groups } = summarizeProducts([MIXTO]);
+    expect(groups.map((g) => g.key)).toEqual(['plato', 'extra', 'bebida']);
+  });
+
+  it('cada bloque lleva su propio total de unidades', () => {
+    const { groups } = summarizeProducts([MIXTO]);
+    expect(groups.find((g) => g.key === 'plato')?.units).toBe(3);
+    expect(groups.find((g) => g.key === 'bebida')?.units).toBe(3);
+    expect(groups.find((g) => g.key === 'extra')?.units).toBe(1);
+  });
+
+  it('los bloques suman exactamente lo mismo que la lista plana', () => {
+    const resumen = summarizeProducts([MIXTO]);
+    const enBloques = resumen.groups.reduce((s, g) => s + g.units, 0);
+    expect(enBloques).toBe(resumen.totalUnits);
+    expect(resumen.groups.flatMap((g) => g.rows).length).toBe(resumen.rows.length);
+  });
+
+  it('un bloque sin nada dentro no se pinta', () => {
+    const soloComida = ticketCat('B', [['Lomito', 2, 'plato']]);
+    const { groups } = summarizeProducts([soloComida]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('Comidas');
+  });
+
+  it('lo que no tiene categoría cae en Otros, nunca en Comidas', () => {
+    // Poner un producto desconocido entre las comidas mandaría a la plancha
+    // algo que quizá es un refresco.
+    const raro = ticketCat('C', [
+      ['Lomito', 1, 'plato'],
+      ['Producto borrado', 2, null],
+    ]);
+    const { groups } = summarizeProducts([raro]);
+    expect(groups.map((g) => g.key)).toEqual(['plato', 'otros']);
+    expect(groups.find((g) => g.key === 'otros')?.rows).toEqual([
+      { name: 'Producto borrado', quantity: 2 },
+    ]);
+  });
+
+  it('dentro de cada bloque manda la cantidad', () => {
+    const varios = ticketCat('D', [
+      ['Hamburguesa', 1, 'plato'],
+      ['Trancapecho', 5, 'plato'],
+      ['Lomito', 3, 'plato'],
+    ]);
+    const comidas = summarizeProducts([varios]).groups[0];
+    expect(comidas.rows.map((r) => r.name)).toEqual(['Trancapecho', 'Lomito', 'Hamburguesa']);
+  });
+
+  it('el mismo producto en dos pedidos suma en un solo renglón', () => {
+    const uno = ticketCat('E', [['Lomito', 2, 'plato']]);
+    const dos = ticketCat('F', [['Lomito', 3, 'plato']]);
+    const comidas = summarizeProducts([uno, dos]).groups[0];
+    expect(comidas.rows).toEqual([{ name: 'Lomito', quantity: 5 }]);
   });
 });

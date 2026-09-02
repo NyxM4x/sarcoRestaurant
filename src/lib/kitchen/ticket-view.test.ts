@@ -83,8 +83,10 @@ describe('ticket — orden y contenido', () => {
   it('agrupa los ítems por pedido y los adjunta al ticket correcto', () => {
     const items = [item('a', 'Trancapecho', 2), item('b', 'Gaseosa 2 L', 1), item('a', 'Api', 3)];
     expect(groupItemsByOrder(items).a).toEqual([
-      { name: 'Trancapecho', quantity: 2, modifiers: [] },
-      { name: 'Api', quantity: 3, modifiers: [] },
+      // `category: null` porque el helper de este test no la trae: una línea
+      // sin categoría resuelta cae en "Otros" del resumen, nunca en Comidas.
+      { name: 'Trancapecho', quantity: 2, modifiers: [], category: null },
+      { name: 'Api', quantity: 3, modifiers: [], category: null },
     ]);
 
     const tickets = toKitchenTickets([row('a', 'confirmed'), row('b', 'preparing')], items);

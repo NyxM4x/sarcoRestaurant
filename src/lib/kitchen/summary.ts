@@ -6,6 +6,7 @@
  * que sincronizar a mano — que es justo donde aparecen los numeros "estaticos"
  * que nunca se restan.
  */
+import type { MenuCategory } from '@/types';
 import { isActiveStage } from './kds-status';
 import type { KitchenTicket } from './ticket-view';
 
@@ -43,7 +44,19 @@ export interface KitchenSummaryRow {
 }
 
 export interface KitchenSummary {
+  /** Todo junto, por cantidad. Se conserva para quien ya lo leía así. */
   rows: KitchenSummaryRow[];
+  /**
+   * Lo mismo, repartido en Comidas / Extras / Refrescos.
+   *
+   * Es lo que pinta el panel del planchero: quien empaca necesita ver de un
+   * golpe cuántas hamburguesas van al fuego sin tener que separarlas
+   * mentalmente de los refrescos que solo hay que sacar de la heladera.
+   *
+   * Solo aparecen los bloques con algo dentro: un rótulo "Refrescos" sobre una
+   * lista vacía ocupa sitio en una pantalla que ya va justa de ancho.
+   */
+  groups: KitchenSummaryGroup[];
   /** Unidades totales por cocinar, ya en firme. */
   totalUnits: number;
   /** Pedidos que alimentan el resumen. */
@@ -106,8 +119,71 @@ export function isFirmWork(ticket: KitchenTicket): boolean {
  *
  * Orden: cantidad descendente y, a igual cantidad, alfabetico.
  */
+/**
+ * Los tres bloques del resumen, en el orden en que se trabaja.
+ *
+ * Primero lo que va a la PLANCHA, después lo que va a la FREIDORA, y al final
+ * lo que solo se sirve. No es el orden del menú del cliente —allí las bebidas
+ * van antes que los extras— porque esta pantalla no la lee un cliente: la lee
+ * quien tiene que decidir qué pone al fuego ahora.
+ *
+ * Se nombran como se nombran en la cocina, no como en la carta: "Comidas" y
+ * "Refrescos" en vez de "Platos" y "Bebidas".
+ */
+export const SUMMARY_GROUPS: ReadonlyArray<{ key: MenuCategory; label: string }> = [
+  { key: 'plato', label: 'Comidas' },
+  { key: 'extra', label: 'Extras' },
+  { key: 'bebida', label: 'Refrescos' },
+];
+
+/** Un bloque del resumen. Solo se devuelven los que tienen algo dentro. */
+export interface KitchenSummaryGroup {
+  key: MenuCategory | 'otros';
+  label: string;
+  rows: KitchenSummaryRow[];
+  /** Unidades del bloque: lo que se lee de un vistazo desde la plancha. */
+  units: number;
+}
+
+/**
+ * Reparte las filas ya sumadas en sus bloques.
+ *
+ * Lo que no tiene categoría —un producto borrado del catálogo, o un combo con
+ * un código que ya no existe— NO se reparte en "Comidas" por defecto: cae en
+ * "Otros". Meterlo en comidas pondría un refresco en la plancha, y esconderlo
+ * sería peor: alguien tiene que preparar eso igual.
+ */
+function agruparPorCategoria(
+  filas: ReadonlyArray<KitchenSummaryRow & { category: MenuCategory | null }>,
+): KitchenSummaryGroup[] {
+  const grupos: KitchenSummaryGroup[] = [];
+
+  for (const { key, label } of SUMMARY_GROUPS) {
+    const rows = filas.filter((f) => f.category === key).map(({ name, quantity }) => ({ name, quantity }));
+    if (rows.length > 0) {
+      grupos.push({ key, label, rows, units: rows.reduce((s, r) => s + r.quantity, 0) });
+    }
+  }
+
+  const sueltos = filas.filter((f) => f.category === null).map(({ name, quantity }) => ({ name, quantity }));
+  if (sueltos.length > 0) {
+    grupos.push({
+      key: 'otros',
+      label: 'Otros',
+      rows: sueltos,
+      units: sueltos.reduce((s, r) => s + r.quantity, 0),
+    });
+  }
+
+  return grupos;
+}
+
 export function summarizeProducts(tickets: KitchenTicket[]): KitchenSummary {
-  const totals = new Map<string, number>();
+  // Se agrupa por NOMBRE, como siempre, pero se recuerda la categoría de la
+  // primera aparición: dos productos con el mismo nombre en categorías
+  // distintas no existen en esta carta, y si algún día existieran seguirían
+  // sumando juntos como hasta ahora.
+  const totals = new Map<string, { quantity: number; category: MenuCategory | null }>();
   let countedOrders = 0;
   let totalUnits = 0;
   let awaitingOrders = 0;
@@ -131,16 +207,32 @@ export function summarizeProducts(tickets: KitchenTicket[]): KitchenSummary {
     for (const line of ticket.lines) {
       const qty = Number.isFinite(line.quantity) ? line.quantity : 0;
       if (qty <= 0) continue;
-      totals.set(line.name, (totals.get(line.name) ?? 0) + qty);
+      const previo = totals.get(line.name);
+      totals.set(line.name, {
+        quantity: (previo?.quantity ?? 0) + qty,
+        category: previo?.category ?? line.category ?? null,
+      });
       totalUnits += qty;
     }
   }
 
-  const rows = [...totals.entries()]
-    .map(([name, quantity]) => ({ name, quantity }))
+  const conCategoria = [...totals.entries()]
+    .map(([name, { quantity, category }]) => ({ name, quantity, category }))
     .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, 'es'));
 
-  return { rows, totalUnits, countedOrders, awaitingOrders, awaitingUnits };
+  // `rows` se mantiene plano y con el mismo orden de siempre: hay pantallas y
+  // pruebas que lo leen así, y los bloques son una VISTA de lo mismo, no otro
+  // cálculo que pudiera discrepar.
+  const rows = conCategoria.map(({ name, quantity }) => ({ name, quantity }));
+
+  return {
+    rows,
+    groups: agruparPorCategoria(conCategoria),
+    totalUnits,
+    countedOrders,
+    awaitingOrders,
+    awaitingUnits,
+  };
 }
 
 /** Tickets que se pintan en el grid central (los listos viven en el historial). */

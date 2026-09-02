@@ -161,9 +161,14 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
     // tablero —uno por QR espera comprobante, uno histórico en efectivo no— y el
     // test de las claves del ticket comprueba que no acaba en la respuesta.
     expect(columnas).toContain('payment_method');
-    // Y solo se piden producto y cantidad de cada línea, nunca precios.
-    expect(src).toContain("select('order_id,product_name_snapshot,quantity')");
+    // Y de cada línea solo producto y cantidad, NUNCA precios. `product_code`
+    // se pide desde que el resumen del planchero reparte por categoría: es el
+    // mismo producto que ya viaja por su nombre, no un dato nuevo del cliente.
+    expect(src).toContain("select('order_id,product_code,product_name_snapshot,quantity')");
     expect(src).not.toContain('unit_price_snapshot');
+    // El catálogo se consulta entero, pero solo por su código y su categoría:
+    // ni precios ni nada que no sirva para repartir el resumen.
+    expect(src).toContain("from('menu_items').select('code,category')");
   });
 });
 

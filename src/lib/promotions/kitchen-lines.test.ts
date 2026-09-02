@@ -17,9 +17,9 @@ const fila = (over: Partial<KitchenPromotionRow> = {}): KitchenPromotionRow => (
 describe('los combos llegan a la cocina', () => {
   it('cada componente se convierte en una línea del ticket', () => {
     expect(promotionsToKitchenLines([fila()])).toEqual([
-      { order_id: 'pedido-1', product_name_snapshot: 'Lomito', quantity: 2 },
-      { order_id: 'pedido-1', product_name_snapshot: 'Soda Peque', quantity: 2 },
-      { order_id: 'pedido-1', product_name_snapshot: 'Porción de papa', quantity: 2 },
+      { order_id: 'pedido-1', product_name_snapshot: 'Lomito', quantity: 2, product_code: 'lomito' },
+      { order_id: 'pedido-1', product_name_snapshot: 'Soda Peque', quantity: 2, product_code: 'soda_peque' },
+      { order_id: 'pedido-1', product_name_snapshot: 'Porción de papa', quantity: 2, product_code: 'porcion_papas' },
     ]);
   });
 
@@ -31,8 +31,11 @@ describe('los combos llegan a la cocina', () => {
   it('no filtra precios: en el tablero de cocina no se cobra', () => {
     const lineas = promotionsToKitchenLines([fila()]);
     for (const linea of lineas) {
+      // El código va porque el resumen del planchero lo necesita para repartir
+      // por categoría. `unit_price` está en el snapshot y NO sale de ahí.
       expect(Object.keys(linea).sort()).toEqual([
         'order_id',
+        'product_code',
         'product_name_snapshot',
         'quantity',
       ]);
