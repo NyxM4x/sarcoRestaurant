@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { connection } from 'next/server';
 import type { MenuItem } from '@/types';
 import { createMenuRepository } from '@/lib/menu';
+import { createPromotionsRepository } from '@/lib/promotions/repository';
+import type { Promotion } from '@/lib/promotions/promotion';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import { createMenuSessionRepository } from '@/lib/menu/session-repository';
@@ -9,7 +11,6 @@ import { hashMenuSessionToken } from '@/lib/menu/session-token';
 import { MenuHeader } from '@/components/menu/MenuHeader';
 import { MenuStore } from '@/components/menu/MenuStore';
 import { ServiceNoticeBanner } from '@/components/menu/ServiceNoticeBanner';
-import { serviceNoticeAt } from '@/lib/menu/service-hours';
 
 export const metadata: Metadata = {
   title: 'Don Zarco — Menú',
@@ -35,6 +36,15 @@ export default async function MenuPage(props: {
 }) {
   // Sin esto, Next intentaría prerenderizar el menú en build (precios viejos).
   await connection();
+
+  // El instante con el que se deciden el aviso de horario y la vigencia de cada
+  // promoción. Sale del SERVIDOR: el celular del cliente puede tener la hora
+  // mal, y una promoción que vence a las 23:31 no puede depender de eso.
+  //
+  // En el navegador avanza con `useServerClock`, así que una pestaña abierta
+  // durante horas no se queda mostrando el pasado.
+  // eslint-disable-next-line react-hooks/purity
+  const serverNow = Date.now();
 
   // Validación de sesión (opcional: sin ?session el menú sigue abierto).
   const searchParams = await props.searchParams;
@@ -74,17 +84,23 @@ export default async function MenuPage(props: {
     items = null;
   }
 
-  // El aviso de horario se resuelve con el reloj del SERVIDOR: un celular con
-  // la hora mal puesta vería el cartel equivocado, y el de las 04:00 es
-  // justamente el que no puede fallar. `connection()` arriba ya garantiza que
-  // esto no se congele en el build.
-  // eslint-disable-next-line react-hooks/purity
-  const notice = serviceNoticeAt(Date.now());
+  // Las promociones se cargan APARTE y su fallo no tumba el menú: sin combos se
+  // puede pedir igual, y un catálogo entero caído por una sección opcional
+  // sería cambiar un problema pequeño por uno grande.
+  let promotions: Promotion[] = [];
+  try {
+    promotions = await createPromotionsRepository(getSupabaseAdmin()).list();
+  } catch (error) {
+    log.error('menu.page.listPromotions', {
+      error: error instanceof Error ? error.message : 'unknown',
+    });
+    promotions = [];
+  }
 
   return (
     <main className="flex-1 bg-donzarco-surface text-zinc-900">
       <MenuHeader />
-      <ServiceNoticeBanner notice={notice} />
+      <ServiceNoticeBanner serverNow={serverNow} />
 
       {items === null ? (
         <MenuUnavailable
@@ -100,7 +116,12 @@ export default async function MenuPage(props: {
         // El token solo se propaga si la sesión ya quedó validada arriba. Sin
         // sesión va `null`: el menú sigue siendo público, pero no se puede
         // confirmar un pedido. No se registra ni se persiste en ningún sitio.
-        <MenuStore items={items} sessionToken={sessionToken} />
+        <MenuStore
+          items={items}
+          promotions={promotions}
+          serverNow={serverNow}
+          sessionToken={sessionToken}
+        />
       )}
     </main>
   );

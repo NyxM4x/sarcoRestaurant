@@ -1,7 +1,10 @@
-import type { ServiceNotice } from '@/lib/menu/service-hours';
+'use client';
+
+import { serviceNoticeAt } from '@/lib/menu/service-hours';
+import { useServerClock } from '@/lib/menu/use-server-clock';
 
 /**
- * Aviso de horario, encima del catálogo. Server Component sin interactividad.
+ * Aviso de horario, encima del catálogo.
  *
  * Solo se pinta en las dos franjas que decide `serviceNoticeAt`: media hora
  * antes de abrir y el cuarto de hora alrededor del cierre. El resto del tiempo
@@ -14,15 +17,21 @@ import type { ServiceNotice } from '@/lib/menu/service-hours';
  * se distingue por su color deja fuera a quien no lo percibe, y este en concreto
  * cambia lo que el cliente puede esperar del pedido.
  *
- * ── Se calcula en el servidor ───────────────────────────────────────────────
+ * ── La hora es la del servidor, y avanza ────────────────────────────────────
  *
- * El instante lo pone el Server Component con el reloj del servidor, no el
- * navegador: un celular con la hora mal puesta vería el aviso equivocado, y la
- * franja de cierre es justo la que no puede fallar. A cambio, una pestaña que
- * lleve horas abierta puede mostrar un aviso viejo; el menú se abre desde un
- * enlace de WhatsApp y se usa en minutos, así que el intercambio compensa.
+ * El instante base lo pone el Server Component con el reloj del servidor: un
+ * celular con la hora mal puesta vería el aviso equivocado, y el de las 04:00
+ * es justo el que no puede fallar.
+ *
+ * Pero ese instante se quedaría congelado en una pestaña abierta, y el cartel
+ * de "estamos abriendo" seguiría ahí a las nueve de la noche. `useServerClock`
+ * lo hace avanzar sumándole el tiempo transcurrido —medido de forma monotónica,
+ * no leyendo la fecha del sistema— así que el aviso aparece y desaparece solo.
  */
-export function ServiceNoticeBanner({ notice }: { notice: ServiceNotice | null }) {
+export function ServiceNoticeBanner({ serverNow }: { serverNow: number }) {
+  const ahora = useServerClock(serverNow);
+  const notice = serviceNoticeAt(ahora);
+
   if (notice === null) return null;
 
   const esCierre = notice.kind === 'closing';

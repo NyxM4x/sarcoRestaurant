@@ -5,6 +5,8 @@ import type { MenuItem } from '@/types';
 import type { CartSummary } from '@/lib/cart/cart';
 // Formatter monetario de presentación compartido (puro): `Bs 45,00`.
 import { formatMoney } from '@/lib/dashboard/format';
+import { unifiedTotals, type PromoCartSummary } from '@/lib/cart/promo-cart';
+import { expiryLabel, resolvePromotionImage } from '@/lib/promotions/promotion-display';
 import { ProductImage } from './ProductImage';
 import { QuantityControl } from './QuantityControl';
 
@@ -21,20 +23,30 @@ import { QuantityControl } from './QuantityControl';
 export function CartPanel({
   open,
   summary,
+  promoSummary,
   items,
+  now,
   onClose,
   onAdd,
   onRemove,
+  onAddPromo,
+  onRemovePromo,
   onContinue,
   canCheckout,
   checkoutNotice,
 }: {
   open: boolean;
   summary: CartSummary;
+  /** Los combos del carrito, ya cruzados con su estado real. */
+  promoSummary: PromoCartSummary;
   items: MenuItem[];
+  /** Reloj del servidor, para la etiqueta de vencimiento. */
+  now: number;
   onClose: () => void;
   onAdd: (code: string) => void;
   onRemove: (code: string) => void;
+  onAddPromo: (promotionId: string) => void;
+  onRemovePromo: (promotionId: string) => void;
   onContinue: () => void;
   /** `false` sin sesión válida o con la sesión ya consumida. */
   canCheckout: boolean;
@@ -43,6 +55,24 @@ export function CartPanel({
   const itemsByCode = useMemo(
     () => new Map(items.map((item) => [item.code, item])),
     [items],
+  );
+
+  const totales = useMemo(() => unifiedTotals(summary, promoSummary), [summary, promoSummary]);
+
+  /**
+   * Lo que el cliente se ahorra por los combos que lleva.
+   *
+   * Solo se muestra si es positivo. Un "Ahorras Bs 0" en un carrito sin
+   * promociones es ruido, y con promociones sería la señal de que algo se
+   * calculó mal.
+   */
+  const ahorro = useMemo(
+    () =>
+      promoSummary.lines.reduce(
+        (sum, l) => sum + (l.normalPrice - l.unitPrice) * l.quantity,
+        0,
+      ),
+    [promoSummary.lines],
   );
 
   useEffect(() => {
@@ -84,6 +114,64 @@ export function CartPanel({
         </div>
 
         <ul className="flex-1 divide-y divide-zinc-100 overflow-y-auto px-4">
+          {/* Los combos van primero, como en el menú: es el orden en el que el
+              cliente los vio, y el que explica por qué el total es más bajo de
+              lo que suman los productos. */}
+          {promoSummary.lines.map((line) => {
+            const imagen = resolvePromotionImage(
+              line.promotion.imageUrl,
+              line.promotion.components,
+            );
+            const vence = expiryLabel(line.promotion.endsAt, now);
+            // MISMA resolución de imagen que la tarjeta del menú: un
+            // placeholder aquí, para algo que allí sí tenía foto, parece un
+            // error de carga.
+            const item =
+              imagen.kind === 'component'
+                ? { code: imagen.code, category: imagen.category, name: line.name }
+                : { code: '', category: 'plato' as const, name: line.name };
+
+            return (
+              <li key={line.promotionId} className="flex items-center gap-3 py-3">
+                <div className="relative shrink-0">
+                  <ProductImage
+                    item={item}
+                    src={imagen.kind === 'url' ? imagen.url : undefined}
+                    alt={line.name}
+                    className="h-14 w-14 rounded-lg"
+                    sizes="56px"
+                  />
+                  <span className="absolute left-0.5 top-0.5 rounded-full bg-donzarco-gold px-1 py-px text-[8px] font-bold uppercase text-donzarco-ink">
+                    Promo
+                  </span>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-zinc-900">{line.name}</p>
+                  <p className="text-xs text-zinc-500 tabular-nums">
+                    {line.quantity} × {formatMoney(line.unitPrice)}
+                  </p>
+                  {vence !== null && (
+                    <p className="text-[11px] font-medium text-donzarco-red">{vence}</p>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-end gap-1.5">
+                  <span className="text-sm font-bold text-zinc-900 tabular-nums">
+                    {formatMoney(line.subtotal)}
+                  </span>
+                  <QuantityControl
+                    name={line.name}
+                    quantity={line.quantity}
+                    onAdd={() => onAddPromo(line.promotionId)}
+                    onRemove={() => onRemovePromo(line.promotionId)}
+                    size="sm"
+                  />
+                </div>
+              </li>
+            );
+          })}
+
           {summary.lines.map((line) => {
             const item = itemsByCode.get(line.product_code);
             return (
@@ -123,13 +211,21 @@ export function CartPanel({
         </ul>
 
         <div className="border-t border-zinc-100 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {/* Las dos listas suman juntas. Pintar aquí solo `summary` dejaría un
+              carrito con un combo mostrando "Bs 0,00". */}
           <div className="flex items-center justify-between text-sm text-zinc-500">
             <span>Subtotal</span>
-            <span className="tabular-nums">{formatMoney(summary.subtotal)}</span>
+            <span className="tabular-nums">{formatMoney(totales.subtotal)}</span>
           </div>
+          {ahorro > 0 && (
+            <div className="mt-0.5 flex items-center justify-between text-sm font-semibold text-emerald-700">
+              <span>Ahorras</span>
+              <span className="tabular-nums">{formatMoney(ahorro)}</span>
+            </div>
+          )}
           <div className="mt-1 flex items-center justify-between text-lg font-bold text-zinc-900">
             <span>Total</span>
-            <span className="tabular-nums">{formatMoney(summary.total)}</span>
+            <span className="tabular-nums">{formatMoney(totales.total)}</span>
           </div>
           <p className="mt-1 text-xs text-zinc-400">
             El costo de envío se define al finalizar el pedido.

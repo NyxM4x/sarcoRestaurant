@@ -3,6 +3,7 @@
 import { useEffect, useId } from 'react';
 import type { DeliveryType } from '@/types';
 import type { CartSummary } from '@/lib/cart/cart';
+import { unifiedTotals, type PromoCartSummary } from '@/lib/cart/promo-cart';
 // Solo presentación de totales: `Bs 45,00`. No altera campos, validaciones ni el
 // cálculo server-side (la autoridad de precio sigue en el servidor).
 import { formatMoney } from '@/lib/dashboard/format';
@@ -22,6 +23,7 @@ export function CheckoutPanel({
   fields,
   errors,
   summary,
+  promoSummary,
   submitting,
   frozen,
   failure,
@@ -37,6 +39,8 @@ export function CheckoutPanel({
   fields: CheckoutFormFields;
   errors: CheckoutFormErrors;
   summary: CartSummary;
+  /** Los combos del carrito. El resumen del checkout tiene que sumarlos. */
+  promoSummary: PromoCartSummary;
   submitting: boolean;
   /** Campos y carrito bloqueados: envío en vuelo o resultado ambiguo. */
   frozen: boolean;
@@ -69,6 +73,9 @@ export function CheckoutPanel({
 
   const notesLength = fields.notes.trim().length;
   const isDelivery = fields.delivery_type === 'delivery';
+  // Productos sueltos + combos. La misma derivación que usan el botón del
+  // carrito y el panel: el total que se confirma no puede diferir del que se vio.
+  const totales = unifiedTotals(summary, promoSummary);
   /** 401 y 409: el enlace se agotó, no hay nada que reintentar. */
   const terminal = failure?.recovery === 'none';
   /** El producto ya no está: hay que volver al carrito antes de reenviar. */
@@ -246,6 +253,22 @@ export function CheckoutPanel({
               Tu pedido
             </p>
             <ul className="mt-2 space-y-1">
+              {promoSummary.lines.map((line) => (
+                <li
+                  key={line.promotionId}
+                  className="flex items-baseline justify-between gap-3 text-sm"
+                >
+                  <span className="min-w-0 truncate text-zinc-600">
+                    <span className="mr-1 rounded bg-donzarco-gold/25 px-1 text-[10px] font-bold uppercase text-donzarco-ink">
+                      Promo
+                    </span>
+                    {line.quantity} × {line.name}
+                  </span>
+                  <span className="shrink-0 text-zinc-900 tabular-nums">
+                    {formatMoney(line.subtotal)}
+                  </span>
+                </li>
+              ))}
               {summary.lines.map((line) => (
                 <li
                   key={line.product_code}
@@ -284,7 +307,7 @@ export function CheckoutPanel({
           ) : null}
           <div className="flex items-center justify-between text-sm text-zinc-500">
             <span>Subtotal</span>
-            <span className="tabular-nums">{formatMoney(summary.subtotal)}</span>
+            <span className="tabular-nums">{formatMoney(totales.subtotal)}</span>
           </div>
           {isDelivery ? (
             <div className="mt-0.5 flex items-center justify-between text-sm text-zinc-500">
@@ -294,7 +317,7 @@ export function CheckoutPanel({
           ) : null}
           <div className="mt-1 flex items-center justify-between text-lg font-bold text-zinc-900">
             <span>Total</span>
-            <span className="tabular-nums">{formatMoney(summary.total)}</span>
+            <span className="tabular-nums">{formatMoney(totales.total)}</span>
           </div>
           {isDelivery ? (
             <p className="mt-0.5 text-xs text-zinc-400">

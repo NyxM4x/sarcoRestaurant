@@ -3,6 +3,10 @@
 import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import type { MenuItem } from '@/types';
 import { useCart } from '@/lib/cart/use-cart';
+import { usePromoCart } from '@/lib/cart/use-promo-cart';
+import { useServerClock } from '@/lib/menu/use-server-clock';
+import { unifiedTotals } from '@/lib/cart/promo-cart';
+import { evaluatePromotion, isPurchasable, type Promotion } from '@/lib/promotions/promotion';
 import { filterMenuItems, groupByCategory, type CategoryFilter } from '@/lib/menu/catalog';
 import { submitOrder } from '@/lib/checkout/client';
 import { validateCheckoutForm, type CheckoutFormFields } from '@/lib/checkout/form';
@@ -20,6 +24,7 @@ import { CategoryTabs } from './CategoryTabs';
 import { CheckoutPanel } from './CheckoutPanel';
 import { OrderSuccess } from './OrderSuccess';
 import { ProductCard } from './ProductCard';
+import { PromoCard } from './PromoCard';
 import { SearchBar } from './SearchBar';
 
 const NO_SESSION_NOTICE = 'Abre el menú desde WhatsApp para confirmar tu pedido.';
@@ -43,16 +48,38 @@ const SESSION_INVALID_NOTICE =
  */
 export function MenuStore({
   items,
+  promotions,
+  serverNow,
   sessionToken,
 }: {
   items: MenuItem[];
+  /** Combos publicables, ya leídos en el servidor. */
+  promotions: Promotion[];
+  /**
+   * Reloj del SERVIDOR en el momento de renderizar. Con él se decide si un
+   * combo está vigente: el celular del cliente puede tener la hora mal, y una
+   * promoción que vence a las 23:31 no puede depender de eso.
+   *
+   * `useServerClock` lo hace avanzar sumándole el tiempo transcurrido, para que
+   * una pestaña abierta durante horas no se quede en el pasado.
+   */
+  serverNow: number;
   sessionToken: string | null;
 }) {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [query, setQuery] = useState('');
   const [cartOpen, setCartOpen] = useState(false);
 
+  // El instante del servidor, avanzando. Sin esto, una pestaña abierta desde
+  // hace horas seguiría mostrando una promoción que ya venció.
+  const ahora = useServerClock(serverNow);
+
   const cart = useCart(items);
+  const promos = usePromoCart(promotions, ahora);
+  // TODO lo que se pinta —el botón, la cabecera, el resumen— sale de aquí. Dos
+  // estados separados que se suman por su cuenta en cada pantalla producen el
+  // fallo clásico: "0 productos, Bs 0,00" con un combo dentro.
+  const unified = unifiedTotals(cart.summary, promos.summary);
   const [checkout, dispatch] = useReducer(checkoutReducer, INITIAL_CHECKOUT_STATE);
 
   /**
@@ -81,6 +108,19 @@ export function MenuStore({
           ? null
           : NO_SESSION_NOTICE;
 
+  /** Combos vendibles AHORA, en el formato que espera el checkout. */
+  const cartPromotions = useMemo(
+    () =>
+      promos.summary.lines.map((line) => ({
+        promotion_id: line.promotionId,
+        quantity: line.quantity,
+        // La revisión que el cliente vio. Si cambió, el servidor lo rechaza en
+        // vez de cobrarle una versión que no estaba mirando.
+        revision: line.revision,
+      })),
+    [promos.summary.lines],
+  );
+
   /** Líneas del carrito en el formato que espera el checkout. */
   const cartItems = useMemo(
     () =>
@@ -100,8 +140,10 @@ export function MenuStore({
 
         if (result.ok) {
           dispatch({ type: 'SUCCESS', order: result.order, created: result.created });
-          // Único punto de vaciado: solo tras 201 o 200 confirmados.
+          // Único punto de vaciado: solo tras 201 o 200 confirmados. Los dos
+          // carritos, o el cliente vería su combo intacto tras pagarlo.
           cart.clear();
+          promos.clear();
           setCartOpen(false);
           return;
         }
@@ -111,7 +153,7 @@ export function MenuStore({
         inFlight.current = false;
       }
     },
-    [cart],
+    [cart, promos],
   );
 
   const handleSubmit = useCallback(() => {
@@ -122,7 +164,7 @@ export function MenuStore({
     // igual y dispararía una petición sin transición de estado.
     if (!canSubmitState(checkout)) return;
 
-    const validation = validateCheckoutForm(checkout.fields, cartItems);
+    const validation = validateCheckoutForm(checkout.fields, cartItems, cartPromotions);
     if (!validation.ok) {
       dispatch({ type: 'VALIDATION_FAILED', errors: validation.errors });
       return;
@@ -130,7 +172,7 @@ export function MenuStore({
 
     dispatch({ type: 'SUBMIT', snapshot: validation.value });
     void send(sessionToken, validation.value);
-  }, [cartItems, checkout, sessionToken, submitting, send]);
+  }, [cartItems, cartPromotions, checkout, sessionToken, submitting, send]);
 
   const handleRetry = useCallback(() => {
     if (inFlight.current || submitting) return;
@@ -166,9 +208,25 @@ export function MenuStore({
     setCartOpen(false);
   }, []);
 
+  /**
+   * Las promociones que se pueden comprar AHORA.
+   *
+   * El filtro se hace aquí y no en el servidor porque el estado depende del
+   * reloj: una promoción que vence a mitad de la sesión deja de mostrarse sin
+   * recargar. Y como el instante es el del servidor, no lo decide el celular.
+   */
+  const vendibles = useMemo(
+    () =>
+      promotions
+        .map((promotion) => ({ promotion, pricing: evaluatePromotion(promotion, ahora) }))
+        .filter(({ pricing }) => isPurchasable(pricing)),
+    [promotions, ahora],
+  );
+
   const hasResults = groups.length > 0;
   const checkoutOpen = checkout.step === 'form' || checkout.step === 'submitting' || checkout.step === 'failed';
-  const showCartButton = cart.hydrated && cart.units > 0 && !cartOpen && !checkoutOpen && checkout.step !== 'success';
+  const showCartButton =
+    cart.hydrated && unified.units > 0 && !cartOpen && !checkoutOpen && checkout.step !== 'success';
 
   return (
     <>
@@ -181,6 +239,31 @@ export function MenuStore({
       </div>
 
       <div className="mx-auto max-w-5xl space-y-6 px-4 pb-40">
+        {/* Antes del catálogo y solo si hay algo que ofrecer. Sin promociones
+            vendibles no se pinta ni el encabezado: una sección vacía titulada
+            "PROMOCIONES" promete algo que no existe. */}
+        {vendibles.length > 0 && (
+          <section aria-label="Promociones">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wide text-donzarco-red-dark uppercase">
+              <span className="h-4 w-1 rounded-full bg-donzarco-gold" aria-hidden />
+              Promociones
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {vendibles.map(({ promotion, pricing }) => (
+                <PromoCard
+                  key={promotion.id}
+                  promotion={promotion}
+                  pricing={pricing}
+                  quantity={promos.quantity(promotion.id)}
+                  now={ahora}
+                  onAdd={() => promos.add(promotion.id)}
+                  onRemove={() => promos.remove(promotion.id)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {hasResults ? (
           groups.map((group) => (
             <section key={group.category} aria-label={group.label}>
@@ -212,19 +295,23 @@ export function MenuStore({
 
       {showCartButton ? (
         <CartButton
-          units={cart.units}
-          total={cart.summary.total}
+          units={unified.units}
+          total={unified.total}
           onOpen={() => setCartOpen(true)}
         />
       ) : null}
 
       <CartPanel
-        open={cartOpen && cart.units > 0 && !checkoutOpen && checkout.step !== 'success'}
+        open={cartOpen && unified.units > 0 && !checkoutOpen && checkout.step !== 'success'}
         summary={cart.summary}
+        promoSummary={promos.summary}
         items={items}
+        now={ahora}
         onClose={() => setCartOpen(false)}
         onAdd={cart.add}
         onRemove={cart.remove}
+        onAddPromo={promos.add}
+        onRemovePromo={promos.remove}
         onContinue={handleOpenCheckout}
         canCheckout={canCheckout}
         checkoutNotice={cartNotice}
@@ -235,6 +322,7 @@ export function MenuStore({
         fields={checkout.fields}
         errors={checkout.errors}
         summary={cart.summary}
+        promoSummary={promos.summary}
         submitting={submitting}
         frozen={frozen}
         failure={checkout.failure}

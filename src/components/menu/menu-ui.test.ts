@@ -51,15 +51,26 @@ describe('6B.1R — ProductImage / fallback', () => {
   it('dibuja un placeholder deliberado (emoji) cuando no hay foto', () => {
     const s = comp('ProductImage');
     expect(s).toContain('image.emoji');
-    expect(s).toContain('image.src !== null'); // solo pide imagen si existe
+    // Solo se pide una imagen si de verdad hay una. `elegida` es la del
+    // catálogo, o la propia de una promoción cuando la trae.
+    expect(s).toContain('elegida !== null');
+    expect(s).toContain('showPhoto');
   });
 
   it('queda listo para fotos reales locales vía next/image', () => {
     const s = comp('ProductImage');
     expect(s).toContain("import Image from 'next/image'");
-    expect(s).toContain('src={image.src as string}');
-    expect(s).toContain('alt={item.name}'); // accesibilidad de la foto real
+    expect(s).toContain('src={elegida as string}');
+    // Accesibilidad: el alt describe LO QUE SE VE. Una promoción pasa su
+    // propio nombre, porque la foto es la de su producto principal y decir el
+    // nombre del producto describiría mal la tarjeta.
+    expect(s).toContain('alt={alt ?? item.name}');
     expect(s).toContain('onError'); // si la foto falla, vuelve al placeholder
+  });
+
+  it('la foto propia de una promoción gana a la del catálogo', () => {
+    const s = comp('ProductImage');
+    expect(s).toContain('src ?? image.src');
   });
 
   it('atenúa la imagen cuando el producto no está disponible', () => {

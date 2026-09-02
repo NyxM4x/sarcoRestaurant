@@ -25,16 +25,32 @@ export function ProductImage({
   className = '',
   sizes = '(max-width: 640px) 40vw, 200px',
   unavailable = false,
+  src,
+  alt,
 }: {
-  item: MenuItem;
+  /**
+   * Solo hacen falta `code` y `category`: el primero elige la foto y el segundo
+   * el tono del placeholder. Se pide lo mínimo para que una PROMOCIÓN pueda
+   * reutilizar esta tarjeta pasando su componente protagonista, sin fabricar un
+   * `MenuItem` entero con precios e ids que no significan nada.
+   */
+  item: Pick<MenuItem, 'code' | 'category' | 'name'>;
   className?: string;
   sizes?: string;
   /** Atenúa la imagen cuando el producto no está disponible (presentación). */
   unavailable?: boolean;
+  /**
+   * Foto que GANA a la del catálogo. La usa la promoción con imagen propia; si
+   * falla al cargar se cae al mismo sitio que todo lo demás: el placeholder.
+   */
+  src?: string | null;
+  /** Texto alternativo, cuando el nombre a mostrar no es el del producto. */
+  alt?: string;
 }) {
   const image = productImage(item);
   const [failed, setFailed] = useState(false);
-  const showPhoto = image.src !== null && !failed;
+  const elegida = src ?? image.src;
+  const showPhoto = elegida !== null && elegida !== undefined && !failed;
 
   return (
     <div
@@ -44,8 +60,8 @@ export function ProductImage({
     >
       {showPhoto ? (
         <Image
-          src={image.src as string}
-          alt={item.name}
+          src={elegida as string}
+          alt={alt ?? item.name}
           fill
           sizes={sizes}
           className="object-cover"
