@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { businessHoursClock } from '@/lib/agent/business/facts';
 import type { MenuSendReason } from '@/lib/menu/dispatch';
 import type { MenuCtaContext } from '@/lib/menu/cta-context';
+import { LOCATION_HOW_TO_TEXT } from './outbound-classify';
 
 /**
  * Construcción de mensajes salientes de Kapso — módulo puro.
@@ -32,9 +33,13 @@ export function buildWebLocationRequestBodyText(orderNumber: string): string {
  * Nombra la opción con las palabras EXACTAS que WhatsApp pinta en pantalla
  * —"Enviar ubicación actual"— porque una instrucción que hay que traducir a lo
  * que se ve es una instrucción que no se sigue.
+ *
+ * El texto NO se escribe aquí: se importa del clasificador, donde viven las
+ * marcas canónicas del copy. Desde que la petición dejó de ser un botón, esta
+ * línea es lo único que la distingue de cualquier otro texto, y dos copias
+ * podrían separarse sin que nada avisara.
  */
-export const LOCATION_HOW_TO_TEXT =
-  'Toca el clip 📎 → Ubicación → ENVIAR UBICACIÓN ACTUAL';
+export { LOCATION_HOW_TO_TEXT };
 
 /**
  * Petición de ubicación, como MENSAJE DE TEXTO.

@@ -211,12 +211,18 @@ export function KitchenTicketCard({
           {ticket.deliveryCollect && <CollectChip collect={ticket.deliveryCollect} />}
 
           {/* Y la etiqueta del análisis solo cuando dice algo que la línea de
-              arriba no diga ya. `PAGO TOTAL` y `PAGO PRODUCTOS` son exactamente
-              lo mismo con otras palabras; `REVISAR MONTO` no —es una alerta, y
-              esa sí hay que verla—. */}
-          {ticket.amountLabel?.code === 'revisar_monto' && (
-            <AmountLabelChip label={ticket.amountLabel} />
-          )}
+              arriba no diga ya.
+
+              Se calla únicamente cuando HAY línea de cobro y la etiqueta sería
+              lo mismo con otras palabras (`PAGO TOTAL`, `PAGO PRODUCTOS`). En
+              recojo no hay línea de cobro —no hay puerta donde cobrar—, así que
+              ahí la etiqueta sigue siendo la única que dice si está pagado, y
+              callarla dejaría el ticket mudo. `REVISAR MONTO` no se calla nunca:
+              es una alerta, no una instrucción. */}
+          {ticket.amountLabel &&
+            (ticket.deliveryCollect === null || ticket.amountLabel.code === 'revisar_monto') && (
+              <AmountLabelChip label={ticket.amountLabel} />
+            )}
 
           {ticket.notes && (
             <div className="mt-1.5 rounded-md bg-zinc-100 px-2 py-1.5">

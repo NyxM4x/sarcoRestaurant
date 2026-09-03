@@ -151,9 +151,14 @@ Tras confirmar un `nfm_reply`, si el pedido quedó (o ya estaba) en
 `awaiting_location` — decidido SOLO por el estado guardado en Supabase, nunca por
 datos del Flow:
 
-- Se envía el `location_request_message` por Kapso (payload exacto en
+- Se envía la petición de ubicación por Kapso (payload en
   `src/lib/kapso/messages.ts`) y el wamid de `response.messages[0].id` se guarda
   en `orders.location_request_message_id`.
+- **Desde el 03-09-2026 es un mensaje de TEXTO**, no el interactivo
+  `location_request_message`: su botón `send_location` atascaba el último paso
+  del flujo. El texto lleva dentro el paso a paso (`LOCATION_HOW_TO_TEXT`), que
+  es además la marca por la que `classifyOutboundType` lo reconoce. La columna
+  conserva su nombre y su significado: el wamid de la petición.
 - **Idempotencia**: si `location_request_message_id` ya tiene valor, NO se vuelve
   a llamar a Kapso (responde `already_confirmed` con el mismo estado). El guardado
   es condicional (`WHERE status='awaiting_location' AND location_request_message_id
@@ -173,14 +178,19 @@ datos del Flow:
 
 ### Procesamiento de `message.type = "location"` (Fase 3.3B)
 
-Cuando el cliente responde al `location_request_message`:
+Cuando el cliente manda su ubicación:
 
 - **Detección**: `message.type === "location"` (se comprueba antes que
   `nfm_reply`, ya que `location` no es un mensaje `interactive`).
 - **Correlación** (confirmada por Kapso): `message.context.id` contiene el wamid
-  del `location_request_message` saliente y se compara con
-  `orders.location_request_message_id` (única, Fase 3.3A) — no con
-  `source_message_id` ni `flow_token`.
+  de la petición saliente y se compara con `orders.location_request_message_id`
+  (única, Fase 3.3A) — no con `source_message_id` ni `flow_token`. Es el camino
+  de quien responde CITANDO la petición.
+- **Y si no cita nada** —el pin mandado con el clip de WhatsApp, que desde que
+  no hay botón es el caso corriente— no hay `context.id` que comparar. Lo recoge
+  `attachLooseLocation` (0028): busca un pedido en `awaiting_location` de ese
+  teléfono y le adjunta las coordenadas. Sin él, ese pin se leía como "¿cuánto
+  sale el envío?" y el pedido se quedaba esperando para siempre.
 - **Validación Zod** (`src/lib/flow/location-message.ts`): `message.id` y
   `message.context.id` no vacíos; `latitude` en [-90, 90]; `longitude` en
   [-180, 180]; `address`/`name` opcionales. Payload inválido → `result: "invalid"`,

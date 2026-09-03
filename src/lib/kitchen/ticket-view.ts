@@ -369,6 +369,9 @@ export function toKitchenTickets(
     const payment = payments[row.id] ?? null;
     if (pagosConsultados && esperandoComprobante(row, stage, payment)) continue;
 
+    // Una sola vez: la usan la etiqueta y el cálculo de lo que se cobra.
+    const etiqueta = etiquetaDelPago(payment);
+
     tickets.push({
       orderNumber: row.order_number,
       enteredAt: enteredAtOf(row),
@@ -387,8 +390,8 @@ export function toKitchenTickets(
       // como `unknown`: abre y lo dice. Pasar la vista vacía diría "este
       // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
       gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
-      amountLabel: etiquetaDelPago(payment),
-      deliveryCollect: cobroEnLaPuerta(row, etiquetaDelPago(payment)),
+      amountLabel: etiqueta,
+      deliveryCollect: cobroEnLaPuerta(row, etiqueta),
     });
   }
   return sortByAge(tickets);

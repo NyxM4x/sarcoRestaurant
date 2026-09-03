@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { classifyOutboundType } from './outbound-classify';
+import { classifyOutboundType, LOCATION_HOW_TO_TEXT } from './outbound-classify';
+import { buildLocationRequestPayload, buildWebLocationRequestBodyText } from './messages';
 import { normalizeOutboundMessage } from './message-history';
 import { parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
 import {
@@ -68,6 +69,46 @@ describe('classifyOutboundType — clasificación determinista', () => {
         orderNumber: ORD,
       }),
     ).toBe('location_request');
+  });
+
+  it('la petición en TEXTO también → location_request', () => {
+    // Desde el 03-09-2026 la petición va sin botón. Si el clasificador solo
+    // mirara `interactive.type`, este mensaje sería `unknown` y una
+    // reconciliación dejaría de emparejarlo: un envío ambiguo se reintentaría y
+    // el cliente recibiría la petición dos veces.
+    const cuerpo = buildLocationRequestPayload('59170000001').text.body;
+    expect(
+      classifyOutboundType({
+        messageKind: 'text',
+        interactiveType: null,
+        bodyText: cuerpo,
+        orderNumber: null,
+      }),
+    ).toBe('location_request');
+  });
+
+  it('la petición WEB lleva ORD- y aún así no se confunde con una confirmación', () => {
+    // Es el caso que obliga a que la regla de ubicación vaya ANTES: el cuerpo
+    // trae el número de pedido, que es el token de emparejamiento de las otras.
+    const cuerpo = buildLocationRequestPayload(
+      '59170000001',
+      buildWebLocationRequestBodyText(ORD),
+    ).text.body;
+    expect(cuerpo).toContain(ORD);
+    expect(
+      classifyOutboundType({
+        messageKind: 'text',
+        interactiveType: null,
+        bodyText: cuerpo,
+        orderNumber: ORD,
+      }),
+    ).toBe('location_request');
+  });
+
+  it('el builder y el clasificador comparten la MISMA marca', () => {
+    // La paridad no se comprueba comparando dos cadenas parecidas: se garantiza
+    // porque el builder importa la constante del clasificador.
+    expect(buildLocationRequestPayload('59170000001').text.body).toContain(LOCATION_HOW_TO_TEXT);
   });
 
   it('texto genérico sin forma reconocible → unknown (ya no "todo texto = confirmation")', () => {

@@ -34,8 +34,29 @@ export const CONFIRMATION_TOTAL_LABEL = 'Total:';
  */
 export const LEGACY_CONFIRMATION_MARKER = '¡Recibí tu pedido';
 
-/** Tipo de interactivo nativo de la solicitud de ubicación. */
+/**
+ * Tipo de interactivo nativo de la solicitud de ubicación.
+ *
+ * Se conserva aunque ya no se envíe así: el historial de Kapso sigue teniendo
+ * los mensajes de antes del 03-09-2026, y una reconciliación que mire hacia
+ * atrás tiene que seguir reconociéndolos.
+ */
 export const LOCATION_REQUEST_INTERACTIVE_TYPE = 'location_request_message';
+
+/**
+ * Instrucción de la petición de ubicación — y, desde que dejó de ser un botón,
+ * también su MARCA.
+ *
+ * Vive aquí con el resto de marcas canónicas y el builder la consume, que es lo
+ * que garantiza la paridad: si alguien reescribe la instrucción, el clasificador
+ * la sigue reconociendo porque es literalmente la misma constante.
+ *
+ * Sin esto, la petición en texto plano se clasificaba `unknown` y la
+ * reconciliación dejaba de emparejarla: un envío ambiguo se habría reintentado
+ * y el cliente habría recibido la petición dos veces.
+ */
+export const LOCATION_HOW_TO_TEXT =
+  'Toca el clip 📎 → Ubicación → ENVIAR UBICACIÓN ACTUAL';
 
 /** Entrada normalizada para clasificar, común a historial y webhook. */
 export interface OutboundClassifyInput {
@@ -61,7 +82,8 @@ function isDynamicConfirmationBody(body: string): boolean {
 
 /**
  * Clasifica de forma DETERMINISTA un saliente. Orden de reglas:
- *   1. interactivo `location_request_message` → location_request;
+ *   1. interactivo `location_request_message`, o cuerpo con la instrucción de
+ *      cómo mandar la ubicación → location_request;
  *   2. cuerpo que empieza por la marca de recepción → order_received;
  *   3. texto/imagen con `ORD-XXXXXX` y forma de confirmación (dinámica o legacy)
  *      → confirmation;
@@ -72,12 +94,20 @@ function isDynamicConfirmationBody(body: string): boolean {
  * `ORD-`) queda `unknown` y por tanto nunca contamina una reconciliación.
  */
 export function classifyOutboundType(input: OutboundClassifyInput): OutboundMessageType {
-  // 1. Solicitud de ubicación: por su tipo interactivo nativo.
+  // 1. Solicitud de ubicación: por su tipo interactivo nativo (los de antes del
+  //    03-09-2026) o por su instrucción (los de ahora, que van en texto plano).
   if (input.interactiveType === LOCATION_REQUEST_INTERACTIVE_TYPE) {
     return 'location_request';
   }
 
   const body = input.bodyText ?? '';
+
+  // Va ANTES que las demás: la petición web lleva `ORD-XXXXXX` en el cuerpo, y
+  // dejarla caer hasta la regla de confirmación sería jugarse el emparejamiento
+  // a que ninguna otra forma coincida antes.
+  if (body.includes(LOCATION_HOW_TO_TEXT)) {
+    return 'location_request';
+  }
 
   // 2. Recepción: prefijo canónico explícito (se evalúa ANTES de confirmation).
   if (body.startsWith(ORDER_RECEIVED_PREFIX) || body.includes(ORDER_RECEIVED_PREFIX)) {
