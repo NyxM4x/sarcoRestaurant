@@ -69,6 +69,14 @@ export interface KitchenDataSource {
     orderId: string;
   } | null>;
   updateStatus(orderNumber: string, from: OrderStatus, to: OrderStatus): Promise<KitchenUpdateResult>;
+  /**
+   * Marca si el envío ya está pagado, tras mirar el comprobante (0033).
+   *
+   * Opcional: sin este método el tablero se comporta exactamente como antes —la
+   * instrucción sale de la deducción y no hay botón que ofrecer—, así que un
+   * adaptador antiguo o un test que no lo necesite siguen funcionando.
+   */
+  setDeliveryFeePaid?(orderNumber: string, paid: boolean): Promise<KitchenUpdateResult>;
 }
 
 /**
@@ -95,10 +103,21 @@ export type KitchenActionOutcome =
   | { ok: true; stage: KdsStage }
   | { ok: false; reason: KitchenFailure };
 
+export type KitchenCollectOutcome = { ok: true } | { ok: false; reason: KitchenFailure };
+
 export interface KitchenRepository {
   getBoard(nowMs: number): Promise<KitchenBoard>;
   /** `nowMs` inyectable: la ventana de gracia se DERIVA al leer, no con un cron. */
   applyAction(orderNumber: string, action: string, nowMs?: number): Promise<KitchenActionOutcome>;
+  /**
+   * Deja escrito lo que vio quien miró el comprobante: si el envío está pagado
+   * o si hay que cobrarlo al entregar (0033).
+   *
+   * NO toca el estado del pedido ni la revisión del pago. Son tres dimensiones
+   * distintas —qué se cocina, si el pago vale, y qué se cobra en la puerta— y
+   * mezclarlas haría que corregir una etiqueta moviera una comanda.
+   */
+  setDeliveryFeePaid(orderNumber: string, paid: boolean): Promise<KitchenCollectOutcome>;
 }
 
 /** Formato del numero de pedido aceptado (misma whitelist que el dashboard). */
@@ -268,6 +287,20 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
       if (res === 'updated') return { ok: true, stage: target };
       if (res === 'not_found') return { ok: false, reason: 'not_found' };
       return { ok: false, reason: 'conflict' };
+    },
+
+    async setDeliveryFeePaid(orderNumber, paid) {
+      if (!ORDER_NUMBER_RE.test(orderNumber)) return { ok: false, reason: 'not_found' };
+      if (typeof paid !== 'boolean') return { ok: false, reason: 'invalid_action' };
+      // Sin adaptador que sepa escribirla, se dice que no se pudo. Nunca se
+      // responde `ok` a algo que no se guardó: el chip volvería a su valor de
+      // antes en el siguiente refresco y nadie sabría por qué.
+      if (!source.setDeliveryFeePaid) return { ok: false, reason: 'error' };
+
+      const res = await source.setDeliveryFeePaid(orderNumber, paid);
+      // `not_found` cubre el pedido que no existe y el que no es delivery: en
+      // recojo no hay puerta donde cobrar, así que la marca no se guarda.
+      return res === 'updated' ? { ok: true } : { ok: false, reason: 'not_found' };
     },
   };
 }

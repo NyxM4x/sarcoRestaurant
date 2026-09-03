@@ -359,13 +359,14 @@ describe('ticket — qué se cobra en la puerta', () => {
 
   it('delivery por QR: falta el envío, y dice cuánto', () => {
     // El caso normal. La comida se pagó por QR y el envío se cobra al entregar.
+    // Sin comprobante leído es una DEDUCCIÓN, no un dato: `basis: 'pedido'`.
     expect(cobro({ delivery_type: 'delivery', payment_method: 'qr', subtotal_amount: 44, total_amount: 54 }))
-      .toEqual({ kind: 'envio', amount: 10 });
+      .toEqual({ kind: 'envio', amount: 10, basis: 'pedido', canOverride: true });
   });
 
   it('delivery en efectivo: se cobra todo', () => {
     expect(cobro({ delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 44, total_amount: 54 }))
-      .toEqual({ kind: 'todo', amount: 54 });
+      .toEqual({ kind: 'todo', amount: 54, basis: 'pedido', canOverride: true });
   });
 
   it('en recojo no hay puerta donde cobrar', () => {
@@ -381,7 +382,47 @@ describe('ticket — qué se cobra en la puerta', () => {
 
   it('delivery sin costo de envío no manda cobrar cero', () => {
     expect(cobro({ delivery_type: 'delivery', payment_method: 'qr', subtotal_amount: 44, total_amount: 44 }))
-      .toEqual({ kind: 'pagado' });
+      .toEqual({ kind: 'pagado', basis: 'pedido', canOverride: true });
+  });
+
+  it('lo que dice una PERSONA gana sobre todo lo demás', () => {
+    // Debajo de toda regla automática queda un caso que solo se resuelve
+    // mirando la imagen, y quien la mira es quien empaca. Su palabra manda.
+    expect(
+      cobro({
+        delivery_type: 'delivery',
+        payment_method: 'qr',
+        subtotal_amount: 44,
+        total_amount: 54,
+        delivery_fee_paid: true,
+      }),
+    ).toEqual({ kind: 'pagado', basis: 'persona', canOverride: true });
+
+    expect(
+      cobro({
+        delivery_type: 'delivery',
+        payment_method: 'qr',
+        subtotal_amount: 44,
+        total_amount: 54,
+        delivery_fee_paid: false,
+      }),
+    ).toEqual({ kind: 'envio', amount: 10, basis: 'persona', canOverride: true });
+  });
+
+  it('una marca de persona SIEMPRE se puede corregir', () => {
+    // Quien marca esto lo hace con el pedido en la mano y prisa. Equivocarse es
+    // parte del trabajo; no poder desandarlo obliga a llamar por teléfono, que
+    // es justo lo que esto vino a evitar.
+    for (const marca of [true, false]) {
+      const c = cobro({
+        delivery_type: 'delivery',
+        payment_method: 'qr',
+        subtotal_amount: 44,
+        total_amount: 54,
+        delivery_fee_paid: marca,
+      });
+      expect(c?.canOverride, String(marca)).toBe(true);
+    }
   });
 
   it('la instrucción no filtra el método de pago', () => {
@@ -391,5 +432,137 @@ describe('ticket — qué se cobra en la puerta', () => {
       [],
     )[0];
     expect(JSON.stringify(ticket)).not.toContain('cash');
+  });
+});
+
+describe('ticket — la etiqueta del comprobante decide el cobro (03-09-2026)', () => {
+  const pedido = (over: Partial<RawKitchenOrderRow> = {}): RawKitchenOrderRow => ({
+    id: 'order-1',
+    order_number: 'ORD-000900',
+    status: 'confirmed',
+    delivery_type: 'delivery',
+    notes: null,
+    created_at: '2026-09-03T02:00:00.000Z',
+    confirmed_at: '2026-09-03T02:01:00.000Z',
+    updated_at: '2026-09-03T02:01:00.000Z',
+    payment_method: 'qr',
+    subtotal_amount: 60,
+    total_amount: 79,
+    ...over,
+  });
+
+  /** Vista de pago con UN comprobante y la etiqueta que se le puso. */
+  const conEtiqueta = (code: string | null, receivedAt = '2026-09-03T02:05:00.000Z') =>
+    ({
+      attempts: [
+        {
+          id: 'a1',
+          status: 'pending_review',
+          proofs: [
+            {
+              id: 'p1',
+              receivedAt,
+              amountLabel: code === null ? null : { code, text: code, hint: code },
+            },
+          ],
+        },
+      ],
+      unlinkedProofs: [],
+      hasPendingReview: true,
+    }) as never;
+
+  const cobro = (code: string | null) =>
+    toKitchenTickets([pedido()], [], { 'order-1': conEtiqueta(code) }, true)[0].deliveryCollect;
+
+  /**
+   * EL fallo que trajo esto (03-09-2026).
+   *
+   * `analysis_amount_label` se añadió en 0028 a la consulta del panel del
+   * encargado y NO a la de cocina. Sin ese dato la etiqueta llegaba siempre
+   * `null`, así que esta rama no se ejecutaba nunca y TODOS los deliveries
+   * salían con COBRAR ENVÍO — incluidos los de quien ya lo había pagado. Se
+   * detectó porque el repartidor empezó a cobrar dos veces.
+   *
+   * La lógica de aquí estaba bien; lo que faltaba era el dato. Por eso el que
+   * de verdad protege esto es el test de columnas de `proof-alert.test.ts`, y
+   * este solo fija qué debe pasar cuando el dato llega.
+   */
+  it('pagó el total: no se cobra nada en la puerta', () => {
+    expect(cobro('pago_total')).toEqual({
+      kind: 'pagado',
+      basis: 'comprobante',
+      canOverride: false,
+    });
+  });
+
+  it('pagó solo los productos: se cobra el envío, y es un dato', () => {
+    // `basis: 'comprobante'` y no `'pedido'`: la deducción y la lectura
+    // coinciden, pero aquí hay una lectura que lo confirma. Sin el matiz, el
+    // chip se vería igual que una suposición.
+    expect(cobro('pago_productos')).toEqual({
+      kind: 'envio',
+      amount: 19,
+      basis: 'comprobante',
+      canOverride: false,
+    });
+  });
+
+  it('sin etiqueta o con el monto en duda, NO se afirma: se deduce y se dice', () => {
+    // Los dos casos que salían con la misma seguridad que un dato confirmado.
+    for (const code of [null, 'revisar_monto']) {
+      expect(cobro(code), String(code)).toEqual({
+        kind: 'envio',
+        amount: 19,
+        basis: 'pedido',
+        canOverride: true,
+      });
+    }
+  });
+
+  it('un dato confirmado NO ofrece el botón de corregir', () => {
+    // Un botón junto a una lectura clara solo invita a contradecir un dato
+    // bueno. Se ofrece donde hay duda, que es donde sirve.
+    expect(cobro('pago_total')?.canOverride).toBe(false);
+    expect(cobro('pago_productos')?.canOverride).toBe(false);
+    expect(cobro(null)?.canOverride).toBe(true);
+  });
+
+  it('con varios intentos manda el comprobante MÁS RECIENTE', () => {
+    // `toPaymentView` devuelve los intentos del más reciente al más viejo y los
+    // comprobantes de dentro en orden de llegada. Recorrer el array aplanado al
+    // revés cogía el más ANTIGUO: un cliente que reenvía porque le rechazaron
+    // el primer pago se llevaba en el ticket la etiqueta del pago rechazado.
+    const dosIntentos = {
+      attempts: [
+        {
+          id: 'a2',
+          status: 'pending_review',
+          proofs: [
+            {
+              id: 'p2',
+              receivedAt: '2026-09-03T02:30:00.000Z',
+              amountLabel: { code: 'pago_total', text: 'PAGO TOTAL', hint: '' },
+            },
+          ],
+        },
+        {
+          id: 'a1',
+          status: 'rejected',
+          proofs: [
+            {
+              id: 'p1',
+              receivedAt: '2026-09-03T02:05:00.000Z',
+              amountLabel: { code: 'pago_productos', text: 'PAGO PRODUCTOS', hint: '' },
+            },
+          ],
+        },
+      ],
+      unlinkedProofs: [],
+      hasPendingReview: true,
+    } as never;
+
+    const [ticket] = toKitchenTickets([pedido()], [], { 'order-1': dosIntentos }, true);
+    expect(ticket.amountLabel?.code).toBe('pago_total');
+    expect(ticket.deliveryCollect).toMatchObject({ kind: 'pagado' });
   });
 });

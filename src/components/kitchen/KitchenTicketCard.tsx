@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useTransition } from 'react';
+import { kitchenDeliveryFeePaidAction } from '@/app/cocina/actions';
 import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
 import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
 import { proofAlertOf, type KitchenProofAlert } from '@/lib/kitchen/proof-alert';
@@ -219,7 +221,13 @@ export function KitchenTicketCard({
               análisis solo existe cuando el modelo pudo leer un monto en la
               imagen, y cuando no podía, el repartidor se quedaba sin ninguna
               instrucción —que es justo el problema que se reportó—. */}
-          {ticket.deliveryCollect && <CollectChip collect={ticket.deliveryCollect} />}
+          {ticket.deliveryCollect && (
+            <CollectChip
+              collect={ticket.deliveryCollect}
+              orderNumber={ticket.orderNumber}
+              onDecided={onPaymentDecided}
+            />
+          )}
 
           {/* Y la etiqueta del análisis solo cuando dice algo que la línea de
               arriba no diga ya.
@@ -347,7 +355,16 @@ function bs(amount: number): string {
  * hacer, azul para lo normal y ámbar para lo que exige cobrar más. El color
  * nunca comunica solo: siempre va con su palabra.
  */
-function CollectChip({ collect }: { collect: DeliveryCollect }) {
+export function CollectChip({
+  collect,
+  orderNumber,
+  onDecided,
+}: {
+  collect: DeliveryCollect;
+  /** Sin él no se puede marcar nada: el botón no se pinta. */
+  orderNumber?: string;
+  onDecided?: () => void;
+}) {
   const { titulo, pista, tono } =
     collect.kind === 'pagado'
       ? {
@@ -367,10 +384,120 @@ function CollectChip({ collect }: { collect: DeliveryCollect }) {
             tono: 'bg-amber-50 ring-amber-300 text-amber-900',
           };
 
+  /**
+   * Una deducción no puede vestirse igual que un dato.
+   *
+   * `pedido` significa que nadie leyó el comprobante y esto sale de la regla
+   * general. Iba en el mismo azul tranquilo que un dato confirmado, y quien lo
+   * leía no tenía forma de notar la diferencia — cinco de veintidós pedidos de
+   * una noche salieron así, mandando cobrar un envío que quizá ya estaba pagado.
+   *
+   * El ámbar y la frase lo dicen; el botón lo resuelve.
+   */
+  const sinConfirmar = collect.basis === 'pedido';
+  const tonoFinal = sinConfirmar ? 'bg-amber-50 ring-amber-400 text-amber-900' : tono;
+
   return (
-    <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tono}`}>
+    <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tonoFinal}`}>
       <p className="text-[13px] font-extrabold uppercase leading-tight tracking-wide">{titulo}</p>
-      <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">{pista}</p>
+      <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">
+        {sinConfirmar ? 'Sin confirmar: no se pudo leer el comprobante' : pista}
+      </p>
+      {collect.basis === 'persona' && (
+        <p className="mt-0.5 text-[11px] font-semibold uppercase leading-tight tracking-wide opacity-70">
+          Marcado a mano
+        </p>
+      )}
+      {collect.canOverride && orderNumber && (
+        <CollectOverride
+          orderNumber={orderNumber}
+          // Lo que una PERSONA marcó, no lo que se dedujo. `null` = nadie se
+          // pronunció, y entonces ningún botón sale hundido: un botón activo
+          // sobre una suposición se lee como una decisión que nadie tomó.
+          marcado={collect.basis === 'persona' ? collect.kind === 'pagado' : null}
+          onDecided={onDecided}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Los dos botones que zanjan la duda mirando el comprobante.
+ *
+ * ── Por qué son DOS y no un interruptor ────────────────────────────────────
+ *
+ * Un toggle tiene un estado de partida, y aquí el estado de partida es
+ * precisamente lo que no se sabe: la deducción no es una respuesta, es una
+ * suposición. Con dos botones el primer toque es siempre una afirmación
+ * explícita de quien miró la imagen, y no la aceptación por inercia de lo que
+ * ya estaba puesto.
+ *
+ * Se quedan visibles después de marcar —el que está activo se ve hundido— para
+ * que corregirse cueste un toque. Quien marca esto lo hace con el pedido en la
+ * mano y prisa; equivocarse es parte del trabajo, y no poder desandarlo obliga
+ * a llamar por teléfono, que es justo lo que esto vino a evitar.
+ */
+function CollectOverride({
+  orderNumber,
+  marcado,
+  onDecided,
+}: {
+  orderNumber: string;
+  /** `null` = todavía nadie lo marcó. */
+  marcado: boolean | null;
+  onDecided?: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const marcar = (valor: boolean) => {
+    setError(null);
+    start(async () => {
+      const res = await kitchenDeliveryFeePaidAction(orderNumber, valor);
+      if (res.ok) onDecided?.();
+      else setError(res.message);
+    });
+  };
+
+  const base =
+    'h-10 flex-1 rounded-md text-[12px] font-extrabold uppercase leading-tight tracking-wide ring-1 disabled:opacity-50';
+
+  return (
+    <div className="mt-1.5">
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => marcar(true)}
+          aria-pressed={marcado === true}
+          className={`${base} ${
+            marcado === true
+              ? 'bg-emerald-600 text-white ring-emerald-700'
+              : 'bg-white text-emerald-800 ring-emerald-400 hover:bg-emerald-50'
+          }`}
+        >
+          Ya pagó envío
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => marcar(false)}
+          aria-pressed={marcado === false}
+          className={`${base} ${
+            marcado === false
+              ? 'bg-sky-600 text-white ring-sky-700'
+              : 'bg-white text-sky-800 ring-sky-400 hover:bg-sky-50'
+          }`}
+        >
+          Cobrar envío
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-1 text-[11px] font-bold leading-tight text-red-700">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

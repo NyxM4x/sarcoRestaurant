@@ -145,9 +145,47 @@ describe('el aviso necesita que la CONSULTA traiga sus datos', () => {
       .filter((c) => c !== '');
   })();
 
-  it('la consulta de cocina pide las tres columnas del análisis', () => {
-    for (const columna of ['analysis_status', 'analysis_verdict', 'analysis_reasons']) {
+  it('la consulta de cocina pide todas las columnas del análisis', () => {
+    for (const columna of [
+      'analysis_status',
+      'analysis_verdict',
+      'analysis_reasons',
+      // 03-09-2026: faltaba, y por eso `cobroEnLaPuerta` mandaba COBRAR ENVÍO
+      // en todos los deliveries. Ver el comentario de `KITCHEN_PROOF_COLUMNS`.
+      'analysis_amount_label',
+    ]) {
       expect(columnas, columna).toContain(columna);
+    }
+  });
+
+  /**
+   * La lista de cocina no puede quedarse atrás de la del panel — otra vez.
+   *
+   * Los dos tests de arriba enumeran a mano lo que hay que pedir, y esa lista
+   * es justo la que nadie amplió las dos veces que esto falló: el campo se
+   * añade al análisis, se añade al panel del encargado, y aquí no. Desde el
+   * panel todo se ve bien, así que nada lo delata.
+   *
+   * Esto lo compara contra la fuente en vez de contra una lista escrita: si el
+   * panel pide un campo del análisis, cocina lo pide también. No hay ninguna
+   * razón para que quien decide desde la plancha vea menos que quien decide
+   * desde la oficina — es la misma decisión.
+   */
+  it('cocina pide TODO lo que pide el panel del encargado', () => {
+    const panel = readFileSync(
+      new URL('../dashboard/proofs-data-source.ts', import.meta.url),
+      'utf8',
+    );
+    const m = panel.match(/const PROOF_UI_COLUMNS\s*=([\s\S]*?);/);
+    if (!m) throw new Error('no se encontró PROOF_UI_COLUMNS');
+    const delPanel = m[1]
+      .replace(/['+\s]/g, '')
+      .split(',')
+      .filter((c) => c.startsWith('analysis_'));
+
+    expect(delPanel.length).toBeGreaterThan(0);
+    for (const columna of delPanel) {
+      expect(columnas, `el panel pide ${columna} y cocina no`).toContain(columna);
     }
   });
 

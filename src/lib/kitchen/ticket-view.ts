@@ -60,6 +60,14 @@ export interface RawKitchenOrderRow {
    * efectivo no tiene ninguno que esperar.
    */
   payment_method?: PaymentMethod | null;
+  /**
+   * Lo que dijo una PERSONA sobre el envío, tras mirar el comprobante (0033).
+   *
+   * `null`/ausente = nadie se pronunció y manda la deducción. `true` = el envío
+   * está pagado. `false` = hay que cobrarlo. Los tres estados son distintos: no
+   * es lo mismo "no consta" que "consta que hay que cobrar".
+   */
+  delivery_fee_paid?: boolean | null;
 }
 
 /** Fila cruda minima de `order_items`: producto y cantidad, nada de precios. */
@@ -111,13 +119,41 @@ export interface KitchenTicketLine {
  * se deduce nada. Callar es lo correcto ahí: mandar cobrar a quien ya pagó es
  * peor que no decir nada, porque el repartidor de todos modos puede preguntar.
  */
-export type DeliveryCollect =
+export type DeliveryCollectKind =
   /** Ya está todo pagado: no se cobra nada al entregar. */
   | { kind: 'pagado' }
   /** Falta el envío. El caso normal en delivery por QR. */
   | { kind: 'envio'; amount: number }
   /** Falta todo: pedido en efectivo. */
   | { kind: 'todo'; amount: number };
+
+/**
+ * De dónde sale la instrucción — y con ella, cuánta confianza merece.
+ *
+ * No es un adorno: separa "el comprobante dice que pagó solo la comida" de
+ * "nadie pudo leer el comprobante, así que aplicamos la regla general". Las dos
+ * frases acababan en el mismo chip azul, y la segunda mandaba cobrar un envío
+ * que quizá ya estaba pagado.
+ *
+ *   `persona`      alguien miró el comprobante y lo marcó. Manda sobre todo.
+ *   `comprobante`  lo dice la etiqueta del análisis. Es un dato leído.
+ *   `pedido`       nadie leyó nada; sale de la regla general. Hay que
+ *                  confirmarlo antes de cobrar.
+ */
+export type DeliveryCollectBasis = 'persona' | 'comprobante' | 'pedido';
+
+export type DeliveryCollect = DeliveryCollectKind & {
+  basis: DeliveryCollectBasis;
+  /**
+   * ¿Se le puede ofrecer a quien empaca el botón para marcarlo a mano?
+   *
+   * Solo cuando la instrucción NO está confirmada por una lectura: si el
+   * comprobante dice con claridad qué pagó, un botón al lado solo invita a
+   * contradecir un dato bueno. Una marca de persona ya puesta SÍ se puede
+   * cambiar — quien se equivoca tiene que poder corregirse.
+   */
+  canOverride: boolean;
+};
 
 export interface KitchenTicket {
   orderNumber: string;
@@ -289,29 +325,63 @@ export function groupItemsByOrder(
  * El comprobante MÁS RECIENTE que tenga etiqueta, no el primero: si el cliente
  * reenvió, lo que vale es lo último que mandó. Se miran también los sueltos,
  * porque un comprobante sin intento sigue siendo dinero que alguien transfirió.
+ *
+ * ── Por qué se ordena por `receivedAt` y no se recorre la lista al revés ────
+ *
+ * Porque recorrerla al revés cogía el más ANTIGUO. `toPaymentView` devuelve los
+ * intentos del más reciente al más viejo, pero los comprobantes DENTRO de cada
+ * intento en orden de llegada: aplanar las dos listas da un orden mixto que no
+ * es cronológico ni por un extremo ni por el otro, así que "el último del
+ * array" era el último comprobante del intento más viejo.
+ *
+ * Con un solo intento —el caso normal— coincidía por casualidad, y por eso no
+ * se notaba. Con dos, un cliente que reenvía porque su primer pago se rechazó
+ * recibía en el ticket la etiqueta del pago rechazado.
+ *
+ * La fecha no depende de cómo venga ordenada ninguna lista, así que no vuelve a
+ * romperse si mañana se cambia el orden de una de las dos.
  */
 function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | null {
   if (payment === null) return null;
-  const todos = [
+
+  const conEtiqueta = [
     ...payment.attempts.flatMap((a) => a.proofs),
     ...payment.unlinkedProofs,
-  ];
-  for (let i = todos.length - 1; i >= 0; i -= 1) {
-    if (todos[i].amountLabel !== null) return todos[i].amountLabel;
-  }
-  return null;
+  ].filter((p) => p.amountLabel !== null);
+  if (conEtiqueta.length === 0) return null;
+
+  // Una fecha ilegible va al fondo: nunca puede ganarle a una que sí se lee.
+  const cuando = (iso: string): number => {
+    const ms = Date.parse(iso);
+    return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+  };
+  return conEtiqueta.reduce((masReciente, p) =>
+    cuando(p.receivedAt) >= cuando(masReciente.receivedAt) ? p : masReciente,
+  ).amountLabel;
 }
 
 /**
  * Qué se cobra en la puerta.
  *
- * El orden de las preguntas es el de la realidad: primero si hay puerta —en
- * recojo no la hay—, luego si el comprobante ya probó que está todo pagado, y
- * solo entonces cuánto falta según cómo se pagó.
+ * El orden de las preguntas es el de la autoridad, de más a menos: primero si
+ * hay puerta —en recojo no la hay—, luego lo que dijo una PERSONA que miró el
+ * comprobante, después lo que leyó el análisis, y solo al final la regla
+ * general del pedido, que no es una lectura sino una deducción.
  *
  * El envío se calcula restando y no se pide como columna aparte: el total y el
  * subtotal ya viajan al tablero, y una tercera cifra que hubiera que mantener en
  * paz con las otras dos es una oportunidad más de que discrepen.
+ *
+ * ── Por qué la última rama se marca como NO confirmada (03-09-2026) ─────────
+ *
+ * Porque afirmaba. Sin etiqueta que leer, el ticket decía "COBRAR ENVÍO Bs 27"
+ * con la misma seguridad que cuando el comprobante lo confirmaba, y quien lo
+ * leía no tenía forma de distinguir un dato de una suposición. Cinco pedidos de
+ * veintidós salieron así en una sola noche.
+ *
+ * No se calla —el repartidor necesita una instrucción, y ese fue el motivo de
+ * que esto exista— pero dice de dónde sale, y ofrece el botón para resolverlo
+ * mirando la imagen, que es lo único que de verdad lo resuelve.
  */
 function cobroEnLaPuerta(
   row: RawKitchenOrderRow,
@@ -319,23 +389,54 @@ function cobroEnLaPuerta(
 ): DeliveryCollect | null {
   if (row.delivery_type !== 'delivery') return null;
 
-  // El comprobante manda sobre la regla: si se leyó un pago por el total, el
-  // envío ya está cubierto aunque la regla general dijera lo contrario.
-  if (etiqueta?.code === 'pago_total') return { kind: 'pagado' };
-
   const total = Number(row.total_amount) || 0;
   const subtotal = Number(row.subtotal_amount) || 0;
+  const envio = total - subtotal;
 
-  if (row.payment_method === 'cash') {
-    return total > 0 ? { kind: 'todo', amount: total } : null;
+  /** Lo que falta cobrar según cómo se pagó, sin mirar ningún comprobante. */
+  const segunElPedido = (): DeliveryCollectKind | null => {
+    if (row.payment_method === 'cash') {
+      return total > 0 ? { kind: 'todo', amount: total } : null;
+    }
+    if (row.payment_method === 'qr') {
+      return envio > 0 ? { kind: 'envio', amount: envio } : { kind: 'pagado' };
+    }
+    // Sin método de pago registrado no se deduce nada.
+    return null;
+  };
+
+  // 1. La palabra de quien miró el comprobante. Gana sobre todo lo demás, y se
+  //    puede volver a cambiar: quien se equivoca tiene que poder corregirse.
+  if (row.delivery_fee_paid === true) {
+    return { kind: 'pagado', basis: 'persona', canOverride: true };
   }
-  if (row.payment_method === 'qr') {
-    const envio = total - subtotal;
-    return envio > 0 ? { kind: 'envio', amount: envio } : { kind: 'pagado' };
+  if (row.delivery_fee_paid === false) {
+    const deducido = segunElPedido();
+    // Marcar "hay que cobrarlo" sobre un pedido sin importes no inventa cifra:
+    // se dice lo que se sabe, que es que falta el envío.
+    return deducido !== null && deducido.kind !== 'pagado'
+      ? { ...deducido, basis: 'persona', canOverride: true }
+      : { kind: 'envio', amount: envio > 0 ? envio : 0, basis: 'persona', canOverride: true };
   }
 
-  // Sin método de pago registrado no se afirma nada.
-  return null;
+  // 2. Lo que leyó el análisis. Un pago por el total cubre el envío aunque la
+  //    regla general dijera lo contrario.
+  if (etiqueta?.code === 'pago_total') {
+    return { kind: 'pagado', basis: 'comprobante', canOverride: false };
+  }
+
+  const deducido = segunElPedido();
+  if (deducido === null) return null;
+
+  // 3. `pago_productos` confirma la deducción: el comprobante cuadró con el
+  //    subtotal, así que falta el envío y eso es un dato, no una suposición.
+  if (etiqueta?.code === 'pago_productos') {
+    return { ...deducido, basis: 'comprobante', canOverride: false };
+  }
+
+  // 4. Lo que queda —sin etiqueta, o `revisar_monto`— es una deducción. Se dice
+  //    igual, pero marcada como tal y con el botón para zanjarla.
+  return { ...deducido, basis: 'pedido', canOverride: true };
 }
 
 export function toKitchenTickets(

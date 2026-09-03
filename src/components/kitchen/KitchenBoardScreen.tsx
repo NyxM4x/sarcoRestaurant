@@ -342,6 +342,7 @@ export function KitchenBoardScreen({
           busyOrder={busyOrder}
           onAction={run}
           onClose={() => setReadyOpen(false)}
+          onCollectDecided={refresh}
         />
       )}
 

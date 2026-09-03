@@ -45,6 +45,42 @@ export async function kitchenStageAction(
   }
 }
 
+/**
+ * Deja escrito si el envío ya está pagado, tras mirar el comprobante (0033).
+ *
+ * Vive aquí y no en el panel del encargado porque quien mira el comprobante en
+ * la práctica es quien empaca, y es el mismo que le canta al repartidor qué
+ * cobrar. La decisión y la persona que la toma están en la misma pantalla.
+ *
+ * NO mueve el pedido de etapa ni acepta ni rechaza el pago: son dimensiones
+ * distintas, y esta acción responde una sola pregunta —¿se cobra el envío en la
+ * puerta?— que hasta ahora se resolvía llamando por teléfono.
+ */
+export type KitchenCollectResult = { ok: true } | { ok: false; message: string };
+
+export async function kitchenDeliveryFeePaidAction(
+  orderNumber: string,
+  paid: boolean,
+): Promise<KitchenCollectResult> {
+  const role = await currentSessionRole();
+  if (role === null || !canAccessKitchen(role)) {
+    return { ok: false, message: kitchenErrorMessage('unauthorized') };
+  }
+  if (typeof orderNumber !== 'string' || typeof paid !== 'boolean') {
+    return { ok: false, message: kitchenErrorMessage('invalid_action') };
+  }
+
+  try {
+    const repo = createKitchenRepository(createSupabaseKitchenDataSource());
+    const result = await repo.setDeliveryFeePaid(orderNumber, paid);
+    if (result.ok) return { ok: true };
+    return { ok: false, message: kitchenErrorMessage(result.reason) };
+  } catch {
+    // Error de base sanitizado: nunca se expone SQL ni stack al navegador.
+    return { ok: false, message: kitchenErrorMessage('error') };
+  }
+}
+
 /** Cierra la sesion desde la pantalla de cocina. */
 export async function kitchenLogoutAction(): Promise<void> {
   await clearSession();

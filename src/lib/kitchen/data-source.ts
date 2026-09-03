@@ -36,7 +36,7 @@ import type {
  */
 const KITCHEN_ORDER_COLUMNS =
   'id,order_number,status,delivery_type,notes,created_at,confirmed_at,updated_at,' +
-  'total_amount,subtotal_amount,payment_method';
+  'total_amount,subtotal_amount,payment_method,delivery_fee_paid';
 
 /** Techo de seguridad: el tablero nunca descarga la tabla entera. */
 const MAX_BOARD_ROWS = 200;
@@ -54,22 +54,35 @@ const MAX_BOARD_ROWS = 200;
 const KITCHEN_ATTEMPT_COLUMNS =
   'id,order_id,review_status,opened_at,reviewed_at,created_at,updated_at';
 /**
- * Las tres columnas del análisis van JUNTAS, y hace falta que estén las tres.
+ * Las columnas del análisis van JUNTAS, y hacen falta TODAS.
  *
- * Faltaban `analysis_verdict` y `analysis_reasons` (29-08-2026). Con solo el
- * `analysis_status`, `toAnalysisView` encontraba el 'done' y se quedaba sin
- * veredicto que leer, así que devolvía `null` y el aviso del ticket NO se
- * pintaba nunca: el análisis detectaba el comprobante falso, lo escribía en la
- * base, y en la única pantalla donde alguien iba a decidir no aparecía nada.
+ * Esta lista ya se quedó corta dos veces, y las dos con el mismo desenlace: el
+ * análisis escribió el dato en la base, la vista sabía pintarlo, y en la única
+ * pantalla donde alguien iba a decidir no apareció nada.
  *
- * El panel del encargado sí las pedía, y por eso el fallo era invisible desde
- * ahí. Si alguien vuelve a tocar esta lista, el test de columnas la contrasta
- * contra lo que la vista lee de verdad.
+ *   29-08-2026 · faltaban `analysis_verdict` y `analysis_reasons`. Con solo el
+ *     `analysis_status`, `toAnalysisView` encontraba el 'done', se quedaba sin
+ *     veredicto que leer y devolvía `null`: el aviso del comprobante falso no
+ *     se pintaba nunca.
+ *
+ *   03-09-2026 · faltaba `analysis_amount_label`, añadida en 0028 al panel del
+ *     encargado y no aquí. Sin ella `toAmountLabelView` devolvía `null`, y
+ *     `cobroEnLaPuerta` —que solo perdona el envío cuando la etiqueta dice
+ *     `pago_total`— mandaba COBRAR ENVÍO en TODOS los deliveries, incluidos los
+ *     de quien ya lo había pagado. Se detectó cuando el repartidor empezó a
+ *     cobrar dos veces.
+ *
+ * El patrón se repite porque el panel del encargado sí pide la columna nueva, y
+ * desde allí todo se ve bien: el fallo solo existe en cocina, y solo lo nota
+ * quien está en la puerta. Por eso el test de columnas contrasta esta lista
+ * contra lo que la vista lee de verdad — y por eso hay que ampliarlo cada vez
+ * que el análisis gane un campo.
  */
 const KITCHEN_PROOF_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
-  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons';
+  'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons,' +
+  'analysis_amount_label';
 
 export function createSupabaseKitchenDataSource(
   client: SupabaseClient = getSupabaseAdmin(),
@@ -215,6 +228,32 @@ export function createSupabaseKitchenDataSource(
         .select('order_number');
       if (error) throw new Error('kitchen_update_failed');
       return (data ?? []).length === 1 ? 'updated' : 'conflict';
+    },
+
+    /**
+     * La marca de quien miró el comprobante (0033).
+     *
+     * SIN guarda optimista, a diferencia del estado, y es deliberado: aquí no
+     * hay una máquina de transiciones que proteger. Es un hecho que alguien
+     * afirma, y el último que mira es el que tiene la información más fresca —
+     * si dos personas la marcan distinta, la segunda es la que acaba de ver el
+     * comprobante. Bloquear la segunda escritura obligaría a recargar para
+     * corregir un error que se acaba de ver.
+     *
+     * La fecha va SIEMPRE con la marca: el CHECK de 0033 lo exige, y con razón.
+     * Una marca sin fecha no se puede auditar.
+     */
+    async setDeliveryFeePaid(orderNumber, paid): Promise<KitchenUpdateResult> {
+      const { data, error } = await client
+        .from('orders')
+        .update({ delivery_fee_paid: paid, delivery_fee_paid_at: new Date().toISOString() })
+        .eq('order_number', orderNumber)
+        // Solo delivery: en recojo no hay puerta donde cobrar, así que la marca
+        // no significaría nada. La base lo impide igual que lo impide la UI.
+        .eq('delivery_type', 'delivery')
+        .select('order_number');
+      if (error) throw new Error('kitchen_delivery_fee_update_failed');
+      return (data ?? []).length === 1 ? 'updated' : 'not_found';
     },
   };
 }
