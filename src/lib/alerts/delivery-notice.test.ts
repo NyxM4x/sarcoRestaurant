@@ -3,6 +3,7 @@ import {
   buildDeliveryNotice,
   mapsLink,
   shortOrderNumber,
+  whatsappLink,
   type DeliveryNoticeInput,
 } from './delivery-notice';
 
@@ -125,5 +126,27 @@ describe('aviso al grupo de reparto', () => {
     const link = mapsLink(-17.842950820923, -63.179233551025);
     expect(link).toContain('-17.842950820923,-63.179233551025');
     expect(link.startsWith('https://')).toBe(true);
+  });
+});
+
+describe('el teléfono, a un toque', () => {
+  it('sale como enlace al chat y no como número suelto', () => {
+    const text = buildDeliveryNotice(BASE);
+    expect(text).toContain('Teléfono: https://wa.me/59175681881');
+    // Una sola vez: el número ya se lee dentro del enlace, y repetirlo aparte
+    // sería el mismo dato dos veces en un mensaje que se mira de un vistazo.
+    expect(text).not.toMatch(/Teléfono: 59175681881/);
+  });
+
+  it('limpia lo que traiga el número antes de enlazarlo', () => {
+    // `wa.me` solo admite dígitos: un `+` o un guion romperían el enlace.
+    const text = buildDeliveryNotice({ ...BASE, customerPhone: '+591 7568-1881' });
+    expect(text).toContain('https://wa.me/59175681881');
+  });
+
+  it('sin dígitos que enlazar, escribe lo que haya', () => {
+    // Un enlace roto es peor que un número que hay que teclear.
+    expect(whatsappLink('')).toBe('');
+    expect(whatsappLink('sin número')).toBe('sin número');
   });
 });

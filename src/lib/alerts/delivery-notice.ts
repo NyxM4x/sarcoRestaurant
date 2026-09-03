@@ -86,6 +86,22 @@ export function shortOrderNumber(orderNumber: string): string {
 }
 
 /**
+ * El teléfono, como enlace directo al chat de WhatsApp del cliente.
+ *
+ * En la moto nadie copia un número para pegarlo en otra app: se toca. `wa.me`
+ * abre la conversación de un golpe, y el número se sigue leyendo dentro del
+ * propio enlace —así que escribirlo además aparte sería el mismo dato dos veces
+ * en un mensaje que se lee de un vistazo—.
+ *
+ * Si no queda ningún dígito que enlazar, se escribe lo que haya tal cual: un
+ * enlace roto es peor que un número que hay que teclear a mano.
+ */
+export function whatsappLink(phone: string): string {
+  const digitos = phone.replace(/\D+/g, '');
+  return digitos === '' ? phone : `https://wa.me/${digitos}`;
+}
+
+/**
  * Enlace de mapa con las coordenadas exactas.
  *
  * Google Maps y no Mapbox a propósito: es la app que el repartidor ya tiene
@@ -112,7 +128,7 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
 
   const nombre = (input.customerName ?? '').trim();
   lines.push(`Cliente: ${nombre === '' ? 'sin nombre' : nombre}`);
-  lines.push(`Teléfono: ${input.customerPhone}`);
+  lines.push(`Teléfono: ${whatsappLink(input.customerPhone)}`);
   lines.push('');
 
   // Cantidades explícitas: en la moto se lee de un vistazo y se verifica la
