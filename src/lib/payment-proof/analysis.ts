@@ -299,9 +299,39 @@ export function judgeProof(facts: ProofFacts, ctx: ProofJudgeContext): ProofJudg
     bank: matchesBank(facts.destinationBank, ctx.expected.bankNames),
   };
 
+  /**
+   * ── La CUENTA manda sobre el NOMBRE (03-09-2026) ─────────────────────────
+   *
+   * Con la cuenta destino confirmada, un nombre que no cuadra dice más del
+   * formato del comprobante que del pago.
+   *
+   * Lo que lo hizo evidente: BCP imprime el destino como "A la cuenta:
+   * 78486705 / Del banco: yape" y JUSTO DEBAJO "De la cuenta: 201-… / A nombre
+   * de: <el que paga>". Con ese orden, el nombre más cercano al bloque del
+   * destino es el del REMITENTE, y se lee como destinatario. El número de
+   * cuenta, en cambio, no admite dos lecturas.
+   *
+   * Nueve de dieciséis alertas de aquella noche eran exactamente eso: un
+   * `holder_mismatch` sobre un pago cuya cuenta coincidía.
+   *
+   * ── Y por qué el BANCO sí sigue acusando ─────────────────────────────────
+   *
+   * Porque la cuenta no siempre se compara entera: cuando viene enmascarada se
+   * reconoce por sus extremos, y ahí dos cuentas de bancos distintos pueden
+   * encajar. El banco es justo la tercera pata que lo impide, y quitarla
+   * dejaría pasar ese caso. El titular no cumple esa función: es el dato que
+   * cada banco pinta a su manera y en el sitio que quiere.
+   *
+   * Los tres contrastes se siguen calculando y guardando. Lo que cambia es que
+   * el titular deja de ACUSAR cuando el dato fuerte ya respondió; sin cuenta
+   * legible vuelve a ser la única defensa que queda, y ahí acusa igual que
+   * antes.
+   */
+  const cuentaConfirmada = checks.account === 'match';
+
   const reasons: ProofAnalysisReason[] = [];
   if (checks.account === 'mismatch') reasons.push('account_mismatch');
-  if (checks.holder === 'mismatch') reasons.push('holder_mismatch');
+  if (!cuentaConfirmada && checks.holder === 'mismatch') reasons.push('holder_mismatch');
   if (checks.bank === 'mismatch') reasons.push('bank_mismatch');
   if (ctx.referenceReused) reasons.push('reference_reused');
 

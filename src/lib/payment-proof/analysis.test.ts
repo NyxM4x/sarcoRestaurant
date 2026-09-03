@@ -56,10 +56,41 @@ describe('veredicto — lo que delata un retoque', () => {
     expect(j.reasons).toContain('account_mismatch');
   });
 
-  it('el titular cambiado', () => {
-    const j = judgeProof(bueno({ destinationHolder: 'MARIA LOPEZ' }), ctx());
+  it('el titular cambiado, cuando la cuenta NO respalda', () => {
+    // Sin cuenta legible, el nombre es la única defensa que queda.
+    const j = judgeProof(
+      bueno({ destinationHolder: 'MARIA LOPEZ', destinationAccount: null }),
+      ctx(),
+    );
     expect(j.verdict).toBe('suspicious');
     expect(j.reasons).toContain('holder_mismatch');
+  });
+
+  it('con la CUENTA confirmada, un titular que no cuadra ya no acusa', () => {
+    /*
+      El cambio del 03-09-2026, y la razón exacta.
+
+      BCP imprime el destino como "A la cuenta: 78486705 / Del banco: yape" y
+      justo debajo "De la cuenta: 201-… / A nombre de: <el que paga>". El nombre
+      más cercano al bloque del destino es el del REMITENTE, así que se lee como
+      destinatario y el comprobante bueno salía acusado.
+
+      Nueve de las dieciséis alertas de aquella noche eran esto: un
+      `holder_mismatch` sobre un pago cuya cuenta coincidía. Ninguna era falsa —
+      se verificaron una a una con la banca móvil.
+    */
+    const j = judgeProof(bueno({ destinationHolder: 'MARIA LOPEZ' }), ctx());
+    expect(j.reasons).not.toContain('holder_mismatch');
+    expect(j.verdict).toBe('ok');
+    // El contraste se sigue calculando y guardando: deja de acusar, no de mirar.
+    expect(j.checks.holder).toBe('mismatch');
+  });
+
+  it('el banco SÍ sigue acusando aunque la cuenta cuadre', () => {
+    // Es la tercera pata: una cuenta enmascarada se reconoce por sus extremos, y
+    // ahí dos cuentas de bancos distintos pueden encajar. El banco lo impide.
+    const j = judgeProof(bueno({ destinationBank: 'Banco Mercantil Santa Cruz' }), ctx());
+    expect(j.reasons).toContain('bank_mismatch');
   });
 
   it('el banco destino cambiado', () => {

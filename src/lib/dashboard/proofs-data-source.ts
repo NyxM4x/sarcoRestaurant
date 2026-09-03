@@ -30,7 +30,8 @@ const PROOF_UI_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
   'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons,' +
-  'analysis_amount_label';
+  'analysis_amount_label,analysis_destination_account,analysis_destination_holder,' +
+  'analysis_destination_bank';
 
 /**
  * `analysis_amount` y `analysis_reference` NO viajan a la UI a proposito.
@@ -56,6 +57,17 @@ const PROOF_UI_COLUMNS =
  *
  * `revisar_monto` tampoco reemplaza mirar el comprobante: dice que hay algo que
  * no cuadra, no cuanto. La cifra sigue sin salir.
+ *
+ * ── Y por que el DESTINO leido si viaja (0034) ─────────────────────────────
+ *
+ * Por el mismo criterio, aplicado al reves. El monto leido invita a decidir el
+ * pago por el; el destino leido no decide nada — hace COMPROBABLE una acusacion
+ * que la pantalla ya estaba haciendo. "La cuenta que recibe NO es la nuestra"
+ * obliga a abrir la imagen para saber si es verdad; "dice que fue a: <nombre>"
+ * se resuelve de un vistazo, y ademas ensena cuando el fallo es nuestro.
+ *
+ * Es ademas un dato del NEGOCIO —a quien se cobro— y no del cliente que paga:
+ * del remitente no se guarda ni viaja nada.
  */
 
 export type ProofUiRow = Pick<
@@ -72,6 +84,9 @@ export type ProofUiRow = Pick<
   | 'duplicate_of_id'
   | 'capture_status'
   | 'received_at'
+  | 'analysis_destination_account'
+  | 'analysis_destination_holder'
+  | 'analysis_destination_bank'
   | 'analysis_status'
   | 'analysis_verdict'
   | 'analysis_reasons'

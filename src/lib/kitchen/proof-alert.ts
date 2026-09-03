@@ -31,6 +31,15 @@ export interface KitchenProofAlert {
    * importa. El color nunca comunica solo: siempre va con su texto.
    */
   tone: 'red' | 'amber';
+  /**
+   * A quien dice el comprobante que fue el dinero (0034).
+   *
+   * Solo cuando la acusacion es sobre el destino. Va aparte de `reasons` porque
+   * no es un motivo mas: es el dato con el que se comprueba el motivo, y en un
+   * ticket que se lee a un metro la diferencia entre acusar y mostrar es lo que
+   * decide si alguien abre la imagen o pulsa por inercia.
+   */
+  destination: string | null;
 }
 
 /** Comprobantes que todavía están esperando una decisión. */
@@ -68,5 +77,8 @@ export function proofAlertOf(payment: PaymentView | null): KitchenProofAlert | n
     headline: relevantes[0].headline,
     reasons,
     tone: sospechosos.length > 0 ? 'red' : 'amber',
+    // El primero que tenga destino leido: con varios comprobantes, el que
+    // manda es el mismo cuyo titular encabeza el aviso.
+    destination: relevantes.find((a) => a.destination !== null)?.destination ?? null,
   };
 }

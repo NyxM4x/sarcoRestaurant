@@ -193,6 +193,12 @@ export async function analyzeProofWith(
     amountLabel: juicio.amountLabel,
     reference: facts.transactionRef,
     model: lectura.model,
+    // Lo leído del destino se guarda SIEMPRE, cuadre o no: cuando cuadra sirve
+    // para comprobar que el filtro mira lo que debe, y cuando no cuadra es lo
+    // único con lo que se puede saber si el fallo fue de lectura o de alias.
+    destinationAccount: facts.destinationAccount,
+    destinationHolder: facts.destinationHolder,
+    destinationBank: facts.destinationBank,
   });
 
   // Sin datos del cliente, sin montos y sin el número de transacción: solo el

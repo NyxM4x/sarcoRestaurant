@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { kitchenDeliveryFeePaidAction } from '@/app/cocina/actions';
-import { buttonsForStage, STAGE_LABELS, type KdsAction } from '@/lib/kitchen/kds-status';
+import { buttonsForStage, type KdsAction } from '@/lib/kitchen/kds-status';
 import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
 import { proofAlertOf, type KitchenProofAlert } from '@/lib/kitchen/proof-alert';
 import type { PaymentGateState } from '@/lib/payment-proof/payment-gate';
@@ -77,19 +77,6 @@ export function KitchenTicketCard({
   const buttons = buttonsForStage(ticket.stage);
 
   /**
-   * ¿Este ticket todavía no entra en el resumen de la derecha?
-   *
-   * Solo mientras está NUEVO y su pago sigue sin confirmar. En cuanto alguien
-   * pulsa INICIAR, el pedido cuenta aunque el comprobante siga en revisión —la
-   * comida ya se está haciendo—, así que decirlo entonces sería mentira.
-   *
-   * Se dice en el ticket, y no solo en el panel derecho, porque el panel informa
-   * de CUÁNTO falta pero no de CUÁL: sin esta marca hay que abrir pedido por
-   * pedido para encontrar el que está reteniendo el total.
-   */
-  const noSumaTodavia = ticket.stage === 'new' && ticket.awaitingPaymentConfirmation;
-
-  /**
    * Aviso del análisis automático del comprobante.
    *
    * `null` la mayor parte del tiempo: solo aparece cuando hay algo que mirar. No
@@ -108,6 +95,22 @@ export function KitchenTicketCard({
    * rechaza, y eso solo se descubre pulsándolo.
    */
   const pagoBloqueaInicio = ticket.stage === 'new' && !ticket.gate.canStart;
+
+  /**
+   * POR QUÉ no se puede empezar, dicho con lo que de verdad hay delante.
+   *
+   * `no_proof` significa "ningún comprobante alimenta un intento", y eso NO es
+   * lo mismo que "el cliente no mandó nada": un reenvío marcado como duplicado,
+   * o uno con una excepción de enrutado, deja el archivo a la vista y la puerta
+   * cerrada. El cartel decía "todavía no llegó el comprobante" con el
+   * comprobante pintado tres centímetros más arriba, y eso se lee como una
+   * pantalla que se contradice.
+   */
+  const sueltos = ticket.payment?.unlinkedProofs.length ?? 0;
+  const motivoGate =
+    ticket.gate.state === 'no_proof' && sueltos > 0
+      ? 'Llegó un comprobante que no se pudo asociar. Míralo y pulsa «Usar este comprobante».'
+      : GATE_REASONS[ticket.gate.state];
 
   /**
    * El pago, en un sitio o en otro según lo que haga falta hacer con él.
@@ -142,10 +145,23 @@ export function KitchenTicketCard({
             {formatElapsedSince(ticket.enteredAt, nowMs)}
           </span>
         </div>
-        <p className="mt-1 truncate text-[12px] font-bold uppercase leading-tight tracking-wide opacity-90">
-          {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
+        {/* ── DELIVERY o RECOJO, y poco más (03-09-2026) ──────────────────
+            Esta línea llevaba además la etapa y el aviso de "No suma", y las
+            tres competían por el mismo renglón a 12 px. El dato que de verdad
+            se busca aquí es si el pedido SALE o lo VIENEN A BUSCAR: decide si
+            se empaca para la moto o para el mostrador, y equivocarlo cuesta un
+            viaje. Así que se queda solo y al doble de tamaño.
+ 
+            La etapa no se pierde: la dice el color de esta cabecera —ámbar es
+            nuevo, azul en preparación— y los botones de abajo, que solo ofrecen
+            lo que toca hacer ahora.
+ 
+            Lo que SÍ sigue escrito son las dos excepciones, porque un color no
+            las puede decir: que el pedido va tarde, y que viene arrastrado de
+            otra jornada. Las dos son raras; cuando salen, hay que leerlas. */}
+        <p className="mt-1 truncate text-[20px] font-extrabold uppercase leading-tight tracking-wide">
+          {DELIVERY_LABELS[ticket.deliveryType]}
           {late && ' · Atrasado'}
-          {noSumaTodavia && ' · No suma'}
           {/* De una jornada anterior: se dice CON SU FECHA, porque el número de
               arriba va recortado y `ORD-036` de anoche se lee igual que el de
               hoy. El cronómetro, que aquí marcará horas, confirma lo mismo. */}
@@ -280,7 +296,7 @@ export function KitchenTicketCard({
             como una pantalla rota, y en cocina eso acaba en una llamada. */}
         {pagoBloqueaInicio && (
           <p className="mb-1.5 rounded-md bg-amber-50 px-2 py-1 text-[13px] font-bold leading-tight text-amber-900 ring-1 ring-amber-300">
-            {GATE_REASONS[ticket.gate.state]}
+            {motivoGate}
           </p>
         )}
 
@@ -605,6 +621,19 @@ function ProofAlertBox({ alert }: { alert: KitchenProofAlert }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* A quién dice el comprobante que fue el dinero (0034).
+ 
+          Convierte la acusación en algo que se comprueba de un vistazo. "La
+          cuenta que recibe NO es la nuestra" obliga a abrir la imagen para
+          saber si es verdad; el nombre leído se lee desde donde se está. Y es
+          lo único que delata cuando el equivocado es el filtro: si ahí sale
+          nuestro propio nombre, la alerta es nuestra y no del cliente. */}
+      {alert.destination && (
+        <p className="mt-1 rounded bg-black/5 px-1.5 py-1 text-[11px] font-bold leading-tight">
+          Dice que el dinero fue a: {alert.destination}
+        </p>
       )}
     </div>
   );

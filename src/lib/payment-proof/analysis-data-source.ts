@@ -27,6 +27,19 @@ export interface AnalysisOutcome {
   model: string;
   /** Contra cuál de los dos importes cuadró. `null` = no había con qué comparar. */
   amountLabel: ProofAmountLabel | null;
+  /**
+   * Lo que se leyó del DESTINO, tal cual, sin normalizar (0034).
+   *
+   * Es contra esto que se emiten `account_mismatch`, `holder_mismatch` y
+   * `bank_mismatch`, y hasta ahora se tiraba en cuanto se emitía la acusación.
+   * Sin ello, un falso positivo solo se puede diagnosticar volviendo a abrir la
+   * imagen, y una acusación que no se puede auditar acaba ignorándose.
+   *
+   * Solo el destino: quién COBRA. El remitente no se guarda.
+   */
+  destinationAccount: string | null;
+  destinationHolder: string | null;
+  destinationBank: string | null;
 }
 
 export interface AnalysisDataSource {
@@ -101,6 +114,9 @@ export function createSupabaseAnalysisDataSource(
           analysis_amount_label: outcome.amountLabel,
           analysis_reference: outcome.reference,
           analysis_model: outcome.model,
+          analysis_destination_account: outcome.destinationAccount,
+          analysis_destination_holder: outcome.destinationHolder,
+          analysis_destination_bank: outcome.destinationBank,
           analyzed_at: new Date().toISOString(),
         })
         .eq('id', proofId);
