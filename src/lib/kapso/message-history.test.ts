@@ -66,7 +66,7 @@ function imageConfirmationMessage(overrides: Record<string, unknown> = {}) {
     type: 'image',
     to: '59170000001',
     image: {
-      link: 'https://sarco-restaurant.vercel.app/payment/qr.png',
+      link: 'https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg',
       caption: '📦 ¡Recibí tu pedido ORD-000006!\nTotal: Bs. 90\n\n💳 Escanea este QR para pagar tu pedido.',
     },
     kapso: {

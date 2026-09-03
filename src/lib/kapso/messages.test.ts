@@ -139,7 +139,7 @@ describe('buildImagePayload (6D.1)', () => {
   });
 
   it('PAYMENT_QR_URL es la URL pública https del QR fijo', () => {
-    expect(PAYMENT_QR_URL).toBe('https://sarco-restaurant.vercel.app/payment/qr.png');
+    expect(PAYMENT_QR_URL).toBe('https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg');
   });
 });
 

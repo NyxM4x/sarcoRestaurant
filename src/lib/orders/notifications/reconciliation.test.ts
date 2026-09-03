@@ -286,7 +286,7 @@ describe('6D.1 — reconciliación de confirmación-QR (imagen) de extremo a ext
       timestamp: '2026-07-21T14:00:30.000Z',
       type: 'image',
       to,
-      image: { link: 'https://sarco-restaurant.vercel.app/payment/qr.png', caption },
+      image: { link: 'https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg', caption },
       kapso: { direction: 'outbound', status: 'sent', whatsapp_conversation_id: 'conv-1' },
     };
   }

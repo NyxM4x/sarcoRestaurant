@@ -93,8 +93,20 @@ export function buildTextPayload(toDigits: string, text: string) {
  * URL pública https para la imagen, y en local `APP_BASE_URL` valdría
  * `http://localhost:3000`, inaccesible desde el teléfono. Fuente única: si
  * cambia el dominio del deployment, cambiar aquí.
+ *
+ * ── El nombre del archivo lleva el año, y no es decorativo ──────────────────
+ *
+ * Al cambiar de cuenta (02-09-2026) el fichero se renombró en vez de
+ * sobrescribirse. Reemplazar los píxeles dejando la misma URL habría dejado dos
+ * cachés capaces de servir el QR ANTERIOR durante horas —la CDN del deployment
+ * y la de medios de WhatsApp, que guarda por enlace—, y ese QR apunta a una
+ * cuenta que ya no es la del negocio: el cliente transferiría el dinero a otro
+ * sitio y el análisis lo marcaría como sospechoso teniendo razón.
+ *
+ * Una URL que nunca ha existido no puede estar cacheada. Al renombrar el QR,
+ * renombrar también aquí.
  */
-export const PAYMENT_QR_URL = 'https://sarco-restaurant.vercel.app/payment/qr.png';
+export const PAYMENT_QR_URL = 'https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg';
 
 /**
  * Texto para el cliente cuando su ubicación queda FUERA de la zona de delivery

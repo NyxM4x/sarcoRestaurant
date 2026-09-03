@@ -573,7 +573,7 @@ describe('createKapsoTransport.sendImage (6D.1)', () => {
 
     const res = await client.sendImage(
       '59170000001',
-      'https://sarco-restaurant.vercel.app/payment/qr.png',
+      'https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg',
       'Pedido ORD-000042: paga con QR',
     );
     expect(res).toEqual({ ok: true, wamid: 'wamid.IMG_1' });
@@ -585,7 +585,7 @@ describe('createKapsoTransport.sendImage (6D.1)', () => {
       to: '59170000001',
       type: 'image',
       image: {
-        link: 'https://sarco-restaurant.vercel.app/payment/qr.png',
+        link: 'https://sarco-restaurant.vercel.app/payment/qr-2026.jpeg',
         caption: 'Pedido ORD-000042: paga con QR',
       },
     });
