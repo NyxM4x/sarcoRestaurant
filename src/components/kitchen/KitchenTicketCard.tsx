@@ -132,14 +132,14 @@ export function KitchenTicketCard({
         <div className="flex items-baseline justify-between gap-2">
           {/* El número como se dice en voz alta. El tablero muestra UNA sola
               jornada, así que aquí no hace falta la fecha para desambiguar. */}
-          <h2 className="truncate text-2xl font-extrabold leading-none tracking-tight">
+          <h2 className="truncate text-3xl font-extrabold leading-none tracking-tight">
             {shortOrderNumber(ticket.orderNumber)}
           </h2>
-          <span className="shrink-0 text-xl font-bold leading-none tabular-nums">
+          <span className="shrink-0 text-2xl font-bold leading-none tabular-nums">
             {formatElapsedSince(ticket.enteredAt, nowMs)}
           </span>
         </div>
-        <p className="mt-1 truncate text-[10px] font-bold uppercase leading-tight tracking-wide opacity-90">
+        <p className="mt-1 truncate text-[12px] font-bold uppercase leading-tight tracking-wide opacity-90">
           {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
           {late && ' · Atrasado'}
           {noSumaTodavia && ' · No suma'}
@@ -159,26 +159,37 @@ export function KitchenTicketCard({
             mitad — medio botón verde asomando es peor que ninguno. */}
         {pagoBloqueaInicio && <div className="mb-2">{bloquePago}</div>}
 
+        {/* ── El tamaño de la letra ────────────────────────────────────────
+            Lo que se cocina es lo que más grande se lee: cantidad a 30 px y
+            producto a 19 px. La escala subió al pasar el tablero a UNA fila
+            (03-09-2026) —con dos, la tarjeta medía menos de 300 px de alto y
+            esto no habría cabido—.
+
+            La referencia no es una pantalla a medio metro: es la plancha, a un
+            metro y medio, de reojo y con vapor. A esa distancia la diferencia
+            entre 15 y 19 px es leerlo o acercarse, y acercarse cuesta un
+            movimiento por pedido. Si algún día vuelven las dos filas, esto
+            tiene que bajar con ellas o los productos saldrán cortados. */}
         {ticket.lines.length === 0 ? (
-          <p className="text-sm italic text-zinc-400">Sin productos registrados</p>
+          <p className="text-base italic text-zinc-400">Sin productos registrados</p>
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-2">
             {ticket.lines.map((line, i) => (
               <li key={`${line.name}-${i}`}>
                 <div className="flex items-baseline gap-2">
-                  <span className="w-6 shrink-0 text-right text-xl font-extrabold leading-tight tabular-nums text-zinc-900">
+                  <span className="w-9 shrink-0 text-right text-3xl font-extrabold leading-tight tabular-nums text-zinc-900">
                     {line.quantity}
                   </span>
-                  <span className="text-[15px] font-semibold leading-tight text-zinc-800">
+                  <span className="text-[19px] font-semibold leading-tight text-zinc-800">
                     {line.name}
                   </span>
                 </div>
                 {/* Modificadores: hoy siempre vacios (la base aun no los guarda),
                     pero la tarjeta ya esta lista para pintarlos. */}
                 {line.modifiers.length > 0 && (
-                  <ul className="mt-0.5 pl-8">
+                  <ul className="mt-0.5 pl-11">
                     {line.modifiers.map((m, j) => (
-                      <li key={`${m}-${j}`} className="text-xs font-medium text-orange-700">
+                      <li key={`${m}-${j}`} className="text-[14px] font-medium text-orange-700">
                         – {m}
                       </li>
                     ))}
@@ -226,10 +237,10 @@ export function KitchenTicketCard({
 
           {ticket.notes && (
             <div className="mt-1.5 rounded-md bg-zinc-100 px-2 py-1.5">
-              <p className="text-[10px] font-bold uppercase leading-none tracking-wider text-zinc-500">
+              <p className="text-[11px] font-bold uppercase leading-none tracking-wider text-zinc-500">
                 Notas
               </p>
-              <p className="mt-1 text-[13px] font-medium leading-tight text-zinc-800">
+              <p className="mt-1 text-[16px] font-medium leading-tight text-zinc-800">
                 {ticket.notes}
               </p>
             </div>
@@ -255,7 +266,7 @@ export function KitchenTicketCard({
         {/* POR QUÉ no se puede empezar. Un botón gris sin explicación se lee
             como una pantalla rota, y en cocina eso acaba en una llamada. */}
         {pagoBloqueaInicio && (
-          <p className="mb-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-bold leading-tight text-amber-900 ring-1 ring-amber-300">
+          <p className="mb-1.5 rounded-md bg-amber-50 px-2 py-1 text-[13px] font-bold leading-tight text-amber-900 ring-1 ring-amber-300">
             {GATE_REASONS[ticket.gate.state]}
           </p>
         )}
@@ -275,7 +286,7 @@ export function KitchenTicketCard({
                 className={
                   b.kind === 'danger'
                     ? 'grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-red-600 text-white hover:bg-red-500 active:bg-red-700 disabled:opacity-50'
-                    : 'h-14 flex-1 rounded-lg bg-emerald-600 text-lg font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600'
+                    : 'h-14 flex-1 rounded-lg bg-emerald-600 text-xl font-extrabold tracking-wide text-white hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600'
                 }
               >
                 {b.kind === 'danger' ? <TrashIcon /> : b.label}
@@ -291,7 +302,7 @@ export function KitchenTicketCard({
               type="button"
               disabled={busy}
               onClick={() => onAction(ticket.orderNumber, b.action)}
-              className="mt-1.5 h-11 w-full rounded-md bg-zinc-200 text-xs font-bold uppercase tracking-wide text-zinc-700 hover:bg-zinc-300 active:bg-zinc-400 disabled:opacity-50"
+              className="mt-1.5 h-11 w-full rounded-md bg-zinc-200 text-sm font-bold uppercase tracking-wide text-zinc-700 hover:bg-zinc-300 active:bg-zinc-400 disabled:opacity-50"
             >
               {b.label}
             </button>
@@ -358,8 +369,8 @@ function CollectChip({ collect }: { collect: DeliveryCollect }) {
 
   return (
     <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tono}`}>
-      <p className="text-[11px] font-extrabold uppercase leading-tight tracking-wide">{titulo}</p>
-      <p className="mt-0.5 text-[11px] font-medium leading-tight opacity-90">{pista}</p>
+      <p className="text-[13px] font-extrabold uppercase leading-tight tracking-wide">{titulo}</p>
+      <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">{pista}</p>
     </div>
   );
 }
@@ -380,10 +391,10 @@ function AmountLabelChip({ label }: { label: ProofAmountLabelView }) {
         : 'bg-red-50 ring-red-300 text-red-900';
   return (
     <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tono}`}>
-      <p className="text-[11px] font-extrabold uppercase leading-tight tracking-wide">
+      <p className="text-[13px] font-extrabold uppercase leading-tight tracking-wide">
         {label.text}
       </p>
-      <p className="mt-0.5 text-[11px] font-medium leading-tight opacity-90">{label.hint}</p>
+      <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">{label.hint}</p>
     </div>
   );
 }
