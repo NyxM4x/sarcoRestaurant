@@ -67,7 +67,7 @@ export function businessHoursClock(): string {
 }
 
 /** Enlace oficial de Google Maps del local. */
-export const BUSINESS_MAPS_URL = 'https://maps.app.goo.gl/DLJZvSY7GyJNzccD9';
+export const BUSINESS_MAPS_URL = 'https://maps.app.goo.gl/NL8foBoiySELVKMr8?g_st=ic';
 
 /**
  * Dirección en palabras (calle, barrio o referencia).
@@ -79,18 +79,40 @@ export const BUSINESS_MAPS_URL = 'https://maps.app.goo.gl/DLJZvSY7GyJNzccD9';
 export const BUSINESS_ADDRESS: string | null =
   'sobre la avenida Doble Vía La Guardia, frente al Hipermaxi Las Palmas';
 
-/** Bloque de "hechos del negocio" que se inyecta en el system prompt. */
+/**
+ * Bloque de "hechos del negocio" que se inyecta en el system prompt.
+ *
+ * ── La dirección y el enlace van JUNTOS, y es una orden ─────────────────
+ *
+ * Antes decía "el enlace es este y puedes compartirlo tal cual". Eso es un
+ * permiso, no una instrucción, y el modelo hacía lo que hace cualquiera con un
+ * permiso: unas veces sí y otras no. Desde que la dirección está escrita a mano
+ * ya tenía algo que responder, así que soltaba la calle y se dejaba el enlace
+ * —justo la regresión que se notó (02-09-2026)—.
+ *
+ * Y son las dos cosas porque cada una sola falla de una forma distinta: la
+ * dirección sin enlace obliga al cliente a buscarla a mano, y el enlace sin
+ * dirección obliga a abrir el navegador solo para saber si queda cerca.
+ *
+ * ── Que hay un solo local es un HECHO, no un dato que falte ──────────────
+ *
+ * "¿Están también en otra zona?" se contestaba con "no tengo esa información",
+ * porque la sección "Cuando no sabes" del prompt recoge todo lo que no esté
+ * escrito aquí. Pero no es que se ignore: es que no hay más locales. Se dice
+ * explícitamente para que el agente afirme en vez de encogerse de hombros.
+ */
 export function businessFactsBlock(): string {
   const ubicacion =
     BUSINESS_ADDRESS === null
-      ? `- Dónde están: no tienes la dirección escrita, así que no la inventes ni la describas. Comparte el enlace de Google Maps tal cual: ${BUSINESS_MAPS_URL}`
-      : `- Dónde están: ${BUSINESS_ADDRESS}. El enlace de Google Maps es ${BUSINESS_MAPS_URL} y puedes compartirlo tal cual.`;
+      ? `- Dónde están: no tienes la dirección escrita, así que no la inventes ni la describas. Cuando pregunten por la ubicación, pasa el enlace de Google Maps tal cual, escrito entero dentro del mensaje: ${BUSINESS_MAPS_URL}`
+      : `- Dónde están: ${BUSINESS_ADDRESS}. Cuando pregunten por la ubicación, responde SIEMPRE con las dos cosas en el mismo mensaje: esa dirección en palabras y el enlace de Google Maps ${BUSINESS_MAPS_URL} escrito entero. Nunca una sin la otra.`;
 
   return [
     'Lo único que sabes de memoria (y puedes decir sin consultar nada):',
     `- Horario de atención: ${BUSINESS_HOURS}.`,
     ubicacion,
+    '- Es su ÚNICO local: no hay sucursales ni otro punto de venta. Si preguntan si están en otra zona, en otro barrio o si tienen otra sede, contesta que no, que solo atienden en esa dirección. Eso lo sabes: no es un dato que te falte, así que no respondas que no tienes la información.',
     '- Hacen delivery en moto a domicilio. El costo lo calcula el sistema con la ubicación del cliente, en el momento; tú nunca lo estimas.',
-    '- Fuera de estas tres cosas, no tienes ningún dato del negocio en la cabeza.',
+    '- Fuera de lo anterior, no tienes ningún dato del negocio en la cabeza.',
   ].join('\n');
 }

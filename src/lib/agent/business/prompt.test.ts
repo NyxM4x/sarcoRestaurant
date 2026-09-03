@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { BUSINESS_HOURS, BUSINESS_MAPS_URL } from './facts';
+import { BUSINESS_ADDRESS, BUSINESS_HOURS, BUSINESS_MAPS_URL } from './facts';
 import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './prompt';
 
 /**
@@ -459,5 +459,35 @@ describe('prompt — el Business Adapter sigue siendo solo texto', () => {
   it('el techo de salida sigue siendo el de WhatsApp', () => {
     expect(DON_ZARCO_MAX_OUTPUT_TOKENS).toBe(300);
     expect(DON_ZARCO_MAX_OUTPUT_TOKENS).toBeLessThanOrEqual(400);
+  });
+});
+
+describe('prompt — la ubicación se responde entera', () => {
+  /** La línea del bloque de hechos que habla de dónde están. */
+  const lineaUbicacion = DON_ZARCO_SYSTEM_PROMPT.split('\n').find((l) =>
+    l.startsWith('- Dónde están:'),
+  );
+
+  it('la dirección y el enlace viajan en la MISMA instrucción', () => {
+    // Esta es la regresión de verdad (02-09-2026): con la dirección escrita, el
+    // agente respondía la calle y se dejaba el enlace. Separarlos en dos frases
+    // distintas del prompt es lo que lo permitía, así que se comprueba que
+    // estén en la misma línea y no solo que ambos aparezcan en algún sitio.
+    expect(lineaUbicacion).toBeDefined();
+    expect(lineaUbicacion).toContain(BUSINESS_MAPS_URL);
+    if (BUSINESS_ADDRESS !== null) expect(lineaUbicacion).toContain(BUSINESS_ADDRESS);
+  });
+
+  it('manda las dos cosas, no las permite', () => {
+    // "Puedes compartirlo" es un permiso y se cumple a veces. La orden no.
+    expect(lineaUbicacion).toMatch(/SIEMPRE con las dos cosas en el mismo mensaje/);
+    expect(lineaUbicacion).not.toMatch(/puedes compartirlo/i);
+  });
+
+  it('afirma que hay un solo local en vez de encogerse de hombros', () => {
+    // Sin esto cae en la sección "Cuando no sabes" y contesta que no tiene la
+    // información, que es falso: sí la tiene, y es que no hay más locales.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/ÚNICO local: no hay sucursales/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no respondas que no tienes la información/);
   });
 });
