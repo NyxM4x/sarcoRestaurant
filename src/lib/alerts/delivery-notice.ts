@@ -36,6 +36,19 @@ export interface DeliveryNoticeItem {
   quantity: number;
 }
 
+/**
+ * Qué se cobra al entregar. Lo calcula `deliveryCollectOf` en cocina y llega
+ * aquí ya resuelto: este módulo no deduce nada del pago, solo lo escribe.
+ *
+ * `null` = no se pudo determinar, y entonces no se escribe ninguna línea. Es
+ * mejor que una instrucción que nadie comprobó: el repartidor siempre puede
+ * preguntar, pero no puede deshacer un cobro.
+ */
+export type DeliveryNoticeCollect =
+  | { kind: 'pagado' }
+  | { kind: 'envio' }
+  | { kind: 'todo'; amount: number };
+
 export interface DeliveryNoticeInput {
   orderNumber: string;
   customerName: string | null;
@@ -44,8 +57,11 @@ export interface DeliveryNoticeInput {
   items: DeliveryNoticeItem[];
   /** Tarifa de envío en Bs, ya cotizada. */
   deliveryAmount: number;
-  /** Total del pedido en Bs (productos + envío). */
-  totalAmount: number;
+  /**
+   * Qué se cobra en la puerta. Sustituye al total del pedido, que se quitó el
+   * 03-09-2026: ver `buildDeliveryNotice`.
+   */
+  collect: DeliveryNoticeCollect | null;
   latitude: number;
   longitude: number;
   /** Distancia de ruta en metros, si se conoce. */
@@ -116,6 +132,19 @@ export function mapsLink(latitude: number, longitude: number): string {
  *
  * Sin markdown: se envía como texto plano y los asteriscos o guiones bajos de
  * un nombre de cliente romperían el formato o el envío.
+ *
+ * ── Por qué ya no lleva el total del pedido (03-09-2026) ────────────────────
+ *
+ * Porque a quien lo lee no le sirve, y encima confundía. El repartidor no cobra
+ * la comida: por QR se paga antes, y cocina no suelta un pedido sin comprobante
+ * que cuadre con el subtotal. Lo único que puede tener que cobrar en la puerta
+ * es el envío — y "Total a cobrar: Bs 31" junto a "Envío: Bs 13" es un mensaje
+ * que ofrece dos cifras sin decir cuál de las dos hay que pedir.
+ *
+ * En su lugar va la INSTRUCCIÓN, sola en su renglón y en mayúsculas: qué hacer,
+ * no qué sumar. Y no repite la cifra del envío, que ya está en la línea de
+ * arriba: el mismo número dos veces, en un mensaje que se lee de reojo y en la
+ * moto, es una oportunidad de leer el equivocado.
  */
 export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   const lines: string[] = [];
@@ -142,10 +171,32 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
 
   const distancia = input.distanceMeters === null ? '' : ` · ${formatDistance(input.distanceMeters)}`;
   lines.push(`Envío: Bs ${formatBs(input.deliveryAmount)}${distancia}`);
-  lines.push(`Total a cobrar: Bs ${formatBs(input.totalAmount)}`);
   lines.push('');
+
+  // Lo que se busca con la vista al llegar a la puerta. `null` no escribe nada.
+  const instruccion = collectLine(input.collect);
+  if (instruccion !== null) {
+    lines.push(instruccion);
+    lines.push('');
+  }
 
   lines.push(`Ubicación: ${mapsLink(input.latitude, input.longitude)}`);
 
   return lines.join('\n');
+}
+
+/**
+ * La línea de la instrucción.
+ *
+ * `envio` NO repite el monto: ya está arriba, y es la única cifra cobrable del
+ * mensaje. `todo` sí lo lleva, porque ahí se cobra la comida más el envío y esa
+ * suma no aparece en ningún otro sitio. Hoy no llega por este canal —el aviso
+ * sale al aceptar un pago por QR— pero si algún día llega, quien reparte no
+ * puede quedarse sin la cifra.
+ */
+function collectLine(collect: DeliveryNoticeCollect | null): string | null {
+  if (collect === null) return null;
+  if (collect.kind === 'pagado') return 'ENVÍO PAGADO';
+  if (collect.kind === 'envio') return 'COBRAR ENVÍO';
+  return `COBRAR TODO: Bs ${formatBs(collect.amount)}`;
 }

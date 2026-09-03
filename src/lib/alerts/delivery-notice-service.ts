@@ -4,6 +4,9 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
 import { buildDeliveryNotice, type DeliveryNoticeItem } from './delivery-notice';
+import { deliveryCollectOf } from '@/lib/kitchen/ticket-view';
+import { amountLabelHint, amountLabelText } from '@/lib/payment-proof/labels';
+import type { ProofAmountLabel } from '@/lib/payment-proof/analysis';
 import { createAlertRunnerDeps, enqueueAlert } from './outbox-store';
 import { trySendNow } from './outbox-runner';
 
@@ -38,11 +41,57 @@ import { trySendNow } from './outbox-runner';
  * lo importante del turno.
  */
 
+/**
+ * `subtotal_amount`, `payment_method` y `delivery_fee_paid` entraron el
+ * 03-09-2026: son lo que `deliveryCollectOf` necesita para decidir qué se cobra
+ * en la puerta. `total_amount` sigue pidiéndose porque esa misma función lo usa
+ * para calcular el envío restando — lo que ya NO hace es salir en el mensaje.
+ */
 const NOTICE_SELECT =
   'id, order_number, customer_name, customer_phone, delivery_type, status, ' +
-  'delivery_quote_status, delivery_amount, total_amount, delivery_latitude, ' +
+  'delivery_quote_status, delivery_amount, subtotal_amount, total_amount, ' +
+  'payment_method, delivery_fee_paid, delivery_latitude, ' +
   'delivery_longitude, delivery_distance_meters, ' +
   'order_items ( product_name_snapshot, quantity )';
+
+/**
+ * La etiqueta del comprobante más reciente de este pedido.
+ *
+ * ── Por qué se consulta aquí y no se recibe ────────────────────────────────
+ *
+ * Porque el aviso se dispara con un `orderId` y nada más, desde el punto en que
+ * se acepta un pago. Traer la etiqueta es una consulta pequeña y acotada, y la
+ * alternativa —hacerla viajar por la cadena de llamadas— ataría este aviso al
+ * flujo de decisión, que es justo lo que hoy lo mantiene reintentable.
+ *
+ * Se exige `analysis_status = 'done'` por la misma razón que en el panel: una
+ * etiqueta escrita a medio análisis afirmaría algo que nadie llegó a comprobar.
+ * `null` ante cualquier fallo: sin dato no se deduce, se calla.
+ */
+async function etiquetaDelComprobante(
+  orderId: string,
+  supabase: SupabaseClient,
+): Promise<{ code: ProofAmountLabel; text: string; hint: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('payment_proofs')
+      .select('analysis_amount_label, received_at')
+      .eq('order_id', orderId)
+      .eq('analysis_status', 'done')
+      .not('analysis_amount_label', 'is', null)
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+
+    const code = (data as { analysis_amount_label: ProofAmountLabel }).analysis_amount_label;
+    const text = amountLabelText(code);
+    const hint = amountLabelHint(code);
+    return text === null || hint === null ? null : { code, text, hint };
+  } catch {
+    return null;
+  }
+}
 
 function num(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : value;
@@ -104,13 +153,45 @@ export async function notifyDeliveryGroup(
       };
     });
 
+    // Qué se cobra en la puerta, con la MISMA función que lo decide en cocina.
+    //
+    // Manda la marca del cocinero si la hay, y si no la etiqueta del
+    // comprobante. Ojo con el momento: este aviso sale al ACEPTAR el pago, y el
+    // botón del ticket se pulsa después, al empacar — así que lo normal es que
+    // aquí todavía no haya marca y salga lo que dice el comprobante.
+    const collect = deliveryCollectOf(
+      {
+        id: String(order.id ?? ''),
+        order_number: String(order.order_number ?? ''),
+        status: order.status as never,
+        delivery_type: order.delivery_type as never,
+        notes: null,
+        created_at: '',
+        confirmed_at: null,
+        updated_at: '',
+        subtotal_amount: num(order.subtotal_amount),
+        total_amount: num(order.total_amount),
+        payment_method: (order.payment_method ?? null) as never,
+        delivery_fee_paid:
+          typeof order.delivery_fee_paid === 'boolean' ? order.delivery_fee_paid : null,
+      },
+      await etiquetaDelComprobante(orderId, supabase),
+    );
+
     const text = buildDeliveryNotice({
       orderNumber: String(order.order_number ?? ''),
       customerName: typeof order.customer_name === 'string' ? order.customer_name : null,
       customerPhone: String(order.customer_phone ?? ''),
       items,
       deliveryAmount: num(order.delivery_amount) ?? 0,
-      totalAmount: num(order.total_amount) ?? 0,
+      // El tipo del aviso no lleva `basis` ni `canOverride`: en el grupo de
+      // reparto no hay nada que marcar, solo una instrucción que seguir.
+      collect:
+        collect === null
+          ? null
+          : collect.kind === 'todo'
+            ? { kind: 'todo', amount: collect.amount }
+            : { kind: collect.kind },
       latitude,
       longitude,
       distanceMeters: num(order.delivery_distance_meters),

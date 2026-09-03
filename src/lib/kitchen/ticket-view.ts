@@ -372,6 +372,15 @@ function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | nu
  * subtotal ya viajan al tablero, y una tercera cifra que hubiera que mantener en
  * paz con las otras dos es una oportunidad más de que discrepen.
  *
+ * ── Se EXPORTA porque tiene un segundo consumidor (03-09-2026) ─────────────
+ *
+ * El aviso al grupo de reparto responde exactamente la misma pregunta —¿se
+ * cobra el envío en la puerta?— y llegó a este archivo por el mismo camino que
+ * `amountDueByQrOf`: dos cálculos de lo mismo acaban discrepando, y discrepan
+ * en silencio. Aquí sería peor que en una pantalla: el ticket diría una cosa a
+ * quien empaca y el mensaje de Telegram otra a quien reparte, sobre el mismo
+ * pedido y con el cliente delante.
+ *
  * ── Por qué la última rama se marca como NO confirmada (03-09-2026) ─────────
  *
  * Porque afirmaba. Sin etiqueta que leer, el ticket decía "COBRAR ENVÍO Bs 27"
@@ -383,7 +392,7 @@ function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | nu
  * que esto exista— pero dice de dónde sale, y ofrece el botón para resolverlo
  * mirando la imagen, que es lo único que de verdad lo resuelve.
  */
-function cobroEnLaPuerta(
+export function deliveryCollectOf(
   row: RawKitchenOrderRow,
   etiqueta: ProofAmountLabelView | null,
 ): DeliveryCollect | null {
@@ -492,7 +501,7 @@ export function toKitchenTickets(
       // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
       gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
       amountLabel: etiqueta,
-      deliveryCollect: cobroEnLaPuerta(row, etiqueta),
+      deliveryCollect: deliveryCollectOf(row, etiqueta),
     });
   }
   return sortByAge(tickets);

@@ -22,7 +22,7 @@ const BASE: DeliveryNoticeInput = {
     { name: 'Gaseosa 2 L', quantity: 1 },
   ],
   deliveryAmount: 16,
-  totalAmount: 94,
+  collect: { kind: 'envio' },
   latitude: -17.842950820923,
   longitude: -63.179233551025,
   distanceMeters: 5762,
@@ -58,11 +58,19 @@ describe('el número que se cita al responder', () => {
 describe('aviso al grupo de reparto', () => {
   it('lleva lo imprescindible para repartir', () => {
     const text = buildDeliveryNotice(BASE);
-    for (const dato of ['ORD-000010', 'GRAD', '59175681881', 'Bs 16', 'Bs 94']) {
+    for (const dato of ['ORD-000010', 'GRAD', '59175681881', 'Bs 16']) {
       expect(text, dato).toContain(dato);
     }
     // Sin el enlace, el repartidor no tiene a dónde ir.
     expect(text).toContain(mapsLink(BASE.latitude, BASE.longitude));
+  });
+
+  it('NO lleva el total del pedido (03-09-2026)', () => {
+    // A quien lo lee no le sirve y encima confundía: el repartidor no cobra la
+    // comida, y dos cifras juntas no dicen cuál de las dos hay que pedir.
+    const text = buildDeliveryNotice({ ...BASE, deliveryAmount: 16 });
+    expect(text).not.toContain('Total');
+    expect(text).not.toContain('Bs 94');
   });
 
   it('detalla cantidades y cuenta el total de productos', () => {
@@ -148,5 +156,55 @@ describe('el teléfono, a un toque', () => {
     // Un enlace roto es peor que un número que hay que teclear.
     expect(whatsappLink('')).toBe('');
     expect(whatsappLink('sin número')).toBe('sin número');
+  });
+});
+
+describe('la instrucción de cobro', () => {
+  it('dice qué hacer, en una línea y en mayúsculas', () => {
+    expect(buildDeliveryNotice({ ...BASE, collect: { kind: 'envio' } }))
+      .toContain('COBRAR ENVÍO');
+    expect(buildDeliveryNotice({ ...BASE, collect: { kind: 'pagado' } }))
+      .toContain('ENVÍO PAGADO');
+  });
+
+  it('las dos instrucciones se excluyen: nunca salen juntas', () => {
+    // Un mensaje que dijera las dos cosas es peor que uno que no diga ninguna.
+    const cobrar = buildDeliveryNotice({ ...BASE, collect: { kind: 'envio' } });
+    const pagado = buildDeliveryNotice({ ...BASE, collect: { kind: 'pagado' } });
+    expect(cobrar).not.toContain('ENVÍO PAGADO');
+    expect(pagado).not.toContain('COBRAR ENVÍO');
+  });
+
+  it('cobrar el envío NO repite el monto: ya está en la línea de arriba', () => {
+    // El mismo número dos veces, leído de reojo y en la moto, es una
+    // oportunidad de leer el equivocado.
+    const text = buildDeliveryNotice({ ...BASE, deliveryAmount: 16, collect: { kind: 'envio' } });
+    expect(text).toContain('Envío: Bs 16');
+    expect(text.match(/Bs 16/g) ?? []).toHaveLength(1);
+  });
+
+  it('cobrar TODO sí lleva la cifra: no aparece en ningún otro sitio', () => {
+    const text = buildDeliveryNotice({ ...BASE, collect: { kind: 'todo', amount: 94 } });
+    expect(text).toContain('COBRAR TODO: Bs 94');
+  });
+
+  it('sin poder determinarlo, no se escribe ninguna instrucción', () => {
+    // El repartidor siempre puede preguntar; no puede deshacer un cobro.
+    const text = buildDeliveryNotice({ ...BASE, collect: null });
+    expect(text).not.toContain('COBRAR');
+    expect(text).not.toContain('PAGADO');
+    // Y el resto del aviso sigue entero.
+    expect(text).toContain('Envío: Bs 16');
+    expect(text).toContain(mapsLink(BASE.latitude, BASE.longitude));
+  });
+
+  it('va entre el envío y la ubicación, en su propio renglón', () => {
+    const lineas = buildDeliveryNotice(BASE).split('\n');
+    const iEnvio = lineas.findIndex((l) => l.startsWith('Envío:'));
+    const iCobro = lineas.findIndex((l) => l === 'COBRAR ENVÍO');
+    const iMapa = lineas.findIndex((l) => l.startsWith('Ubicación:'));
+    expect(iEnvio).toBeGreaterThan(-1);
+    expect(iCobro).toBeGreaterThan(iEnvio);
+    expect(iMapa).toBeGreaterThan(iCobro);
   });
 });
