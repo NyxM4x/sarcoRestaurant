@@ -68,7 +68,11 @@ export function createAnswerDirectlyAction(): AgentTool {
         'conversación normal, o cuando no tienes la información y hay que ' +
         'decirlo. También cuando preguntan cuánto sale el envío o el delivery: ' +
         'no das el monto, le pides que comparta su ubicación y el sistema se lo ' +
-        'cotiza. NO la uses para escaparte de mandar el menú: si el cliente ' +
+        'cotiza. NO la uses cuando preguntan por un pedido YA hecho —en qué va, ' +
+        'si ya salió, cuánto falta para que llegue—: eso no lo puedes ver y es ' +
+        'request_human. Ojo con la diferencia, que se parecen al leerlas: cuánto ' +
+        'CUESTA el envío se contesta pidiendo la ubicación; cuánto TARDA en llegar ' +
+        'se deriva. NO la uses para escaparte de mandar el menú: si el cliente ' +
         'quiere ver qué hay, qué opciones existen o qué contiene una categoría, ' +
         'eso es send_menu, y contestarlo hablando sería enumerarle el catálogo ' +
         'en el chat. Tampoco la uses para responder de memoria el precio de un ' +

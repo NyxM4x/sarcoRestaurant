@@ -374,8 +374,24 @@ describe('prompt — no promete un traspaso que no existe', () => {
     // cualquier dato que el agente no tuviera. Lo que queda escrito es cuándo
     // SÍ hace falta una persona, que es lo que no se puede confundir.
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(
-      /reserva para una queja, un reclamo o alguien que pide hablar con el equipo/,
+      /reserva para una queja, un reclamo, alguien que pide hablar con el equipo/,
     );
+  });
+
+  it('el estado de un pedido ya hecho sí va a una persona', () => {
+    // La lista de arriba es corta a propósito, y esta entró con motivo: quien
+    // ya pidió y pregunta cuánto falta no necesita saber que el agente no lo
+    // sabe, necesita a alguien que pueda mirarlo.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/la derivas a una[\s\S]{0,40}persona con request_human/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/pregunta por un pedido YA hecho[\s\S]{0,80}que sí se/);
+  });
+
+  it('a la pregunta por el tiempo no le ofrece la ubicación', () => {
+    // El fallo que se vio en producción (02-09-2026): "¿en cuánto llega?" se
+    // contestaba con "no tengo ese dato, pero comparte tu ubicación y te digo
+    // el costo del envío". Es responder otra pregunta.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/NO le ofrezcas compartir la ubicación/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).not.toMatch(/dilo simple: no tienes ese dato/);
   });
 
   it('el cierre tampoco promete plazos ni aviso', () => {

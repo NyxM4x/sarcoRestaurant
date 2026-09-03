@@ -97,7 +97,10 @@ export function createRequestHumanAction(port: HandoffPort): AgentTool {
         'aunque lo repita. Y una pregunta que no sabes contestar NO se deriva: ' +
         'se dice que no lo sabes, con answer_directly. En particular, cuánto ' +
         'sale el envío o el delivery nunca es motivo para derivar — se contesta ' +
-        'pidiéndole la ubicación, que el sistema la cotiza solo. Ante la duda ' +
+        'pidiéndole la ubicación, que el sistema la cotiza solo. SÍ se deriva, en ' +
+        'cambio, todo lo que pregunte por un pedido YA hecho: en qué va, si ya ' +
+        'salió, cuánto falta para que llegue. Eso no lo puedes ver por ningún lado ' +
+        'y solo una persona puede mirarlo. Ante la duda ' +
         'entre derivar y contestar, CONTESTA: derivar te deja mudo dos horas, ' +
         'y una respuesta imperfecta se arregla con el mensaje siguiente.',
       parameters: NO_ARGUMENTS,
