@@ -284,13 +284,19 @@ describe('pantalla de cocina — accesibilidad y toque', () => {
       tarjetas se apilaban hacia abajo hasta llenar la altura y saltaban de
       columna. Como cada tarjeta crecía con su contenido, en los 608 px útiles
       de la tablet de cocina cabía UNA por columna y el tablero enseñaba tres
-      pedidos de la jornada. Ahora la rejilla fija DOS filas y las columnas
-      fluyen a la derecha: 3 × 2 = 6 pedidos a la vista, y la tarjeta ya no
-      decide su tamaño — lo decide la celda.
+      pedidos de la jornada. Ahora lo fija la rejilla y la tarjeta ya no decide
+      su tamaño — lo decide la celda.
+
+      El número de filas sí cambió, y por eso el test mira UNA: con dos, la
+      tarjeta se quedaba en menos de 300 px de alto y un pedido corriente ya
+      obligaba a scrollear por dentro. Se ven menos pedidos de una pasada, y es
+      el intercambio que se quiso.
     */
     const screen = componentSrc('KitchenBoardScreen.tsx');
     expect(screen).toContain('overflow-x-auto');
-    expect(screen).toMatch(/grid-flow-col grid-rows-2/);
+    expect(screen).toMatch(/grid-flow-col grid-rows-1/);
+    // Y sin reglas por altura de pantalla: una fila es una fila en cualquiera.
+    expect(screen).not.toContain('min-height:900px');
     // La tarjeta llena su celda en vez de estirarse hasta donde le quepa.
     const card = componentSrc('KitchenTicketCard.tsx');
     expect(card).toContain('h-full min-h-0 w-full');

@@ -274,31 +274,36 @@ export function KitchenBoardScreen({
             </div>
           ) : (
             /*
-              Rejilla de DOS FILAS con las columnas fluyendo a la derecha.
- 
+              Rejilla de UNA FILA: cada ticket ocupa la altura entera y las
+              columnas fluyen a la derecha.
+
               Antes era `flex-col flex-wrap`: las tarjetas se apilaban hacia
               abajo hasta llenar la altura y saltaban a la columna siguiente.
               Con tarjetas que crecían con su contenido —una podía medir 500 px—
               en los 608 px útiles de la tablet de cocina cabía UNA por columna,
-              y el tablero enseñaba tres pedidos de la jornada entera.
- 
-              `grid-rows-2` fija el reparto en vez de dejarlo a merced del
-              contenido: dos filas siempre, columnas de 330 px que se van a la
-              derecha, y cada tarjeta ocupa su celda exacta. En la Latitude 5290
-              (1280×720 CSS) son 3 columnas visibles = 6 pedidos, y el resto
-              entra deslizando en horizontal. En una pantalla más ancha aparecen
-              más columnas solas, sin tocar nada.
- 
-              Las tarjetas ya no deciden su tamaño: lo decide la celda, y lo que
-              no cabe se scrollea dentro de la tarjeta.
+              y el tablero enseñaba tres pedidos de la jornada entera. La
+              rejilla arregló eso: el tamaño lo decide la CELDA, no el
+              contenido, y lo que no cabe se scrollea dentro de la tarjeta.
 
-              La tercera fila a partir de 900 px de alto es para la pantalla que
-              no es esta: con el escalado al 100 % o en un monitor grande, dos
-              filas dejaban tarjetas de 500 px medio vacías. El umbral mira la
-              ALTURA y no el ancho porque lo que decide cuántas filas caben es
-              cuánto hay de arriba abajo.
+              Lo que cambia ahora es cuántas filas hay. En la Latitude 5290
+              (1280×720 CSS) hay unos 608 px útiles de alto: repartidos en dos
+              filas dejaban tarjetas de menos de 300 px, y un pedido de cuatro
+              productos con nota ya obligaba a scrollear dentro de la tarjeta
+              —desde la plancha, con las manos ocupadas, eso es un pedido que no
+              se lee—.
+
+              Con UNA fila la tarjeta se queda esos 608 px enteros y el pedido
+              entra completo. El precio está a la vista y es deliberado: en
+              esta pantalla se ven 3 pedidos a la vez en vez de 6, y el resto
+              entra deslizando en horizontal. Se prefiere leer bien tres que
+              adivinar seis.
+
+              Tampoco hay ya regla por altura de pantalla: una fila es una fila
+              en la tablet y en un monitor grande. Lo único que cambia con el
+              ancho es cuántas columnas se ven de una pasada, y eso se resuelve
+              solo.
             */
-            <div className="grid h-full grid-flow-col grid-rows-2 gap-3 auto-cols-[330px] [@media(min-height:900px)]:grid-rows-3">
+            <div className="grid h-full grid-flow-col grid-rows-1 gap-3 auto-cols-[330px]">
               {grid.map((ticket) => (
                 <KitchenTicketCard
                   key={ticket.orderNumber}
