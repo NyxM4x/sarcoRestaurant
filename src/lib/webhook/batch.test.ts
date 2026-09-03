@@ -62,7 +62,7 @@ function envelope(
     message: over.message ?? {
       id: over.wamid ?? 'wamid.UNO',
       type: 'text',
-      text: { body: over.text ?? 'Hola' },
+      text: { body: over.text ?? 'Gracias' },
       from: phone,
       timestamp: over.timestamp ?? 1_760_000_000,
       kapso: { direction: 'inbound', origin: 'business_app', status: 'received' },
@@ -255,7 +255,7 @@ describe('lotes — normalización', () => {
 
   it('3 · el orden de `data[]` se conserva tal cual, con su índice original', () => {
     const data = [
-      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias' }),
       envelope({ wamid: 'wamid.B', text: 'Qué hamburguesas tienen?' }),
       envelope({ wamid: 'wamid.C', text: 'Y bebidas?' }),
     ];
@@ -433,7 +433,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
     const spy = spyChannel();
     const mismoSegundo = 1_760_000_000;
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'Hola', timestamp: mismoSegundo }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias', timestamp: mismoSegundo }),
       envelope({ wamid: 'wamid.B', text: 'Qué hamburguesas tienen?', timestamp: mismoSegundo }),
     ]);
 
@@ -450,7 +450,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
     // sería el primero. Es la posición.
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'Hola', timestamp: 1_760_000_100 }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias', timestamp: 1_760_000_100 }),
       envelope({ wamid: 'wamid.B', text: 'Y bebidas?', timestamp: 1_760_000_000 }),
     ]);
 
@@ -462,7 +462,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
   it('5 · tres textos: tres persistencias, UN turno, anclado en el último', async () => {
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias' }),
       envelope({ wamid: 'wamid.B', text: 'quería saber' }),
       envelope({ wamid: 'wamid.C', text: 'qué hamburguesas tienen?' }),
     ]);
@@ -476,7 +476,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
       'wamid.C',
     ]);
     expect(spy.persisted.map((m) => m.content)).toEqual([
-      'Hola',
+      'Gracias',
       'quería saber',
       'qué hamburguesas tienen?',
     ]);
@@ -497,7 +497,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
     // sale `agent_runs.source_message_id`.
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias' }),
       envelope({ wamid: 'wamid.B', text: 'Y bebidas?' }),
     ]);
 
@@ -509,7 +509,7 @@ describe('lotes — el ancla es la POSICIÓN, no el reloj', () => {
       customerPhone: PHONE_DIGITS,
       contentType: 'text',
     });
-    expect(spy.turns[0].content).not.toContain('Hola');
+    expect(spy.turns[0].content).not.toContain('Gracias');
   });
 });
 
@@ -519,7 +519,7 @@ describe('lotes — cada elemento por su ruta', () => {
   it('6 · texto + ubicación + texto: la ubicación va por lo determinístico', async () => {
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'hola' }),
+      envelope({ wamid: 'wamid.A', text: 'gracias' }),
       locationEnvelope('wamid.LOC'),
       envelope({ wamid: 'wamid.C', text: 'y bebidas?' }),
     ]);
@@ -614,7 +614,7 @@ describe('lotes — cada elemento por su ruta', () => {
 describe('lotes — la entrega individual no cambia', () => {
   it('1 · un entrante suelto devuelve el MISMO cuerpo que antes de 5C.2', async () => {
     const spy = spyChannel();
-    const raw = JSON.stringify(envelope({ wamid: 'wamid.SOLO', text: 'Hola' }));
+    const raw = JSON.stringify(envelope({ wamid: 'wamid.SOLO', text: 'Gracias' }));
 
     const { processed } = await deliver(raw, { agentChannel: spy.channel });
 
@@ -714,7 +714,7 @@ describe('lotes — un mensaje se atiende una vez, llegue como llegue', () => {
     // mismo ancla. Los WAMID son los mismos, así que las barreras enganchan.
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.A', text: 'Gracias' }),
       envelope({ wamid: 'wamid.B', text: 'qué hamburguesas hay?' }),
     ]);
     const p = params(events, raw, { agentChannel: spy.channel });
@@ -795,7 +795,7 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
     const spy = canalConHistoria([VIEJO]);
     const raw = batchBody([
       envelope({ wamid: NUEVO, text: 'y qué bebidas tienen?' }),
-      envelope({ wamid: VIEJO, text: 'hola' }),
+      envelope({ wamid: VIEJO, text: 'gracias' }),
     ]);
 
     const { processed } = await deliver(raw, { agentChannel: spy.channel });
@@ -812,7 +812,7 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
   it('B · [viejo, nuevo]: el ancla sigue siendo el último por posición', async () => {
     const spy = canalConHistoria([VIEJO]);
     const raw = batchBody([
-      envelope({ wamid: VIEJO, text: 'hola' }),
+      envelope({ wamid: VIEJO, text: 'gracias' }),
       envelope({ wamid: NUEVO, text: 'y qué bebidas tienen?' }),
     ]);
 
@@ -825,7 +825,7 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
   it('C · [viejo, viejo]: cero trabajo nuevo, y el turno no responde', async () => {
     const spy = canalConHistoria(['wamid.V1', 'wamid.V2']);
     const raw = batchBody([
-      envelope({ wamid: 'wamid.V1', text: 'hola' }),
+      envelope({ wamid: 'wamid.V1', text: 'gracias' }),
       envelope({ wamid: 'wamid.V2', text: 'qué hamburguesas hay?' }),
     ]);
 
@@ -842,9 +842,9 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
   it('D · [nuevo, nuevo, viejo]: un turno, anclado en el último NUEVO', async () => {
     const spy = canalConHistoria([VIEJO]);
     const raw = batchBody([
-      envelope({ wamid: 'wamid.N1', text: 'hola' }),
+      envelope({ wamid: 'wamid.N1', text: 'gracias' }),
       envelope({ wamid: 'wamid.N2', text: 'qué hamburguesas hay?' }),
-      envelope({ wamid: VIEJO, text: 'buenas' }),
+      envelope({ wamid: VIEJO, text: 'gracias' }),
     ]);
 
     const { processed } = await deliver(raw, { agentChannel: spy.channel });
@@ -888,7 +888,7 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
     // atendió su ruta.
     const spy = canalConHistoria([VIEJO]);
     const raw = batchBody([
-      envelope({ wamid: VIEJO, text: 'hola' }),
+      envelope({ wamid: VIEJO, text: 'gracias' }),
       locationEnvelope('wamid.LOC_NUEVA'),
     ]);
 
@@ -929,7 +929,7 @@ describe('lotes — concurrencia', () => {
     // Contrapunto: la protección es por entrega y por WAMID, no un cerrojo por
     // conversación que dejaría ráfagas sin contestar.
     const spy = spyChannel();
-    const primero = batchBody([envelope({ wamid: 'wamid.A', text: 'Hola' })]);
+    const primero = batchBody([envelope({ wamid: 'wamid.A', text: 'Gracias' })]);
     const segundo = batchBody([envelope({ wamid: 'wamid.B', text: 'Y bebidas?' })]);
 
     await Promise.all([
@@ -1020,7 +1020,7 @@ describe('reacciones — silencio explícito', () => {
   it('13 · D) [texto, reacción, texto]: ancla el último texto y la reacción no aporta contenido', async () => {
     const spy = spyChannel();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.T1', text: 'hola' }),
+      envelope({ wamid: 'wamid.T1', text: 'gracias' }),
       reactionEnvelope('wamid.R1'),
       envelope({ wamid: 'wamid.T2', text: 'qué hamburguesas hay?' }),
     ]);
@@ -1032,7 +1032,7 @@ describe('reacciones — silencio explícito', () => {
 
     // Los tres quedan en el historial y en orden; lo que el contexto podrá leer
     // son los dos textos, porque la reacción se guardó sin contenido.
-    expect(spy.persisted.map((m) => m.content)).toEqual(['hola', null, 'qué hamburguesas hay?']);
+    expect(spy.persisted.map((m) => m.content)).toEqual(['gracias', null, 'qué hamburguesas hay?']);
     expect(JSON.stringify(spy.persisted)).not.toContain('Reacted with');
   });
 
@@ -1255,7 +1255,7 @@ describe('lotes — imágenes (5C.5)', () => {
   it('10 · [texto, imagen, texto]: un turno, ancla el último texto', async () => {
     const spy = spyChannelConBurst();
     const raw = batchBody([
-      envelope({ wamid: 'wamid.T1', text: 'hola' }),
+      envelope({ wamid: 'wamid.T1', text: 'gracias' }),
       imageEnvelope('wamid.IMG1'),
       envelope({ wamid: 'wamid.T2', text: 'que es esto?' }),
     ]);
@@ -1344,5 +1344,69 @@ describe('lotes — imágenes (5C.5)', () => {
 
     expect(spy.turns).toEqual([]);
     expect(processed?.body).toMatchObject({ anchor_index: null });
+  });
+});
+
+describe('lotes — el saludo dentro de una ráfaga es preámbulo', () => {
+  /** CTA que cuenta en vez de reventar: aquí lo interesante es cuántos salen. */
+  function contarCta() {
+    const calls: { toDigits: string; reason: string }[] = [];
+    const fn: SendMenuCta = async (input) => {
+      calls.push({ toDigits: input.toDigits, reason: input.reason });
+      return { result: 'sent', deliveryId: `del-${calls.length}`, wamid: `wamid.CTA_${calls.length}` };
+    };
+    return { calls, fn };
+  }
+
+  it('"Hola" + "quiero pedir" en el mismo lote manda UN solo botón', async () => {
+    // El buffering de Kapso agrupa la ráfaga. Si el saludo contestara por su
+    // cuenta, el cliente recibiría dos CTAs con imagen en el mismo segundo:
+    // uno por saludar y otro por pedir. Dentro de una ráfaga el saludo es
+    // preámbulo — el mismo criterio con el que el ancla del turno es el
+    // ÚLTIMO y no el primero.
+    const spy = spyChannel();
+    const cta = contarCta();
+    const raw = batchBody([
+      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.B', text: 'quiero pedir' }),
+    ]);
+
+    await deliver(raw, { agentChannel: spy.channel, sendMenuCta: cta.fn });
+
+    expect(cta.calls).toHaveLength(1);
+    // Y el que sale es el de la petición real, no el del saludo.
+    expect(cta.calls[0].reason).toBe('explicit_request');
+  });
+
+  it('el saludo SOLO, en su propia entrega, sí manda el botón', async () => {
+    // Es el caso del 03-09-2026: "Hola" a secas terminaba en el modelo, que
+    // contestaba "¿en qué puedo ayudarte?" — otra pregunta y ningún camino.
+    const spy = spyChannel();
+    const cta = contarCta();
+    const raw = JSON.stringify(envelope({ wamid: 'wamid.SOLO_HOLA', text: 'Hola' }));
+
+    await deliver(raw, { agentChannel: spy.channel, sendMenuCta: cta.fn });
+
+    expect(cta.calls).toHaveLength(1);
+    expect(cta.calls[0].reason).toBe('agent_suggestion');
+    // Y no hay turno del agente: el determinista ya lo atendió.
+    expect(spy.turns).toHaveLength(0);
+  });
+
+  it('un saludo acompañado de una pregunta deja hablar al agente', async () => {
+    // "Hola" / "qué hamburguesas hay?" — el saludo no dispara nada y la
+    // pregunta sigue su camino de siempre, que es el modelo.
+    const spy = spyChannel();
+    const cta = contarCta();
+    const raw = batchBody([
+      envelope({ wamid: 'wamid.A', text: 'Hola' }),
+      envelope({ wamid: 'wamid.B', text: 'qué hamburguesas hay?' }),
+    ]);
+
+    await deliver(raw, { agentChannel: spy.channel, sendMenuCta: cta.fn });
+
+    expect(cta.calls).toHaveLength(0);
+    expect(spy.turns).toHaveLength(1);
+    expect(spy.turns[0].providerMessageId).toBe('wamid.B');
   });
 });

@@ -113,11 +113,21 @@ function fakeSession() {
 }
 
 function fakeSend(result: MenuSendResult = { ok: true, wamid: WAMID_CTA }) {
-  const calls: { customerPhone: string; menuUrl: string; phoneNumberId: string }[] = [];
+  const calls: {
+    customerPhone: string;
+    menuUrl: string;
+    phoneNumberId: string;
+    bodyText?: string;
+  }[] = [];
   return {
     calls,
     port: {
-      async sendCta(input: { customerPhone: string; menuUrl: string; phoneNumberId: string }) {
+      async sendCta(input: {
+        customerPhone: string;
+        menuUrl: string;
+        phoneNumberId: string;
+        bodyText?: string;
+      }) {
         calls.push(input);
         return result;
       },
@@ -616,5 +626,44 @@ describe('dispatch — la sesión conserva su contrato', () => {
 
     expect(segunda).toMatchObject({ result: 'duplicate' });
     expect(send.calls).toHaveLength(1);
+  });
+});
+
+describe('dispatch — el cuerpo ya redactado', () => {
+  it('cuando viene `bodyText`, es el que cruza al canal', () => {
+    // La cotización del envío lleva la tarifa dentro y esa cifra sale en
+    // tiempo de ejecución: no cabe en ninguna constante de copy. Sin este
+    // canal ese mensaje tenía que salir por su lado como texto plano, y salía
+    // diciendo "armá tu pedido en el menú" sin darle ningún menú que tocar.
+    const send = fakeSend();
+    const texto = 'El envío hasta tu ubicación sale Bs 15 🛵 Armá tu pedido acá 👇';
+
+    return dispatchMenu(input({ bodyText: texto }), deps({ send: send.port })).then(() => {
+      expect(send.calls[0].bodyText).toBe(texto);
+    });
+  });
+
+  it('sin `bodyText` no se inventa ninguno: lo elige el canal', async () => {
+    // El caso normal. Que llegue `undefined` es lo que deja al borde resolver
+    // el copy a partir de `reason` y `ctaContext`, como antes de este canal.
+    const send = fakeSend();
+
+    await dispatchMenu(input(), deps({ send: send.port }));
+
+    expect(send.calls[0].bodyText).toBeUndefined();
+  });
+
+  it('un cuerpo propio no cambia la idempotencia', async () => {
+    // El texto es del mensaje, no del claim: el mismo WAMID sigue produciendo
+    // un solo CTA aunque el segundo intento traiga otras palabras.
+    const send = fakeSend();
+    const d = deps({ send: send.port });
+
+    await dispatchMenu(input({ bodyText: 'primero' }), d);
+    const segunda = await dispatchMenu(input({ bodyText: 'segundo' }), d);
+
+    expect(segunda).toMatchObject({ result: 'duplicate' });
+    expect(send.calls).toHaveLength(1);
+    expect(send.calls[0].bodyText).toBe('primero');
   });
 });

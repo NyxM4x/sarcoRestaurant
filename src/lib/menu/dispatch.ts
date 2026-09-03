@@ -140,6 +140,8 @@ export interface MenuSendPort {
      * cruza la frontera es el motivo, que ya se calculaba para el ledger.
      */
     reason: MenuSendReason;
+    /** Cuerpo ya redactado. Ver `DispatchMenuInput.bodyText`. */
+    bodyText?: string;
   }): Promise<MenuSendResult>;
 }
 
@@ -180,6 +182,24 @@ export interface DispatchMenuInput {
   sourceMessageId: string;
   phoneNumberId: string | null;
   reason: MenuSendReason;
+  /**
+   * Cuerpo del mensaje, ya redactado por quien llama. Ausente = lo elige el
+   * canal a partir de `reason` y `ctaContext`, que es el caso normal.
+   *
+   * ── Para qué existe, y para qué NO ──────────────────────────────────────
+   *
+   * Existe por un texto que NO se puede escribir de antemano: la cotización del
+   * envío lleva la tarifa dentro ("el envío sale Bs 15"), y esa cifra sale de
+   * `feeForMeters` en tiempo de ejecución. Sin este canal, ese mensaje tenía
+   * que salir por su lado como texto plano — y salía diciéndole al cliente
+   * "armá tu pedido en el menú" sin darle ningún menú que tocar.
+   *
+   * NO es un hueco para texto del modelo. Lo que entre aquí tiene que estar
+   * construido en backend a partir de datos del backend; una frase generada es
+   * exactamente lo que el `effectCompletesTurn` de `send_menu` impide, y
+   * dejarla entrar por esta puerta lo desharía por detrás.
+   */
+  bodyText?: string;
 }
 
 /**
@@ -231,6 +251,7 @@ export async function dispatchMenu(
     phoneNumberId: effectivePhoneNumberId,
     ctaContext: input.ctaContext ?? null,
     reason: input.reason,
+    bodyText: input.bodyText,
   });
 
   if (!sent.ok) {

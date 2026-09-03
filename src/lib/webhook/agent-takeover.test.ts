@@ -321,7 +321,7 @@ function inboundBody(message: Record<string, unknown> = {}): string {
       id: 'wamid.IN_1',
       type: 'text',
       from: CUSTOMER_RAW,
-      text: { body: 'hola' },
+      text: { body: 'gracias' },
       timestamp: 1_760_000_100,
       kapso: { direction: 'inbound', origin: 'business_app', status: 'received' },
       ...message,
@@ -780,7 +780,7 @@ describe('webhook + agent — historial entrante', () => {
 
   it('un entrante sin teléfono resoluble no bloquea el procesamiento', async () => {
     const raw = JSON.stringify({
-      message: { id: 'wamid.IN_9', type: 'text', text: { body: 'hola' }, timestamp: 1_760_000_100 },
+      message: { id: 'wamid.IN_9', type: 'text', text: { body: 'gracias' }, timestamp: 1_760_000_100 },
       conversation: {},
     });
 
@@ -1149,7 +1149,7 @@ describe('webhook + agent core — el hueco donde sí habla', () => {
   });
 
   it('el desenlace del turno viaja saneado en el cuerpo', async () => {
-    const raw = inboundBody({ text: { body: 'hola' } });
+    const raw = inboundBody({ text: { body: 'gracias' } });
     const { channel: withAgent } = channelWithAgent({
       result: 'skipped',
       reason: 'phone_not_allowed',
@@ -1160,11 +1160,11 @@ describe('webhook + agent core — el hueco donde sí habla', () => {
     expect(res.body).toMatchObject({ agent_turn: 'skipped:phone_not_allowed' });
     const dump = JSON.stringify(res.body);
     expect(dump).not.toContain(CUSTOMER_DIGITS);
-    expect(dump).not.toContain('hola');
+    expect(dump).not.toContain('gracias');
   });
 
   it('sin runAgentTurn cableado el cuerpo es el de 6D.2F.2B', async () => {
-    const raw = inboundBody({ text: { body: 'hola' } });
+    const raw = inboundBody({ text: { body: 'gracias' } });
 
     const res = await call(raw, headers(raw), { store: events, agentChannel: channel });
 
@@ -1181,7 +1181,7 @@ describe('webhook + agent core — el hueco donde sí habla', () => {
     // Asimetría deliberada con persistInbound: aquí el mensaje ya se atendió y
     // el run está reclamado, así que un 500 no arreglaría nada y marcaría como
     // failed un evento correcto.
-    const raw = inboundBody({ text: { body: 'hola' } });
+    const raw = inboundBody({ text: { body: 'gracias' } });
     const roto: AgentChannelPort = {
       ...testAgentChannel(agent),
       runAgentTurn: async () => {
@@ -1198,7 +1198,7 @@ describe('webhook + agent core — el hueco donde sí habla', () => {
   });
 
   it('el entrante se persiste ANTES del turno: el agente lo ve en su contexto', async () => {
-    const raw = inboundBody({ text: { body: 'hola' } });
+    const raw = inboundBody({ text: { body: 'gracias' } });
     let messagesAlLlamar = -1;
     const { channel: withAgent } = channelWithAgent(
       { result: 'replied', runId: 'run-1' },

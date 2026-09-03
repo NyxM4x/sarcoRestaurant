@@ -41,16 +41,51 @@ describe('classifyMenuCtaContext — de qué venía hablando el cliente', () => 
     }
   });
 
+  it('dictar el pedido con la cantidad en LETRA', () => {
+    // "Quisiera un trança pecho" (03-09-2026): el cliente saltó el verbo
+    // "pedir" y nombró la cosa. Es el mismo dictado, escrito como se escribe.
+    for (const texto of [
+      'quisiera un trança pecho',
+      'quiero una hamburguesa',
+      'dame dos lomitos por favor',
+      'hola buenas quisiera una salchipapa',
+    ]) {
+      expect(classifyMenuCtaContext(texto), texto).toBe('dictated');
+    }
+  });
+
+  it('un saludo pelado es su propio contexto', () => {
+    // Casi siempre es el primer contacto, y lo que le sirve es el horario y una
+    // puerta. Ver `isGreetingOnly`.
+    for (const texto of ['hola', 'Buenas noches', 'hola buenas', 'Hey, buenas tardes']) {
+      expect(classifyMenuCtaContext(texto), texto).toBe('greeting');
+    }
+  });
+
   it('una intención normal no encaja en ninguno: manda el texto del motivo', () => {
-    for (const texto of ['quiero pedir', 'menu', 'hola', 'que tienen?', '', null]) {
+    for (const texto of ['quiero pedir', 'menu', 'que tienen?', '', null]) {
       expect(classifyMenuCtaContext(texto), String(texto)).toBeNull();
     }
   });
 
-  it('sin dígito no es un pedido dictado', () => {
+  it('sin cantidad no es un pedido dictado', () => {
     // "Quiero lomito" es una intención de pedir cualquiera y ya la cubre el
     // texto normal. Lo que hace inequívoco al dictado es la cantidad.
     expect(classifyMenuCtaContext('quiero lomito')).toBeNull();
+  });
+
+  it('una cantidad seguida de algo que no es un producto tampoco lo es', () => {
+    // "Quiero un momento" encaja palabra por palabra con el patrón del dictado
+    // y no es un pedido. La de `persona` es la que más importa: mandarle el
+    // menú a quien pide hablar con alguien es el peor momento para un botón.
+    for (const texto of [
+      'quiero un momento',
+      'necesito una persona',
+      'quisiera una consulta',
+      'dame un minuto',
+    ]) {
+      expect(classifyMenuCtaContext(texto), texto).not.toBe('dictated');
+    }
   });
 });
 

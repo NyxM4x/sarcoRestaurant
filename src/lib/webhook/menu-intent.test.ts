@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isMenuIntent, normalizeIntentText } from './menu-intent';
+import { isGreetingOnly, isMenuIntent, normalizeIntentText } from './menu-intent';
 
 describe('normalizeIntentText', () => {
   it('minimiza, quita tildes y colapsa espacios', () => {
@@ -156,11 +156,13 @@ describe('menú — cómo escribe la gente de verdad', () => {
     }
   });
 
-  it('un saludo a secas NO abre el menú', () => {
-    // Es la decisión de producto de hoy: saludar no es pedir. Lo que atiende a
-    // quien solo dice "hola" es el agente, no esta ruta determinística.
+  it('un saludo a secas NO es intención de menú — pero sí de saludo', () => {
+    // Saludar no es pedir el menú, y este detector sigue diciendo que no.
+    // Desde el 03-09-2026 quien solo saluda TAMBIÉN recibe el botón, pero por
+    // `isGreetingOnly` y con otro motivo en el ledger: nadie pidió nada.
     for (const t of ['hola', 'Hola', 'buenas noches', 'hey', '¿hola?']) {
       expect(isMenuIntent(t), t).toBe(false);
+      expect(isGreetingOnly(t), t).toBe(true);
     }
   });
 
@@ -205,9 +207,94 @@ describe('isMenuIntent — el saludo encadenado (29-08-2026)', () => {
     expect(isMenuIntent('hola zarco como va, gracias por todo')).toBe(false);
   });
 
-  it('un saludo a secas sigue sin abrir el menú', () => {
+  it('un saludo a secas no es PEDIR el menú (lo atiende isGreetingOnly)', () => {
+    // Saludar no es pedir el menú, y por eso sigue en false aquí. Lo que
+    // comparten es el desenlace —los dos acaban en el CTA— no el significado:
+    // mezclarlos haría que `explicit_request` marcara en el ledger peticiones
+    // que nadie hizo. Ver `isGreetingOnly` más abajo.
     expect(isMenuIntent('hola')).toBe(false);
     expect(isMenuIntent('hola buenas')).toBe(false);
     expect(isMenuIntent('hola zarco como va')).toBe(false);
+  });
+
+  it('el pedido dictado con producto y cantidad abre el menú', () => {
+    // "Quisiera un trança pecho" (03-09-2026): el cliente saltó el verbo
+    // "pedir" y nombró la cosa. Cayó en el modelo justo después de que la
+    // cotización del envío lo mandara a un menú que nunca vio.
+    for (const texto of [
+      'Quisiera un trança pecho',
+      'quiero una hamburguesa',
+      'dame dos lomitos',
+      'hola buenas noches quisiera una salchipapa',
+      'mandame 2 trancapechos',
+    ]) {
+      expect(isMenuIntent(texto), texto).toBe(true);
+    }
+  });
+
+  it('una cantidad seguida de algo que no es un producto NO abre el menú', () => {
+    // Encajan palabra por palabra con el patrón y ninguna es un pedido. La de
+    // `persona` es la que más importa: mandarle el menú a quien pide hablar
+    // con alguien es el peor momento posible para un botón.
+    for (const texto of [
+      'quiero un momento',
+      'necesito una persona',
+      'quisiera una consulta',
+      'dame un minuto',
+      'quiero una respuesta',
+    ]) {
+      expect(isMenuIntent(texto), texto).toBe(false);
+    }
+  });
+
+  it('sin cantidad, nombrar un producto no basta', () => {
+    // "Quiero lomito" es una intención de pedir cualquiera; lo que hace
+    // inequívoco al dictado es la cantidad. Y sin ella entrarían frases como
+    // "quiero saber el horario", que empiezan igual.
+    expect(isMenuIntent('quiero lomito')).toBe(false);
+    expect(isMenuIntent('quiero saber el horario')).toBe(false);
+    expect(isMenuIntent('necesito hablar con alguien')).toBe(false);
+  });
+});
+
+describe('isGreetingOnly — el mensaje que es SOLO un saludo', () => {
+  it('reconoce el saludo pelado, encadenado o no', () => {
+    // 03-09-2026: "Hola" a secas terminaba en el modelo, que contestaba "¿en
+    // qué puedo ayudarte?" — otra pregunta y ningún camino. Es casi siempre el
+    // primer contacto, y lo que necesita es el horario y una puerta.
+    for (const texto of [
+      'Hola',
+      'hola',
+      'Buenas',
+      'Buenas noches',
+      'holi',
+      'hola buenas',
+      'Hola buenas noches don Zarco',
+      'que tal',
+      '¿Hola?',
+    ]) {
+      expect(isGreetingOnly(texto), texto).toBe(true);
+    }
+  });
+
+  it('un saludo con algo pegado NO es solo saludo', () => {
+    // Lo que va detrás es la pregunta de verdad, y esa la contesta quien
+    // corresponda: el modelo, el detector de menú o el de envío.
+    for (const texto of [
+      'hola estan abiertos?',
+      'hola quiero pedir',
+      'buenas cuanto sale el envio',
+      'hola zarco como va, gracias por todo',
+      'hola quisiera un trancapecho',
+    ]) {
+      expect(isGreetingOnly(texto), texto).toBe(false);
+    }
+  });
+
+  it('vacío, nulo y no-texto son false', () => {
+    expect(isGreetingOnly('')).toBe(false);
+    expect(isGreetingOnly('   ')).toBe(false);
+    expect(isGreetingOnly(null)).toBe(false);
+    expect(isGreetingOnly(undefined)).toBe(false);
   });
 });

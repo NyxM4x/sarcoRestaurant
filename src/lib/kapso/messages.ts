@@ -240,6 +240,12 @@ export function menuCtaBodyText(
           'Armálo vos mismo acá 👇 Elegís lo tuyo, ves el total al momento y ' +
           'el pedido entra completo, sin que se pierda nada por el camino.'
         );
+      // Solo saludó. Es casi siempre el primer contacto, y lo que necesita es
+      // el horario y una puerta — no una pregunta de vuelta. Reutiliza el
+      // saludo completo en lugar de escribir una variante: es el mismo mensaje,
+      // y tener dos que digan lo mismo es tener dos que se desincronicen.
+      case 'greeting':
+        return MENU_CTA_BODY_TEXT;
     }
   }
 

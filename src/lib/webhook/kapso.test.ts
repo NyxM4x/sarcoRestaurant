@@ -289,7 +289,10 @@ describe('handleKapsoWebhook — nfm_reply', () => {
   });
 
   it('mensaje no interactivo: ignorado y processed', async () => {
-    const raw = messageBody({ id: 'wamid.T', type: 'text', text: { body: 'hola' } });
+    // El texto NO puede ser un saludo: desde 03-09-2026 un saludo pelado lo
+    // atiende el CTA determinista, y este caso es el del texto que no dispara
+    // nada y llega hasta el final.
+    const raw = messageBody({ id: 'wamid.T', type: 'text', text: { body: 'gracias' } });
     const store = new FakeStore();
     const res = await call(store, NOOP_CONFIRM, raw);
     expect(res.outcome).toBe('processed');
@@ -875,10 +878,48 @@ describe('handleKapsoWebhook — CTA "Ver menú" (Fase 5.2A)', () => {
   it('un texto distinto NO envía el CTA', async () => {
     const store = new FakeStore();
     const sender = fakeSendCta();
-    const res = await callTrigger(store, sender, 'hola');
+    const res = await callTrigger(store, sender, 'gracias');
     expect(sender.calls).toHaveLength(0);
     expect(res.body).toEqual({ ok: true, handled: 'ignored', result: 'ignored' });
     expect(res.outcome).toBe('processed');
+  });
+
+  it('un saludo pelado envía el CTA, y como sugerencia', async () => {
+    // 03-09-2026: "Hola" a secas terminaba en el modelo, que contestaba
+    // "¿en qué puedo ayudarte?" — otra pregunta y ningún camino. Ahora recibe
+    // el botón con el horario, que es lo que un primer contacto necesita.
+    //
+    // El motivo es `agent_suggestion` y no `explicit_request`: nadie pidió el
+    // menú. En el ledger tiene que verse cuál fue cuál.
+    for (const saludo of ['hola', 'Buenas noches', 'Hola buenas, don Zarco']) {
+      const store = new FakeStore();
+      const sender = fakeSendCta();
+      const res = await callTrigger(store, sender, saludo);
+      expect(sender.calls, saludo).toHaveLength(1);
+      expect(sender.calls[0].reason, saludo).toBe('agent_suggestion');
+      expect(sender.calls[0].ctaContext, saludo).toBe('greeting');
+      expect(res.body).toMatchObject({ handled: 'menu_cta' });
+    }
+  });
+
+  it('un pedido dictado sin dígito también abre el menú', async () => {
+    // "Quisiera un trança pecho" (03-09-2026): el cliente saltó el verbo
+    // "pedir" y nombró el producto. Se quedaba sin botón justo después de que
+    // la cotización del envío le dijera que armara su pedido en el menú.
+    const store = new FakeStore();
+    const sender = fakeSendCta();
+    await callTrigger(store, sender, 'Quisiera un trança pecho');
+    expect(sender.calls).toHaveLength(1);
+    expect(sender.calls[0].ctaContext).toBe('dictated');
+  });
+
+  it('pedir una persona NO abre el menú', async () => {
+    // Encaja palabra por palabra con el patrón del dictado —verbo, cantidad,
+    // sustantivo— y es justo el peor momento para mandarle un botón.
+    const store = new FakeStore();
+    const sender = fakeSendCta();
+    await callTrigger(store, sender, 'necesito una persona');
+    expect(sender.calls).toHaveLength(0);
   });
 
   it('6D.2E: una intención natural del cliente envía el CTA', async () => {

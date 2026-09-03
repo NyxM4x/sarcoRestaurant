@@ -56,11 +56,14 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
       // `menu_sessions`: se envía por el número por el que llegó.
       // El copy se resuelve AQUÍ, en el borde: `dispatchMenu` decide que hay que
       // mandar el menú y por qué; qué palabras acompañan al botón es del canal.
-      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason, ctaContext }) =>
+      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason, ctaContext, bodyText }) =>
         getKapsoClient().sendMenuCtaUrl(customerPhone, {
           phoneNumberId: from,
           menuUrl,
-          bodyText: menuCtaBodyText(reason, ctaContext ?? null),
+          // El texto ya redactado gana, y solo lo trae quien lleva un dato que
+          // no cabe en una constante — hoy, la tarifa del envío. Ver
+          // `DispatchMenuInput.bodyText`.
+          bodyText: bodyText ?? menuCtaBodyText(reason, ctaContext ?? null),
         }),
     },
 

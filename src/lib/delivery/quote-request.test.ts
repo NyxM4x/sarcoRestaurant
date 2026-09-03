@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildQuoteCtaText,
   buildQuoteText,
   hasQuoteQuota,
   isSamePoint,
   metersBetween,
+  QUOTE_FAILED_CTA_TEXT,
   QUOTE_FAILED_TEXT,
   QUOTE_OUT_OF_COVERAGE_TEXT,
+  QUOTE_OVER_LIMIT_CTA_TEXT,
   QUOTE_OVER_LIMIT_TEXT,
   QUOTE_REUSE_TOLERANCE_METERS,
   STANDALONE_QUOTE_LIMIT,
@@ -131,5 +134,49 @@ describe('quote-request — lo que se le dice al cliente', () => {
 
   it('fuera de cobertura no habla de un pedido que todavía no existe', () => {
     expect(QUOTE_OUT_OF_COVERAGE_TEXT).not.toMatch(/tu pedido/i);
+  });
+});
+
+describe('quote-request — la versión que va CON el botón (03-09-2026)', () => {
+  it('la cifra es la misma en las dos versiones', () => {
+    // El precio se compone en un solo sitio. Dos plantillas con la misma cifra
+    // son dos plantillas que un día dirán cosas distintas.
+    for (const monto of [15, 12.5, 20]) {
+      expect(buildQuoteCtaText(monto)).toContain(buildQuoteText(monto).split('🛵')[0]);
+    }
+  });
+
+  it('la del botón señala el botón; la plana NO promete ninguno', () => {
+    // El fallback existe para cuando el CTA no salió. Decirle "acá 👇" a quien
+    // solo recibió texto sería señalar un botón que no llegó — la misma clase
+    // de promesa falsa que este código lleva meses cerrando.
+    expect(buildQuoteCtaText(15)).toContain('👇');
+    expect(QUOTE_OVER_LIMIT_CTA_TEXT).toContain('👇');
+    expect(QUOTE_FAILED_CTA_TEXT).toContain('👇');
+
+    for (const plano of [buildQuoteText(15), QUOTE_OVER_LIMIT_TEXT, QUOTE_FAILED_TEXT]) {
+      expect(plano).not.toContain('👇');
+    }
+  });
+
+  it('las tres versiones con botón siguen sin prometer un plazo', () => {
+    // La regla de siempre: lo que se cotiza es el COSTO, nunca el TIEMPO.
+    for (const texto of [buildQuoteCtaText(15), QUOTE_OVER_LIMIT_CTA_TEXT, QUOTE_FAILED_CTA_TEXT]) {
+      expect(texto).not.toMatch(/minutos|llega en|demora|enseguida/i);
+    }
+  });
+
+  it('el de cupo agotado con botón sigue sin acusar', () => {
+    // Es al que MÁS falta le hacía: se le niega la cifra que pidió y se le
+    // manda al menú a cambio. Mandarlo sin el menú convertía la única salida
+    // que se le ofrecía en una frase.
+    expect(QUOTE_OVER_LIMIT_CTA_TEXT).not.toMatch(/l[ií]mite|demasiad|otra vez|ya te/i);
+  });
+
+  it('fuera de cobertura NO tiene versión con botón, y es a propósito', () => {
+    // A ese cliente no se le está pidiendo que arme nada: se le está diciendo
+    // que no llegamos. Ofrecerle el menú después sería contradecirse en el
+    // mismo mensaje.
+    expect(QUOTE_OUT_OF_COVERAGE_TEXT).not.toContain('👇');
   });
 });

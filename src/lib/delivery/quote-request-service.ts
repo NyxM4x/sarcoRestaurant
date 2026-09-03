@@ -7,14 +7,19 @@ import { getDeliveryConfig } from './config';
 import { getDistanceByRoad } from './mapbox';
 import { feeForMeters } from './fee';
 import { readRainSurcharge } from './settings';
+import { dispatchMenu } from '@/lib/menu/dispatch';
+import { createMenuDispatchDeps } from '@/lib/kapso/send-menu-cta';
 import {
   ASK_LOCATION_FOR_QUOTE_TEXT,
   QUOTE_LINK_WITHOUT_COORDS_TEXT,
+  buildQuoteCtaText,
   buildQuoteText,
   hasQuoteQuota,
   isSamePoint,
+  QUOTE_FAILED_CTA_TEXT,
   QUOTE_FAILED_TEXT,
   QUOTE_OUT_OF_COVERAGE_TEXT,
+  QUOTE_OVER_LIMIT_CTA_TEXT,
   QUOTE_OVER_LIMIT_TEXT,
   QUOTE_REUSE_WINDOW_HOURS,
   STANDALONE_QUOTE_WINDOW_HOURS,
@@ -122,6 +127,77 @@ async function contarAtendidas(
   // `null` = no se pudo contar, y el llamador decide NO cotizar: un contador
   // ciego que deja pasar todo no es un cupo.
   return error ? null : (count ?? 0);
+}
+
+/**
+ * Manda un mensaje de cotización CON el botón "Ver menú" en el mismo globo.
+ *
+ * ── Por qué la cotización lleva botón (03-09-2026) ──────────────────────────
+ *
+ * Porque todos estos textos terminan diciendo "armá tu pedido en el menú", y
+ * hasta hoy salían como texto plano. Dos conversaciones reales de esa noche
+ * acabaron igual: el cliente preguntó el envío, recibió su tarifa, y acto
+ * seguido se puso a dictar su pedido por chat. No es que no entendiera — es
+ * que no tenía por dónde. Le habíamos señalado una puerta sin ponerla.
+ *
+ * Ahora el precio y la puerta van juntos: un solo mensaje contesta lo que
+ * preguntó y le deja el menú abierto.
+ *
+ * ── El fallback no es opcional ──────────────────────────────────────────────
+ *
+ * Este módulo entero existe para que nadie se quede sin respuesta después de
+ * mandar su ubicación. Si el CTA falla —Kapso caído, la sesión no se pudo
+ * crear, la tabla del ledger no responde— la cotización sale igual, como
+ * texto, con la versión que NO promete ningún botón.
+ *
+ * Y `send_unknown` cae al fallback también. Es el caso ambiguo: el proveedor no
+ * nos dio certeza, así que puede acabar en un mensaje repetido. Se prefiere
+ * repetir a callar, que es justo el fallo que este flujo vino a cerrar.
+ */
+async function responderConMenu(input: {
+  customerPhone: string;
+  sourceMessageId: string;
+  phoneNumberId: string | null;
+  /** Cuerpo del CTA: habla del botón que va debajo. */
+  ctaText: string;
+  /** El mismo mensaje sin botón, para cuando el CTA no sale. */
+  plainText: string;
+}): Promise<void> {
+  const enviarPlano = async (): Promise<void> => {
+    try {
+      await getKapsoClient().sendText(input.customerPhone, input.plainText, {
+        phoneNumberId: input.phoneNumberId ?? undefined,
+      });
+    } catch {
+      // Sin `error.message`: el transporte puede traer detalle del proveedor.
+      log.warn('delivery_quote_request_reply_failed');
+    }
+  };
+
+  try {
+    const enviado = await dispatchMenu(
+      {
+        customerPhone: input.customerPhone,
+        sourceMessageId: input.sourceMessageId,
+        phoneNumberId: input.phoneNumberId,
+        // Nadie pidió el menú: llegó una ubicación. Es la definición exacta de
+        // `agent_suggestion` — "el entrante no lo nombraba".
+        reason: 'agent_suggestion',
+        bodyText: input.ctaText,
+      },
+      createMenuDispatchDeps(),
+    );
+
+    // `duplicate` = este WAMID ya produjo un CTA, así que el cliente ya lo
+    // tiene. Reenviar sería justo lo que el ledger impide.
+    if (enviado.result === 'sent' || enviado.result === 'duplicate') return;
+
+    log.warn('delivery_quote_cta_failed', { result: enviado.result });
+  } catch {
+    log.warn('delivery_quote_cta_failed', { result: 'threw' });
+  }
+
+  await enviarPlano();
 }
 
 /** ¿Este WAMID ya tiene fila? `null` si no se pudo consultar. */
@@ -241,6 +317,12 @@ export async function askLocationForQuote(input: {
   toDigits: string;
   phoneNumberId: string | null;
   /**
+   * WAMID del mensaje que hizo la pregunta. Solo hace falta para repetir una
+   * cotización viva, que sale con el botón del menú y por tanto necesita la
+   * clave de idempotencia del despacho. Ausente = ese caso sale como texto.
+   */
+  sourceMessageId?: string | null;
+  /**
    * Por qué se le pide. Cambia el TEXTO y nada más.
    *
    * `link_without_coords` es el cliente que ya creyó compartir su ubicación y
@@ -255,6 +337,28 @@ export async function askLocationForQuote(input: {
     texto = QUOTE_LINK_WITHOUT_COORDS_TEXT;
   } else {
     const yaCotizado = await ultimaCotizacion(supabase, input.toDigits);
+
+    // Repetir la cifra ES una cotización, así que sale como todas: con el
+    // botón. Si no, este cliente —que pregunta el precio por SEGUNDA vez—
+    // recibiría el mismo "armá tu pedido en el menú" sin menú que lo dejó
+    // preguntando la primera.
+    if (yaCotizado !== null && input.sourceMessageId) {
+      await responderConMenu({
+        customerPhone: input.toDigits,
+        sourceMessageId: input.sourceMessageId,
+        phoneNumberId: input.phoneNumberId,
+        ctaText: buildQuoteCtaText(yaCotizado),
+        plainText: buildQuoteText(yaCotizado),
+      });
+      // `responderConMenu` nunca lanza y siempre acaba escribiéndole al
+      // cliente por una vía o la otra: el desenlace para el webhook es `ok`.
+      return { ok: true };
+    }
+
+    // Pedir la ubicación se queda en texto A PROPÓSITO. Lo que este mensaje
+    // necesita que el cliente toque es el botón de ubicación de WhatsApp, y
+    // ponerle al lado un botón "Ver menú" es darle dos puertas cuando solo una
+    // contesta lo que preguntó.
     texto = yaCotizado === null ? ASK_LOCATION_FOR_QUOTE_TEXT : buildQuoteText(yaCotizado);
   }
   try {
@@ -291,6 +395,24 @@ export async function quoteStandaloneLocation(
     }
   };
 
+  /**
+   * Los desenlaces que mandan al cliente al menú salen CON el menú.
+   *
+   * Son tres —la tarifa, el cupo agotado y el fallo de medición— y los tres
+   * terminaban su frase señalando un botón que el cliente no tenía. Fuera de
+   * cobertura NO entra aquí: a ese cliente no se le está pidiendo que arme
+   * nada, se le está diciendo que no llegamos, y ofrecerle el menú después
+   * sería contradecirse en el mismo mensaje.
+   */
+  const responderConCta = (ctaText: string, plainText: string): Promise<void> =>
+    responderConMenu({
+      customerPhone,
+      sourceMessageId,
+      phoneNumberId,
+      ctaText,
+      plainText,
+    });
+
   // 1. RECLAMAR.
   const atendidoYa = await yaExiste(supabase, sourceMessageId);
   if (atendidoYa === null) return { result: 'failed', error: 'ledger_unavailable' };
@@ -302,7 +424,7 @@ export async function quoteStandaloneLocation(
 
   if (!hasQuoteQuota(atendidas)) {
     await guardar(supabase, input, { status: 'over_limit' });
-    await responder(QUOTE_OVER_LIMIT_TEXT);
+    await responderConCta(QUOTE_OVER_LIMIT_CTA_TEXT, QUOTE_OVER_LIMIT_TEXT);
     log.info('delivery_quote_request_over_limit', { answered: atendidas });
     return { result: 'over_limit' };
   }
@@ -324,7 +446,7 @@ export async function quoteStandaloneLocation(
 
     if (!medida.ok) {
       await guardar(supabase, input, { status: 'failed', errorCode: `mapbox.${medida.error}` });
-      await responder(QUOTE_FAILED_TEXT);
+      await responderConCta(QUOTE_FAILED_CTA_TEXT, QUOTE_FAILED_TEXT);
       log.warn('delivery_quote_request_failed', { error: medida.error });
       return { result: 'failed', error: medida.error };
     }
@@ -348,7 +470,7 @@ export async function quoteStandaloneLocation(
       return { result: 'out_of_coverage' };
     }
     await guardar(supabase, input, { status: 'failed', errorCode: `fee.${tarifa.reason}` });
-    await responder(QUOTE_FAILED_TEXT);
+    await responderConCta(QUOTE_FAILED_CTA_TEXT, QUOTE_FAILED_TEXT);
     log.warn('delivery_quote_request_failed', { error: tarifa.reason });
     return { result: 'failed', error: tarifa.reason };
   }
@@ -360,7 +482,7 @@ export async function quoteStandaloneLocation(
     distanceSource: fuente,
     feeAmount: tarifa.amount,
   });
-  await responder(buildQuoteText(tarifa.amount));
+  await responderConCta(buildQuoteCtaText(tarifa.amount), buildQuoteText(tarifa.amount));
   log.info('delivery_quote_request_quoted', { source: fuente });
   return { result: 'quoted', amount: tarifa.amount };
 }

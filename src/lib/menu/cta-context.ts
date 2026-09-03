@@ -1,4 +1,8 @@
-import { normalizeIntentText } from '@/lib/webhook/menu-intent';
+import {
+  isDictatedOrder,
+  isGreetingOnly,
+  normalizeIntentText,
+} from '@/lib/webhook/menu-intent';
 
 /**
  * Qué acababa de preguntar el cliente cuando le mandamos el botón — PURO.
@@ -38,7 +42,7 @@ import { normalizeIntentText } from '@/lib/webhook/menu-intent';
  * De qué venía la conversación. `null` = nada reconocible, y entonces manda el
  * texto del `reason`, que es el comportamiento de siempre.
  */
-export type MenuCtaContext = 'price' | 'delivery' | 'dictated';
+export type MenuCtaContext = 'price' | 'delivery' | 'dictated' | 'greeting';
 
 /** Preguntar por un importe. Mismo vocabulario que el detector de cotización. */
 const COSTE = /\b(cuanto|cuantos|precio|precios|costo|coste|vale|valen|sale|salen|cuesta|cuestan)\b/;
@@ -65,6 +69,10 @@ const DICTADO = /\b\d{1,2}\s+[a-z]{3,}/;
  * El orden importa: "cuánto sale el envío" es COSTE y ENVÍO a la vez, y lo que
  * de verdad pregunta es el envío. Contestarle con "los precios están dentro"
  * sería contestar a otra pregunta.
+ *
+ * El saludo va el ÚLTIMO de todos, y por construcción no se lo quita a nadie:
+ * un mensaje que es SOLO saludo no tiene palabra de coste, ni de envío, ni
+ * cantidad, así que ninguna de las ramas anteriores podía haberlo tomado.
  */
 export function classifyMenuCtaContext(
   text: string | null | undefined,
@@ -75,7 +83,11 @@ export function classifyMenuCtaContext(
   if (norm === '') return null;
 
   if (COSTE.test(norm) && ENVIO.test(norm)) return 'delivery';
-  if (DICTADO.test(norm)) return 'dictated';
+  // Las dos formas de dictar: con dígito ("2 lomitos") y con la cantidad en
+  // letra tras un verbo de pedir ("quisiera un trancapecho"). La segunda la
+  // decide el MISMO criterio que abre el menú, importado y no recopiado.
+  if (DICTADO.test(norm) || isDictatedOrder(text)) return 'dictated';
   if (COSTE.test(norm)) return 'price';
+  if (isGreetingOnly(text)) return 'greeting';
   return null;
 }

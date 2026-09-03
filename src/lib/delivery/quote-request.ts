@@ -125,17 +125,43 @@ function formatBs(amount: number): string {
 }
 
 /**
- * La cotización.
+ * ── Por qué cada texto de aquí abajo viene en dos versiones (03-09-2026) ─────
+ *
+ * Todos terminan mandando al cliente al menú, y hasta hoy TODOS salían como
+ * texto plano. O sea: se le decía "armá tu pedido en el menú" a alguien que no
+ * tenía ningún menú a mano, ni un botón que tocar, ni forma de llegar. Dos
+ * conversaciones reales del 03-09-2026 acabaron igual — el cliente recibió su
+ * tarifa y acto seguido dictó su pedido por chat, porque era lo único que
+ * podía hacer.
+ *
+ * Ahora estos mensajes salen dentro del CTA, con el botón "Ver menú" en el
+ * mismo globo. La versión `…CtaText` es la que va ahí y dice "acá 👇" porque
+ * el botón está debajo; la neutra sigue existiendo para el fallback, cuando el
+ * CTA no se pudo mandar y solo queda el texto — ahí "acá 👇" sería señalar un
+ * botón que no llegó, que es la clase exacta de promesa falsa que este código
+ * lleva meses cerrando.
+ *
+ * El precio se compone en UN solo sitio (`quotePrefix`): dos plantillas con la
+ * misma cifra son dos plantillas que un día dirán cosas distintas.
+ */
+function quotePrefix(amount: number): string {
+  return `El envío hasta tu ubicación sale Bs ${formatBs(amount)} 🛵 `;
+}
+
+/**
+ * La cotización, en texto plano.
  *
  * Dice el precio y adónde ir después, sin prometer nada más. No afirma que el
  * pedido esté hecho, no da un plazo de entrega y no menciona kilómetros: la
  * distancia es un dato nuestro, y publicarla solo invita a discutirla.
  */
 export function buildQuoteText(amount: number): string {
-  return (
-    `El envío hasta tu ubicación sale Bs ${formatBs(amount)} 🛵 ` +
-    'Armá tu pedido en el menú y al confirmarlo lo ves sumado al total.'
-  );
+  return `${quotePrefix(amount)}Armá tu pedido en el menú y al confirmarlo lo ves sumado al total.`;
+}
+
+/** La misma cotización, para el globo que además lleva el botón debajo. */
+export function buildQuoteCtaText(amount: number): string {
+  return `${quotePrefix(amount)}Armá tu pedido acá 👇 y al confirmarlo lo ves sumado al total.`;
 }
 
 /**
@@ -156,6 +182,11 @@ export const QUOTE_OUT_OF_COVERAGE_TEXT =
 export const QUOTE_FAILED_TEXT =
   'No pude calcularte el envío en este momento 😕 ' +
   'Armá tu pedido en el menú y al confirmarlo te lo cotizamos ahí mismo.';
+
+/** El mismo fallo, con el botón debajo. */
+export const QUOTE_FAILED_CTA_TEXT =
+  'No pude calcularte el envío en este momento 😕 ' +
+  'Armá tu pedido acá 👇 y al confirmarlo te lo cotizamos ahí mismo.';
 
 /**
  * La respuesta a "¿cuánto me sale el envío?" cuando todavía no mandó el pin.
@@ -214,4 +245,15 @@ export const QUOTE_LINK_WITHOUT_COORDS_TEXT =
  */
 export const QUOTE_OVER_LIMIT_TEXT =
   'Para cotizarte el envío exacto, armá tu pedido en el menú 🛵 ' +
+  'Al confirmarlo compartís tu ubicación y te sale el costo antes de pagar.';
+
+/**
+ * El mismo mensaje, con el botón debajo — y es donde MÁS falta hacía.
+ *
+ * A este cliente se le está negando la cifra que pidió y mandando al menú a
+ * cambio. Mandarlo al menú sin darle el menú convertía la única salida que se
+ * le ofrecía en una frase.
+ */
+export const QUOTE_OVER_LIMIT_CTA_TEXT =
+  'Para cotizarte el envío exacto, armá tu pedido acá 👇 ' +
   'Al confirmarlo compartís tu ubicación y te sale el costo antes de pagar.';

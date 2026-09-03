@@ -49,7 +49,10 @@ function textMessage(id = 'wamid.TEXT_1') {
     id,
     type: 'text',
     from: '59170000000',
-    text: { body: 'hola' },
+    // NO un saludo: desde 03-09-2026 un saludo pelado lo atiende el CTA
+    // determinista, y estos casos son sobre el transporte durable, no sobre el
+    // menú. Un texto neutro los deja probando lo que vinieron a probar.
+    text: { body: 'gracias' },
     kapso: { direction: 'inbound', origin: 'cloud_api', status: 'received' },
   };
 }

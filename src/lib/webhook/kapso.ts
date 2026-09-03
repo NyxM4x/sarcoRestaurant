@@ -14,7 +14,7 @@ import {
 } from '@/lib/delivery/maps-link';
 import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
-import { isMenuIntent } from './menu-intent';
+import { isGreetingOnly, isMenuIntent } from './menu-intent';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
 import {
   processOutboundEvent,
@@ -517,6 +517,19 @@ async function processMessage(
     conversationPhone: string | null;
     from: string | null;
     phoneNumberId: string | null;
+    /**
+     * ¿Este mensaje llegó acompañado de otros en la MISMA entrega?
+     *
+     * Solo lo mira el saludo pelado, y es lo que impide dos botones seguidos.
+     * El buffering de Kapso agrupa "Hola" / "quiero pedir" en un lote: si el
+     * saludo contestara por su cuenta, el cliente recibiría un CTA por el
+     * saludo y otro por la petición, en el mismo segundo.
+     *
+     * Dentro de una ráfaga el saludo es preámbulo, no mensaje — el mismo
+     * criterio con el que `pickTurnAnchor` ancla el turno en el ÚLTIMO y no en
+     * el primero. Ausente = entrega individual, que es un lote de uno.
+     */
+    rafagaDeVarios?: boolean;
   },
   deps: {
     confirmOrder: ConfirmOrder;
@@ -542,10 +555,23 @@ async function processMessage(
 
   // Acceso al menú: se consume aquí y no continúa hacia nfm_reply, ubicación ni
   // creación de pedidos. Activa por (a) intención natural del cliente
-  // (`isMenuIntent`, Fase 6D.2E) o (b) el trigger QA interno `TESTMENU9842`. La
-  // negación y el filtrado de salientes ya viven en cada detector.
+  // (`isMenuIntent`, Fase 6D.2E), (b) un saludo pelado (`isGreetingOnly`,
+  // 03-09-2026) o (c) el trigger QA interno `TESTMENU9842`. La negación y el
+  // filtrado de salientes ya viven en cada detector.
+  //
+  // El saludo entra por la MISMA puerta pero no con la misma etiqueta: quien
+  // escribe "Hola" no ha pedido el menú, así que en el ledger queda como
+  // `agent_suggestion` —"el entrante no lo nombraba"—, que es exactamente lo
+  // que esa etiqueta significa. Lo que sí recibe es el saludo completo con el
+  // horario, porque el contexto manda sobre el motivo al elegir el copy.
   const menuIntentBody = isOutboundMessage(message) ? null : extractTextBody(message);
-  if (isMenuTriggerMessage(message) || (menuIntentBody !== null && isMenuIntent(menuIntentBody))) {
+  const soloSaludo =
+    menuIntentBody !== null && !ctx.rafagaDeVarios && isGreetingOnly(menuIntentBody);
+  if (
+    isMenuTriggerMessage(message) ||
+    soloSaludo ||
+    (menuIntentBody !== null && isMenuIntent(menuIntentBody))
+  ) {
     // Destinatario = remitente del mensaje (`message.from`); el teléfono de la
     // conversación queda como respaldo si el mensaje no lo trae.
     const toDigits = normalizePhone(from ?? conversationPhone ?? '');
@@ -567,8 +593,13 @@ async function processMessage(
       phoneNumberId: ctx.phoneNumberId,
       sourceMessageId,
       // El trigger de QA se distingue de la petición real del cliente: misma
-      // acción, distinta procedencia, y en el ledger se ve cuál fue cuál.
-      reason: isMenuTriggerMessage(message) ? 'qa_trigger' : 'explicit_request',
+      // acción, distinta procedencia, y en el ledger se ve cuál fue cuál. El
+      // saludo no es ninguna de las dos: nadie pidió nada.
+      reason: isMenuTriggerMessage(message)
+        ? 'qa_trigger'
+        : soloSaludo
+          ? 'agent_suggestion'
+          : 'explicit_request',
       // El botón contesta lo que acababa de preguntar: es el único mensaje que
       // sale cuando se manda el menú, así que desaprovecharlo cuesta un turno
       // entero de conversación.
@@ -1110,7 +1141,12 @@ async function processEnvelopes(
     const history = message ? await persistInbound(params.agentChannel!, message) : null;
 
     const ctx = extractMessageContext(envelope.payload);
-    const body = await processMessage(ctx, deps);
+    const body = await processMessage(
+      // Un lote de uno es una entrega individual: solo a partir de dos hay
+      // ráfaga, y solo entonces el saludo se lee como preámbulo.
+      { ...ctx, rafagaDeVarios: envelopes.length > 1 },
+      deps,
+    );
 
     // La clasificación no es una lista aparte que haya que mantener: sale del
     // resultado REAL del pipeline. Si el determinístico lo atendió, ya está
