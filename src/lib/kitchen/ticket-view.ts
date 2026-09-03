@@ -93,6 +93,32 @@ export interface KitchenTicketLine {
   category: MenuCategory | null;
 }
 
+/**
+ * Qué hay que cobrar en la puerta al entregar.
+ *
+ * Nace de un problema de coordinación real: quien cocina y empaca no podía
+ * decirle al repartidor si ese cliente ya había pagado el envío o solo la
+ * comida, y el repartidor lo averiguaba preguntando en la puerta.
+ *
+ * Se DERIVA del pedido, no del comprobante, y esa es la diferencia que importa:
+ * la etiqueta del análisis solo existe si el modelo pudo leer la imagen y sacar
+ * un monto, así que un fallo de lectura dejaba al repartidor sin instrucción
+ * ninguna. Esto sale de tres datos que el pedido siempre tiene —tipo de entrega,
+ * método de pago e importes— y por eso está siempre.
+ *
+ * `null` cuando no hay nada que cobrar o no se puede afirmar: en recojo no hay
+ * puerta donde cobrar, y de un pedido histórico sin método de pago registrado no
+ * se deduce nada. Callar es lo correcto ahí: mandar cobrar a quien ya pagó es
+ * peor que no decir nada, porque el repartidor de todos modos puede preguntar.
+ */
+export type DeliveryCollect =
+  /** Ya está todo pagado: no se cobra nada al entregar. */
+  | { kind: 'pagado' }
+  /** Falta el envío. El caso normal en delivery por QR. */
+  | { kind: 'envio'; amount: number }
+  /** Falta todo: pedido en efectivo. */
+  | { kind: 'todo'; amount: number };
+
 export interface KitchenTicket {
   orderNumber: string;
   /** Instante de entrada A COCINA: `confirmed_at ?? created_at`. */
@@ -148,6 +174,13 @@ export interface KitchenTicket {
    * reciente que tenga etiqueta: es el que describe el pago vigente.
    */
   amountLabel: ProofAmountLabelView | null;
+  /**
+   * Qué se cobra al entregar. Lo lee quien empaca para decírselo a quien lleva.
+   *
+   * NO expone el método de pago: dice qué hacer, no cómo se pagó. Que en
+   * efectivo se cobre todo es una consecuencia, no el dato.
+   */
+  deliveryCollect: DeliveryCollect | null;
 }
 
 /**
@@ -269,6 +302,42 @@ function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | nu
   return null;
 }
 
+/**
+ * Qué se cobra en la puerta.
+ *
+ * El orden de las preguntas es el de la realidad: primero si hay puerta —en
+ * recojo no la hay—, luego si el comprobante ya probó que está todo pagado, y
+ * solo entonces cuánto falta según cómo se pagó.
+ *
+ * El envío se calcula restando y no se pide como columna aparte: el total y el
+ * subtotal ya viajan al tablero, y una tercera cifra que hubiera que mantener en
+ * paz con las otras dos es una oportunidad más de que discrepen.
+ */
+function cobroEnLaPuerta(
+  row: RawKitchenOrderRow,
+  etiqueta: ProofAmountLabelView | null,
+): DeliveryCollect | null {
+  if (row.delivery_type !== 'delivery') return null;
+
+  // El comprobante manda sobre la regla: si se leyó un pago por el total, el
+  // envío ya está cubierto aunque la regla general dijera lo contrario.
+  if (etiqueta?.code === 'pago_total') return { kind: 'pagado' };
+
+  const total = Number(row.total_amount) || 0;
+  const subtotal = Number(row.subtotal_amount) || 0;
+
+  if (row.payment_method === 'cash') {
+    return total > 0 ? { kind: 'todo', amount: total } : null;
+  }
+  if (row.payment_method === 'qr') {
+    const envio = total - subtotal;
+    return envio > 0 ? { kind: 'envio', amount: envio } : { kind: 'pagado' };
+  }
+
+  // Sin método de pago registrado no se afirma nada.
+  return null;
+}
+
 export function toKitchenTickets(
   rows: RawKitchenOrderRow[],
   items: RawKitchenItemRow[],
@@ -319,6 +388,7 @@ export function toKitchenTickets(
       // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
       gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
       amountLabel: etiquetaDelPago(payment),
+      deliveryCollect: cobroEnLaPuerta(row, etiquetaDelPago(payment)),
     });
   }
   return sortByAge(tickets);

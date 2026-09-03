@@ -74,8 +74,8 @@ describe('ticket — orden y contenido', () => {
 
   it('las fechas ilegibles se van al final sin romper el orden', () => {
     const tickets = sortByAge([
-      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null },
-      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null },
+      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
+      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
     ]);
     expect(tickets.map((t) => t.orderNumber)).toEqual(['ok', 'roto']);
   });
@@ -350,5 +350,46 @@ describe('el pedido solo SUMA al resumen cuando el pago está confirmado', () =>
     // vaciar el resumen entero. Ante la duda, cuenta.
     const [ticket] = toKitchenTickets([pedido()], [], {}, false);
     expect(ticket.awaitingPaymentConfirmation).toBe(false);
+  });
+});
+
+describe('ticket — qué se cobra en la puerta', () => {
+  const cobro = (over: Partial<RawKitchenOrderRow>) =>
+    toKitchenTickets([row('x', 'confirmed', over)], [])[0].deliveryCollect;
+
+  it('delivery por QR: falta el envío, y dice cuánto', () => {
+    // El caso normal. La comida se pagó por QR y el envío se cobra al entregar.
+    expect(cobro({ delivery_type: 'delivery', payment_method: 'qr', subtotal_amount: 44, total_amount: 54 }))
+      .toEqual({ kind: 'envio', amount: 10 });
+  });
+
+  it('delivery en efectivo: se cobra todo', () => {
+    expect(cobro({ delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 44, total_amount: 54 }))
+      .toEqual({ kind: 'todo', amount: 54 });
+  });
+
+  it('en recojo no hay puerta donde cobrar', () => {
+    expect(cobro({ delivery_type: 'pickup', payment_method: 'qr', subtotal_amount: 44, total_amount: 44 }))
+      .toBeNull();
+  });
+
+  it('sin método de pago registrado no se afirma nada', () => {
+    // Pedido histórico. Mandar cobrar a quien quizá ya pagó es peor que callar:
+    // el repartidor siempre puede preguntar, pero no puede deshacer un cobro.
+    expect(cobro({ delivery_type: 'delivery', subtotal_amount: 44, total_amount: 54 })).toBeNull();
+  });
+
+  it('delivery sin costo de envío no manda cobrar cero', () => {
+    expect(cobro({ delivery_type: 'delivery', payment_method: 'qr', subtotal_amount: 44, total_amount: 44 }))
+      .toEqual({ kind: 'pagado' });
+  });
+
+  it('la instrucción no filtra el método de pago', () => {
+    // Dice QUÉ HACER, no cómo se pagó. El método sigue sin viajar al ticket.
+    const ticket = toKitchenTickets(
+      [row('x', 'confirmed', { delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 44, total_amount: 54 })],
+      [],
+    )[0];
+    expect(JSON.stringify(ticket)).not.toContain('cash');
   });
 });

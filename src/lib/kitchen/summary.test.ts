@@ -35,6 +35,7 @@ function ticket(
     // Puerta abierta: estos tests no van del pago (0028).
     gate: { state: 'not_required' as const, canStart: true, graceEndsAtMs: null },
     amountLabel: null,
+    deliveryCollect: null,
   };
 }
 

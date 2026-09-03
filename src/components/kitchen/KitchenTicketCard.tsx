@@ -5,6 +5,7 @@ import { formatElapsedSince, isLate } from '@/lib/kitchen/timer';
 import { proofAlertOf, type KitchenProofAlert } from '@/lib/kitchen/proof-alert';
 import type { PaymentGateState } from '@/lib/payment-proof/payment-gate';
 import type { ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
+import type { DeliveryCollect } from '@/lib/kitchen/ticket-view';
 import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import { KitchenPaymentPanel } from './KitchenPaymentPanel';
@@ -199,9 +200,23 @@ export function KitchenTicketCard({
               tiene que ser lo que puede costar dinero. */}
           {alerta && <ProofAlertBox alert={alerta} />}
 
-          {/* Qué pagó: lo que el repartidor pregunta al llegar. Va junto al pago
-              y antes de las notas, porque decide si hay que cobrar en la puerta. */}
-          {ticket.amountLabel && <AmountLabelChip label={ticket.amountLabel} />}
+          {/* Qué se cobra en la puerta: lo que el repartidor pregunta al llegar.
+              Va junto al pago y antes de las notas, porque decide si hay que
+              cobrar algo al entregar.
+
+              Esta línea sale del PEDIDO y por eso está siempre. La etiqueta del
+              análisis solo existe cuando el modelo pudo leer un monto en la
+              imagen, y cuando no podía, el repartidor se quedaba sin ninguna
+              instrucción —que es justo el problema que se reportó—. */}
+          {ticket.deliveryCollect && <CollectChip collect={ticket.deliveryCollect} />}
+
+          {/* Y la etiqueta del análisis solo cuando dice algo que la línea de
+              arriba no diga ya. `PAGO TOTAL` y `PAGO PRODUCTOS` son exactamente
+              lo mismo con otras palabras; `REVISAR MONTO` no —es una alerta, y
+              esa sí hay que verla—. */}
+          {ticket.amountLabel?.code === 'revisar_monto' && (
+            <AmountLabelChip label={ticket.amountLabel} />
+          )}
 
           {ticket.notes && (
             <div className="mt-1.5 rounded-md bg-zinc-100 px-2 py-1.5">
@@ -297,6 +312,51 @@ const GATE_REASONS: Record<PaymentGateState, string> = {
   not_required: '',
   unknown: '',
 };
+
+/** Bs sin decimales cuando no hacen falta: "10" y no "10.00". */
+function bs(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+/**
+ * Qué se cobra al entregar — la línea que quien empaca le canta al repartidor.
+ *
+ * Lleva el IMPORTE dentro del título y no solo en la explicación: en la puerta
+ * de una casa, con el pedido en una mano, "cobrar el envío" obliga a ir a
+ * buscar cuánto es, y ese viaje no se hace —se pregunta al cliente, que es
+ * exactamente lo que no debe pasar—.
+ *
+ * Los colores repiten el criterio de la tarjeta: verde cuando no hay nada que
+ * hacer, azul para lo normal y ámbar para lo que exige cobrar más. El color
+ * nunca comunica solo: siempre va con su palabra.
+ */
+function CollectChip({ collect }: { collect: DeliveryCollect }) {
+  const { titulo, pista, tono } =
+    collect.kind === 'pagado'
+      ? {
+          titulo: 'ENVÍO PAGADO',
+          pista: 'No cobrar nada al entregar',
+          tono: 'bg-emerald-50 ring-emerald-300 text-emerald-900',
+        }
+      : collect.kind === 'envio'
+        ? {
+            titulo: `COBRAR ENVÍO Bs ${bs(collect.amount)}`,
+            pista: 'La comida ya está pagada: en la puerta solo el envío',
+            tono: 'bg-sky-50 ring-sky-300 text-sky-900',
+          }
+        : {
+            titulo: `COBRAR TODO Bs ${bs(collect.amount)}`,
+            pista: 'Pedido en efectivo: se cobra comida y envío al entregar',
+            tono: 'bg-amber-50 ring-amber-300 text-amber-900',
+          };
+
+  return (
+    <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tono}`}>
+      <p className="text-[11px] font-extrabold uppercase leading-tight tracking-wide">{titulo}</p>
+      <p className="mt-0.5 text-[11px] font-medium leading-tight opacity-90">{pista}</p>
+    </div>
+  );
+}
 
 /**
  * Qué pagó el cliente. Tres palabras en mayúsculas y una línea de qué hacer.

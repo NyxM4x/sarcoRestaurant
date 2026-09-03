@@ -132,6 +132,10 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
       'amountLabel',
       'awaitingPaymentConfirmation',
       'completedAt',
+      // Qué se cobra en la puerta. Es una INSTRUCCIÓN derivada —"faltan Bs 10"—,
+      // no el método de pago ni el desglose: sale de restar dos importes que ya
+      // viajaban, y no trae ningún dato nuevo del cliente.
+      'deliveryCollect',
       'deliveryType',
       'enteredAt',
       // 0028: la puerta del pago, ya resuelta. Un estado cerrado, un booleano y
