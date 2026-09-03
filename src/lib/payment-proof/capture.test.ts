@@ -318,7 +318,9 @@ describe('enrutado y excepciones', () => {
     expect(log).not.toContain('attach');
   });
 
-  it('dos pedidos abiertos sin señal queda ambiguo, sin pedido asociado', async () => {
+  it('dos pedidos abiertos: se marca ambiguo pero SE ASOCIA al más probable', async () => {
+    // Antes se guardaba con `order_id = null`, y una fila sin pedido no aparece
+    // en ninguna pantalla: el pago se perdía de vista. Ver `association.ts`.
     const { p, insertados } = ports();
     await capturePaymentProof(
       entrada({
@@ -327,7 +329,7 @@ describe('enrutado y excepciones', () => {
       p,
     );
     expect(insertados[0].associationMethod).toBe('ambiguous');
-    expect(insertados[0].orderId).toBeNull();
+    expect(insertados[0].orderId).not.toBeNull();
   });
 
   it('guarda el tipo declarado al reclamar y el verificado al descargar', async () => {

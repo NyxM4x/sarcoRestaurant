@@ -132,8 +132,9 @@ export function KitchenTicketCard({
           la vista desde dos metros para localizar un pedido concreto. */}
       <header className={`shrink-0 px-3 py-2 ${headerTone}`}>
         <div className="flex items-baseline justify-between gap-2">
-          {/* El número como se dice en voz alta. El tablero muestra UNA sola
-              jornada, así que aquí no hace falta la fecha para desambiguar. */}
+          {/* El número como se dice en voz alta, sin la fecha. Casi todo lo que
+              hay en el tablero es de esta jornada; lo que no, lo dice la línea
+              de abajo — que es donde cabe sin encoger este número. */}
           <h2 className="truncate text-3xl font-extrabold leading-none tracking-tight">
             {shortOrderNumber(ticket.orderNumber)}
           </h2>
@@ -145,6 +146,10 @@ export function KitchenTicketCard({
           {DELIVERY_LABELS[ticket.deliveryType]} · {STAGE_LABELS[ticket.stage]}
           {late && ' · Atrasado'}
           {noSumaTodavia && ' · No suma'}
+          {/* De una jornada anterior: se dice CON SU FECHA, porque el número de
+              arriba va recortado y `ORD-036` de anoche se lee igual que el de
+              hoy. El cronómetro, que aquí marcará horas, confirma lo mismo. */}
+          {ticket.fromPreviousDay && ` · ${jornadaAnteriorLabel(ticket.orderNumber)}`}
         </p>
       </header>
 
@@ -338,6 +343,19 @@ const GATE_REASONS: Record<PaymentGateState, string> = {
   unknown: '',
 };
 
+/**
+ * Cómo se anuncia un pedido arrastrado de otra jornada.
+ *
+ * La fecha sale del propio número —`ORD-260902-036` lleva dentro la jornada en
+ * la que se abrió— así que no hace falta un dato más en el ticket. Un número
+ * con otro formato (la numeración vieja, `ORD-000123`) se queda con la frase
+ * genérica: inventar una fecha sería peor que no darla.
+ */
+function jornadaAnteriorLabel(orderNumber: string): string {
+  const partes = /^ORD-\d{2}(\d{2})(\d{2})-\d+$/.exec(orderNumber.trim());
+  return partes === null ? 'Pedido de antes' : `Pedido del ${partes[2]}-${partes[1]}`;
+}
+
 /** Bs sin decimales cuando no hacen falta: "10" y no "10.00". */
 function bs(amount: number): string {
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
@@ -351,9 +369,20 @@ function bs(amount: number): string {
  * buscar cuánto es, y ese viaje no se hace —se pregunta al cliente, que es
  * exactamente lo que no debe pasar—.
  *
- * Los colores repiten el criterio de la tarjeta: verde cuando no hay nada que
- * hacer, azul para lo normal y ámbar para lo que exige cobrar más. El color
- * nunca comunica solo: siempre va con su palabra.
+ * ── DOS colores, y solo dos (03-09-2026) ───────────────────────────────────
+ *
+ * Rojo cuando hay dinero que recoger en la puerta —el envío o el pedido
+ * entero— y azul cuando no hay nada que cobrar. Antes eran tres (verde, azul,
+ * ámbar) repartidos por caso, y la pregunta que se hace quien lee esto a un
+ * metro y con las manos ocupadas no tiene tres respuestas: o cobra o no cobra.
+ * El color nunca comunica solo: siempre va con su palabra.
+ *
+ * ── Título mientras se puede marcar, TÍTULO cuando ya no ───────────────────
+ *
+ * Con botones debajo el chip es un control, y va en tinte suave para que los
+ * botones manden. Sin ellos —aceptado el comprobante, o leído con claridad— es
+ * una instrucción cerrada, y entonces se pinta en color pleno: es lo que se
+ * busca de un vistazo en la lista de pedidos listos mientras se empaca.
  */
 export function CollectChip({
   collect,
@@ -365,23 +394,20 @@ export function CollectChip({
   orderNumber?: string;
   onDecided?: () => void;
 }) {
-  const { titulo, pista, tono } =
+  const { titulo, pista } =
     collect.kind === 'pagado'
       ? {
           titulo: 'ENVÍO PAGADO',
           pista: 'No cobrar nada al entregar',
-          tono: 'bg-emerald-50 ring-emerald-300 text-emerald-900',
         }
       : collect.kind === 'envio'
         ? {
             titulo: `COBRAR ENVÍO Bs ${bs(collect.amount)}`,
             pista: 'La comida ya está pagada: en la puerta solo el envío',
-            tono: 'bg-sky-50 ring-sky-300 text-sky-900',
           }
         : {
             titulo: `COBRAR TODO Bs ${bs(collect.amount)}`,
             pista: 'Pedido en efectivo: se cobra comida y envío al entregar',
-            tono: 'bg-amber-50 ring-amber-300 text-amber-900',
           };
 
   /**
@@ -392,14 +418,32 @@ export function CollectChip({
    * leía no tenía forma de notar la diferencia — cinco de veintidós pedidos de
    * una noche salieron así, mandando cobrar un envío que quizá ya estaba pagado.
    *
-   * El ámbar y la frase lo dicen; el botón lo resuelve.
+   * Ya no cambia el COLOR —el color dice si se cobra, y eso no depende de quién
+   * lo diga— sino que lo dice con la palabra, que es lo que de verdad se lee.
    */
   const sinConfirmar = collect.basis === 'pedido';
-  const tonoFinal = sinConfirmar ? 'bg-amber-50 ring-amber-400 text-amber-900' : tono;
+
+  /** ¿Sigue siendo esto algo que se puede cambiar aquí mismo? */
+  const conBotones = collect.canOverride && Boolean(orderNumber);
+  const cobra = collect.kind !== 'pagado';
+
+  const tono = conBotones
+    ? cobra
+      ? 'bg-red-50 ring-1 ring-red-300 text-red-900'
+      : 'bg-sky-50 ring-1 ring-sky-300 text-sky-900'
+    : cobra
+      ? 'bg-red-600 text-white'
+      : 'bg-sky-600 text-white';
 
   return (
-    <div className={`mt-1.5 rounded-md px-2 py-1 ring-1 ${tonoFinal}`}>
-      <p className="text-[13px] font-extrabold uppercase leading-tight tracking-wide">{titulo}</p>
+    <div className={`mt-1.5 rounded-md px-2 py-1 ${tono}`}>
+      <p
+        className={`font-extrabold uppercase leading-tight tracking-wide ${
+          conBotones ? 'text-[13px]' : 'text-[15px]'
+        }`}
+      >
+        {titulo}
+      </p>
       <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">
         {sinConfirmar ? 'Sin confirmar: no se pudo leer el comprobante' : pista}
       </p>
@@ -408,7 +452,7 @@ export function CollectChip({
           Marcado a mano
         </p>
       )}
-      {collect.canOverride && orderNumber && (
+      {conBotones && orderNumber && (
         <CollectOverride
           orderNumber={orderNumber}
           // Lo que una PERSONA marcó, no lo que se dedujo. `null` = nadie se
@@ -437,6 +481,15 @@ export function CollectChip({
  * que corregirse cueste un toque. Quien marca esto lo hace con el pedido en la
  * mano y prisa; equivocarse es parte del trabajo, y no poder desandarlo obliga
  * a llamar por teléfono, que es justo lo que esto vino a evitar.
+ *
+ * Esa ventana para corregirse dura hasta que se acepta el comprobante: ver
+ * `canOverride` en `ticket-view`. Después no hay botones que pintar.
+ *
+ * Cada botón lleva el color del título al que lleva —azul el que deja el chip
+ * en ENVÍO PAGADO, rojo el que lo deja en COBRAR— para que el toque y su
+ * consecuencia se vean iguales. Con el verde de antes, pulsar "Ya pagó envío"
+ * dejaba en pantalla un chip de otro color que el botón que se acababa de
+ * tocar, y eso se lee como si no hubiera funcionado.
  */
 function CollectOverride({
   orderNumber,
@@ -473,8 +526,8 @@ function CollectOverride({
           aria-pressed={marcado === true}
           className={`${base} ${
             marcado === true
-              ? 'bg-emerald-600 text-white ring-emerald-700'
-              : 'bg-white text-emerald-800 ring-emerald-400 hover:bg-emerald-50'
+              ? 'bg-sky-600 text-white ring-sky-700'
+              : 'bg-white text-sky-800 ring-sky-400 hover:bg-sky-50'
           }`}
         >
           Ya pagó envío
@@ -486,8 +539,8 @@ function CollectOverride({
           aria-pressed={marcado === false}
           className={`${base} ${
             marcado === false
-              ? 'bg-sky-600 text-white ring-sky-700'
-              : 'bg-white text-sky-800 ring-sky-400 hover:bg-sky-50'
+              ? 'bg-red-600 text-white ring-red-700'
+              : 'bg-white text-red-800 ring-red-400 hover:bg-red-50'
           }`}
         >
           Cobrar envío

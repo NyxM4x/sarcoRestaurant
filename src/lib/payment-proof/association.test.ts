@@ -73,15 +73,74 @@ describe('asociación — pedido único abierto', () => {
 });
 
 describe('asociación — ambigua y sin resolver', () => {
-  it('dos pedidos abiertos sin señal es ambiguo y NO se asocia', () => {
-    const d = decideAssociation({ ...base, candidates: [order('A'), order('B')] });
+  /**
+   * EL fallo que cambió esta regla (03-09-2026).
+   *
+   * `ORD-260903-001`: el cliente tenía otros dos pedidos suyos abiertos, su
+   * comprobante quedó `ambiguous` con `order_id = null`, y un comprobante sin
+   * pedido no sale en NINGUNA pantalla —cocina filtra el pedido por "falta el
+   * comprobante" y el panel los busca por `order_id`—. Pagó, y su pedido no
+   * existía para nadie.
+   *
+   * Todos los candidatos salen del mismo `customer_phone`, así que elegir mal
+   * no le paga el pedido a otra persona: le paga otro pedido suyo, con el monto
+   * delante de quien revisa.
+   */
+  it('con varios pedidos abiertos se elige el más reciente y se marca ambiguo', () => {
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('viejo', { openedAt: hace(6 * 60 * 60_000) }), order('nuevo')],
+    });
     expect(d).toEqual({
-      orderId: null,
+      orderId: 'nuevo',
       method: 'ambiguous',
       routingException: null,
       duplicateOfProofId: null,
-      attemptEligible: false,
+      // Con intento: sin él, el pedido entra al tablero con la puerta cerrada y
+      // ningún botón para aceptar el pago.
+      attemptEligible: true,
     });
+  });
+
+  it('un pedido que aún espera ubicación NUNCA gana: no tiene QR que pagar', () => {
+    // Aunque sea el más nuevo. El QR sale con la cotización, así que un pedido
+    // en `awaiting_location` no se puede haber pagado todavía.
+    const d = decideAssociation({
+      ...base,
+      candidates: [
+        order('cotizado', { openedAt: hace(60 * 60_000) }),
+        order('sin-ubicacion', { status: 'awaiting_location' as OrderStatus }),
+      ],
+    });
+    expect(d.orderId).toBe('cotizado');
+  });
+
+  it('entre dos sin QR todavía, gana el más reciente', () => {
+    // Ninguno de los dos puede haberse pagado, pero hay que registrar el
+    // comprobante en algún sitio visible: callar es lo único que no vale.
+    const d = decideAssociation({
+      ...base,
+      candidates: [
+        order('A', { status: 'awaiting_location' as OrderStatus, openedAt: hace(60 * 60_000) }),
+        order('B', { status: 'awaiting_location' as OrderStatus }),
+      ],
+    });
+    expect(d.orderId).toBe('B');
+  });
+
+  it('una fecha ilegible no le gana a una que sí se lee', () => {
+    const d = decideAssociation({
+      ...base,
+      candidates: [order('legible'), order('roto', { openedAt: 'no-es-fecha' })],
+    });
+    expect(d.orderId).toBe('legible');
+  });
+
+  it('la ambigüedad se sigue REGISTRANDO como tal, para poder auditarla', () => {
+    // El método es lo que permite contar después cuántos pagos se resolvieron
+    // por desempate y revisar si el criterio acierta.
+    const d = decideAssociation({ ...base, candidates: [order('A'), order('B')] });
+    expect(d.method).toBe('ambiguous');
   });
 
   it('sin ningún candidato queda sin resolver', () => {

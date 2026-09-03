@@ -409,10 +409,13 @@ describe('ticket — qué se cobra en la puerta', () => {
     ).toEqual({ kind: 'envio', amount: 10, basis: 'persona', canOverride: true });
   });
 
-  it('una marca de persona SIEMPRE se puede corregir', () => {
+  it('una marca de persona se puede corregir mientras el pago siga sin aceptar', () => {
     // Quien marca esto lo hace con el pedido en la mano y prisa. Equivocarse es
     // parte del trabajo; no poder desandarlo obliga a llamar por teléfono, que
     // es justo lo que esto vino a evitar.
+    //
+    // La ventana se cierra al aceptar el comprobante, que es cuando la
+    // instrucción sale al grupo de reparto: ver el describe del congelado.
     for (const marca of [true, false]) {
       const c = cobro({
         delivery_type: 'delivery',
@@ -564,5 +567,81 @@ describe('ticket — la etiqueta del comprobante decide el cobro (03-09-2026)', 
     const [ticket] = toKitchenTickets([pedido()], [], { 'order-1': dosIntentos }, true);
     expect(ticket.amountLabel?.code).toBe('pago_total');
     expect(ticket.deliveryCollect).toMatchObject({ kind: 'pagado' });
+  });
+});
+
+describe('ticket — la instrucción de cobro se congela al aceptar el pago (03-09-2026)', () => {
+  /**
+   * El problema real: los botones de "Ya pagó envío / Cobrar envío" seguían
+   * vivos en "Pedidos listos", que es la pantalla abierta mientras se empaca.
+   * Dos dianas grandes, a un toque de decir lo contrario de lo que el grupo de
+   * reparto ya tenía escrito — porque el aviso sale al ACEPTAR el pago, y
+   * cambiar la marca después no reescribe el mensaje enviado.
+   */
+  const pedido = (over: Partial<RawKitchenOrderRow> = {}): RawKitchenOrderRow =>
+    row('order-1', 'confirmed', {
+      delivery_type: 'delivery',
+      payment_method: 'qr',
+      subtotal_amount: 60,
+      total_amount: 79,
+      ...over,
+    });
+
+  /** Vista de pago con un intento en el estado que se pida y su comprobante. */
+  const pago = (status: string) =>
+    ({
+      attempts: [
+        {
+          id: 'a1',
+          status,
+          proofs: [{ id: 'p1', receivedAt: '2026-09-03T02:05:00.000Z', amountLabel: null }],
+        },
+      ],
+      unlinkedProofs: [],
+      hasPendingReview: status === 'pending_review',
+    }) as never;
+
+  const cobro = (status: string, over: Partial<RawKitchenOrderRow> = {}, consultados = true) =>
+    toKitchenTickets([pedido(over)], [], { 'order-1': pago(status) }, consultados)[0]
+      .deliveryCollect;
+
+  it('con el comprobante en revisión todavía se puede marcar', () => {
+    expect(cobro('pending_review')).toEqual({
+      kind: 'envio',
+      amount: 19,
+      basis: 'pedido',
+      canOverride: true,
+    });
+  });
+
+  it('aceptado el comprobante, la instrucción deja de ser tocable', () => {
+    // Dice exactamente lo mismo —no cambia lo que hay que cobrar— pero ya no
+    // ofrece botón: es lo que salió al grupo de reparto, y en pantalla pasa a
+    // ser un título.
+    expect(cobro('accepted')).toEqual({
+      kind: 'envio',
+      amount: 19,
+      basis: 'pedido',
+      canOverride: false,
+    });
+  });
+
+  it('la marca de una persona también queda congelada al aceptar', () => {
+    for (const marca of [true, false]) {
+      expect(cobro('accepted', { delivery_fee_paid: marca })?.canOverride, String(marca)).toBe(
+        false,
+      );
+    }
+  });
+
+  it('un pago rechazado no congela nada: todavía no salió ningún aviso', () => {
+    expect(cobro('rejected')?.canOverride).toBe(true);
+  });
+
+  it('si no se pudieron consultar los pagos, NO se congela', () => {
+    // Mismo criterio que el resto del archivo: sin dato no se afirma. Congelar
+    // por un fallo de consulta dejaría a quien empaca sin forma de corregir una
+    // deducción equivocada, que es lo contrario de lo que el candado protege.
+    expect(cobro('accepted', {}, false)?.canOverride).toBe(true);
   });
 });

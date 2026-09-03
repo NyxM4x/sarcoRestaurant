@@ -97,14 +97,20 @@ export function KitchenReadyPanel({
           </div>
 
           {/* A cuántos hay que cobrarles, de un vistazo. Cada cifra lleva su
-              palabra: el color solo acompaña, nunca comunica solo. */}
+              palabra: el color solo acompaña, nunca comunica solo.
+
+              Azul y rojo son los mismos del chip de cada tarjeta —rojo se
+              cobra, azul no— para que la cuenta de arriba y lo que se ve al
+              bajar la vista sean el mismo código. El ámbar de "sin confirmar"
+              no compite con ellos: no dice si se cobra, dice que nadie lo
+              verificó. */}
           {(resumen.pagados > 0 || resumen.porCobrar > 0 || resumen.porConfirmar > 0) && (
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] font-bold uppercase tracking-wide">
               {resumen.pagados > 0 && (
-                <span className="text-emerald-300">{resumen.pagados} envío pagado</span>
+                <span className="text-sky-300">{resumen.pagados} envío pagado</span>
               )}
               {resumen.porCobrar > 0 && (
-                <span className="text-sky-300">{resumen.porCobrar} por cobrar</span>
+                <span className="text-red-300">{resumen.porCobrar} por cobrar</span>
               )}
               {resumen.porConfirmar > 0 && (
                 <span className="text-amber-300">{resumen.porConfirmar} sin confirmar</span>
@@ -140,10 +146,18 @@ export function KitchenReadyPanel({
                       </li>
                     ))}
                   </ul>
-                  {/* Qué se cobra en la puerta, con su botón para zanjarlo.
-                      Va ENTRE los productos y "Devolver a cocina" porque es lo
-                      que se lee mientras se empaca; el botón de devolver es el
-                      salvavidas de un error y casi nunca se toca. */}
+                  {/* Qué se cobra en la puerta. Va ENTRE los productos y
+                      "Devolver a cocina" porque es lo que se lee mientras se
+                      empaca; el botón de devolver es el salvavidas de un error
+                      y casi nunca se toca.
+
+                      Aquí ya casi nunca trae botones (03-09-2026): un pedido
+                      listo tiene el comprobante aceptado, y con él la
+                      instrucción quedó cerrada y ya salió al grupo de reparto.
+                      Los botones que había eran dos dianas grandes, en la
+                      pantalla que se mira con las manos ocupadas, capaces de
+                      contradecir en silencio lo que el repartidor ya tenía
+                      escrito. */}
                   {ticket.deliveryCollect && (
                     <CollectChip
                       collect={ticket.deliveryCollect}

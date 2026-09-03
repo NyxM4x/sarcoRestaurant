@@ -7,7 +7,7 @@
  * toca `order_notifications`, Telegram, Kapso ni WhatsApp.
  */
 import type { OrderStatus, PaymentAttempt, PaymentMethod } from '@/types';
-import { dateBounds } from '@/lib/dashboard/filters';
+import { businessDayBounds, businessDayOf } from '@/lib/orders/business-day';
 import { toPaymentView, type PaymentView } from '@/lib/dashboard/attempt-review';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
 import {
@@ -124,6 +124,17 @@ export interface KitchenRepository {
 const ORDER_NUMBER_RE = /^[A-Za-z0-9-]{1,40}$/;
 
 /**
+ * Cuántas jornadas hacia atrás mira el tablero en busca de pedidos VIVOS.
+ *
+ * Una basta para el caso que trajo esto: un pedido hecho por la mañana cae en
+ * la jornada anterior y hay que cocinarlo esa misma noche, así que la distancia
+ * máxima es exactamente una. Subirlo arrastraría al grid pedidos olvidados de
+ * hace días —confirmados y nunca cocinados— que no son trabajo, son basura de
+ * la base, y ocuparían el sitio de una comanda real.
+ */
+const JORNADAS_DE_ARRASTRE = 1;
+
+/**
  * Reparte las filas del lote por pedido y arma la vista de cada uno.
  *
  * El mapeo lo hace `toPaymentView`, el MISMO que usa el panel del encargado. No
@@ -211,8 +222,40 @@ function motivoDeBloqueo(state: PaymentGateState): KitchenFailure {
 export function createKitchenRepository(source: KitchenDataSource): KitchenRepository {
   return {
     async getBoard(nowMs) {
-      const { since, until } = dateBounds('today', nowMs);
-      const { rows, items } = await source.listBoard(since, until);
+      // ── La jornada acota, pero no puede TRAGARSE un pedido vivo ───────────
+      //
+      // El tablero pedía solo los pedidos de la jornada en curso, y la jornada
+      // cambia a las 12:00. Un cliente que escribe a las 09:00 —fuera de
+      // horario, con el local cerrado— entra en la jornada ANTERIOR: su pedido
+      // se ve un rato, y al dar el mediodía desaparece de la pantalla para
+      // siempre. Cuando el local abre a las 18:00, en cocina no existe.
+      //
+      // Pasó de verdad el 03-09-2026 con `ORD-260902-036`: pedido y comprobante
+      // a las 09:10, se le prometió que sería el primero en salir a las 18:00,
+      // y a esa hora el KDS no lo tenía. El número lo delataba —`260902` es la
+      // jornada anterior— pero en pantalla no había nada que mirar.
+      //
+      // Así que la ventana se abre una jornada más atrás y el corte se aplica
+      // DESPUÉS, distinguiendo lo vivo de lo cerrado: de la jornada anterior
+      // solo entra lo que todavía no ha salido de cocina. El historial de
+      // "Pedidos listos" sigue siendo el de esta jornada, que es lo que se
+      // espera de una lista que se llama "listos hoy".
+      const { since } = businessDayBounds(nowMs, -JORNADAS_DE_ARRASTRE);
+      // `until` sigue abierto: ningún pedido recién entrado puede quedarse
+      // fuera de la pantalla por un desfase de reloj.
+      const { rows: todas, items } = await source.listBoard(since, null);
+
+      const jornadaActual = businessDayOf(nowMs);
+      const esDeOtraJornada = (row: RawKitchenOrderRow): boolean => {
+        const ms = Date.parse(row.created_at);
+        // Fecha ilegible: se trata como de hoy. Ante la duda el pedido ENTRA —
+        // perder una comanda es peor que ver una de más.
+        if (Number.isNaN(ms)) return false;
+        return businessDayOf(ms) !== jornadaActual;
+      };
+      const rows = todas.filter(
+        (r) => !esDeOtraJornada(r) || stageFromOrderStatus(r.status) !== 'done',
+      );
 
       // ── El pago NO puede tumbar el tablero ────────────────────────────────
       //
@@ -237,8 +280,19 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
         }
       }
 
+      // Los arrastrados se MARCAN, no se disfrazan. En el grid el número sale
+      // sin la fecha (`ORD-036`), así que un pedido de anoche y uno de hoy
+      // pueden verse idénticos: sin esta marca, la solución al pedido perdido
+      // crearía una confusión nueva delante de la plancha.
+      const arrastrados = new Set(
+        todas.filter(esDeOtraJornada).map((r) => r.order_number),
+      );
+      const tickets = toKitchenTickets(rows, items, payments, pagosConsultados, nowMs).map((t) =>
+        arrastrados.has(t.orderNumber) ? { ...t, fromPreviousDay: true } : t,
+      );
+
       return {
-        tickets: toKitchenTickets(rows, items, payments, pagosConsultados, nowMs),
+        tickets,
         serverNow: nowMs,
         // Sin el método cableado tampoco se consultaron: un adaptador antiguo
         // no puede afirmar que el pago esté verificado.

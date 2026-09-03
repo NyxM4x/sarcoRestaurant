@@ -2,9 +2,31 @@
  * Asociación de un comprobante con su pedido — módulo PURO.
  *
  * Decide a qué pedido pertenece un archivo que llegó por WhatsApp, y —cuando no
- * puede decidirlo con confianza— lo dice explícitamente en vez de adivinar. Un
- * comprobante mal asociado es peor que uno sin asociar: el primero confirma el
- * pago de otra persona.
+ * puede decidirlo con confianza— lo dice explícitamente en vez de adivinar.
+ *
+ * ── Lo que "no asociar" costaba de verdad (03-09-2026) ──────────────────────
+ *
+ * La regla original era "un comprobante mal asociado es peor que uno sin
+ * asociar: el primero confirma el pago de otra persona". La segunda mitad de esa
+ * frase es falsa, y hasta hoy nadie la había mirado de cerca: los candidatos
+ * salen todos de `customer_phone`, así que la ambigüedad SIEMPRE es entre
+ * pedidos del MISMO cliente. No hay ninguna otra persona a la que pagarle.
+ *
+ * Y no asociar no era neutral. Un comprobante con `order_id = null` no aparece
+ * en ninguna pantalla: la cocina filtra el pedido por "todavía no llegó el
+ * comprobante", y el panel del encargado busca los comprobantes por `order_id`.
+ * El cliente pagaba, el archivo se guardaba, y el pedido no existía para nadie.
+ *
+ * Pasó con `ORD-260903-001`: el cliente tenía otros dos pedidos suyos abiertos
+ * de esa misma jornada, así que su pago quedó `ambiguous` y su pedido nunca
+ * llegó a la cocina. Con un cliente que repite —y repiten casi todos— el caso
+ * no es raro: es lo normal en la segunda visita.
+ *
+ * Así que ante varios pedidos del mismo cliente ya no se calla: se elige el
+ * destino más probable, se registra que hubo ambigüedad, y quien revisa el
+ * comprobante decide como con cualquier otro. Equivocar el pedido de un cliente
+ * es un error visible en el monto y reversible con un botón; perder el pago no
+ * lo nota nadie hasta que el cliente llama.
  *
  * ── Por qué existe `routing_exception` además de `association_method` ───────
  *
@@ -124,13 +146,56 @@ function isOpenForPayment(
 }
 
 /**
+ * ¿A este pedido se le llegó a mandar el QR?
+ *
+ * El QR sale con la cotización, o sea al pasar a `confirmed`. Un pedido que
+ * todavía espera la ubicación no tiene ni cifra que pagar ni QR que escanear,
+ * así que un comprobante no puede ser suyo — y sin embargo contaba igual que
+ * los demás a la hora de declarar la ambigüedad.
+ */
+function yaRecibioQr(order: ProofCandidateOrder): boolean {
+  return order.status !== 'awaiting_location';
+}
+
+/**
+ * Entre varios pedidos abiertos del MISMO cliente, a cuál va el comprobante.
+ *
+ * Dos criterios, en este orden:
+ *
+ *   1. Los que ya recibieron el QR ganan a los que aún no. No es una
+ *      preferencia: un pedido sin QR no se puede pagar.
+ *   2. Entre ellos, el más recientemente abierto —`confirmed_at`, que es
+ *      cuando salió su QR—. Quien acaba de recibir un QR y manda una foto está
+ *      pagando ESE pedido, no uno de hace doce horas.
+ *
+ * Es una elección, no una certeza, y por eso el método sigue siendo
+ * `ambiguous`: queda escrito en la fila que aquí hubo más de un candidato, y se
+ * puede auditar después con una consulta. Lo que cambia es que el comprobante
+ * llega a una pantalla donde alguien lo mira.
+ *
+ * Una fecha ilegible va al fondo: nunca puede ganarle a una que sí se lee.
+ */
+function destinoMasProbable(open: ProofCandidateOrder[]): ProofCandidateOrder {
+  const cuando = (o: ProofCandidateOrder): number => {
+    const ms = Date.parse(o.openedAt);
+    return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+  };
+  return open.reduce((mejor, actual) => {
+    const qrActual = yaRecibioQr(actual);
+    const qrMejor = yaRecibioQr(mejor);
+    if (qrActual !== qrMejor) return qrActual ? actual : mejor;
+    return cuando(actual) > cuando(mejor) ? actual : mejor;
+  });
+}
+
+/**
  * Decide la asociación de un comprobante.
  *
  * Precedencia:
  *   1. Duplicado por contenido — se registra como tal y NO alimenta un intento.
  *   2. Respuesta al QR — la señal más fuerte: el cliente dijo a qué pedido va.
  *   3. Un único pedido QR abierto — inequívoco por descarte.
- *   4. Varios candidatos — ambiguo; lo resuelve una persona.
+ *   4. Varios candidatos — se elige el más probable y se marca `ambiguous`.
  *   5. Ninguno — sin resolver.
  */
 export function decideAssociation(input: AssociationInput): AssociationDecision {
@@ -203,12 +268,20 @@ export function decideAssociation(input: AssociationInput): AssociationDecision 
   }
 
   if (open.length > 1) {
+    // Se abre intento igual que con un destino inequívoco, y a propósito: sin
+    // intento, el pedido entra al tablero pero su puerta se queda cerrada
+    // (`no_proof`) y no hay ningún botón con el que aceptar el pago. Sería
+    // enseñar el problema sin dar la herramienta para resolverlo.
+    //
+    // Quien revisa contrasta el comprobante contra "A cobrar por QR", que es lo
+    // mismo que hace siempre; si el monto no cuadra, lo rechaza. La elección de
+    // aquí no decide nada por él: le pone el archivo delante.
     return {
-      orderId: null,
+      orderId: destinoMasProbable(open).orderId,
       method: 'ambiguous',
       routingException: null,
       duplicateOfProofId: null,
-      attemptEligible: false,
+      attemptEligible: true,
     };
   }
 

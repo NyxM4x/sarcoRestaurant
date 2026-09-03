@@ -32,7 +32,10 @@ function fakeSource(opts: FakeOptions = {}) {
   return { source, calls, bounds };
 }
 
-const row = (status: OrderStatus): RawKitchenOrderRow => ({
+const row = (
+  status: OrderStatus,
+  over: Partial<RawKitchenOrderRow> = {},
+): RawKitchenOrderRow => ({
   id: 'id-1',
   order_number: 'ORD-000001',
   status,
@@ -41,20 +44,74 @@ const row = (status: OrderStatus): RawKitchenOrderRow => ({
   created_at: new Date(NOW - 600_000).toISOString(),
   confirmed_at: null,
   updated_at: new Date(NOW).toISOString(),
+  ...over,
 });
 
+/**
+ * Un pedido hecho a las 09:10 hora de Bolivia del mismo día del calendario.
+ *
+ * Antes del corte del mediodía, así que pertenece a la JORNADA ANTERIOR aunque
+ * el cliente lo escribiera esta mañana. Es el caso exacto de `ORD-260902-036`.
+ */
+const ESTA_MANANA = '2026-08-22T13:10:00.000Z';
+
 describe('repositorio de cocina — lectura del tablero', () => {
-  it('acota la consulta a la jornada de SERVICIO y devuelve el reloj del servidor', async () => {
+  it('consulta desde la jornada ANTERIOR y devuelve el reloj del servidor', async () => {
     // NOW = 18:00 UTC = 14:00 en Bolivia, ya pasado el corte del mediodía: la
     // jornada vigente empezó ese mismo día a las 12:00 local (16:00 UTC).
     //
     // Antes esto cortaba por medianoche UTC —las 20:00 hora de Bolivia— y el
     // tablero perdía cada noche los pedidos de las dos primeras horas del
     // servicio justo al dar las 20:00, con la comida todavía sin salir.
+    //
+    // Y desde el 03-09-2026 la ventana empieza una jornada antes: el corte se
+    // aplica al filtrar, no al consultar, para poder distinguir un pedido vivo
+    // de anoche de uno ya despachado. Ver `getBoard`.
     const { source, bounds } = fakeSource({ rows: [row('confirmed')] });
     const board = await createKitchenRepository(source).getBoard(NOW);
     expect(board.serverNow).toBe(NOW);
-    expect(bounds[0].since).toBe('2026-08-22T16:00:00.000Z');
+    expect(bounds[0].since).toBe('2026-08-21T16:00:00.000Z');
+    // Abierto por el final: un pedido recién entrado no puede quedarse fuera
+    // por un desfase de reloj.
+    expect(bounds[0].until).toBeNull();
+    expect(board.tickets).toHaveLength(1);
+  });
+
+  it('un pedido VIVO de la jornada anterior sigue en el tablero, y se dice', async () => {
+    // El fallo que trajo esto: `ORD-260902-036`, pedido y pagado a las 09:10 —
+    // antes del corte del mediodía, con el local cerrado—. Se le prometió que
+    // sería el primero en salir al abrir a las 18:00, y a esa hora el KDS ya no
+    // lo tenía: había cambiado la jornada y con ella la ventana del tablero.
+    const { source } = fakeSource({
+      rows: [row('confirmed', { created_at: ESTA_MANANA })],
+    });
+    const board = await createKitchenRepository(source).getBoard(NOW);
+    expect(board.tickets).toHaveLength(1);
+    expect(board.tickets[0].fromPreviousDay).toBe(true);
+  });
+
+  it('lo YA LISTO de la jornada anterior no vuelve a "Pedidos listos"', async () => {
+    // El historial dice "completados hoy" y tiene que seguir diciendo la verdad:
+    // arrastrar los de anoche lo convertiría en otra cosa. Solo vuelve lo que
+    // todavía no ha salido de cocina.
+    const { source } = fakeSource({
+      rows: [row('ready', { created_at: ESTA_MANANA })],
+    });
+    const board = await createKitchenRepository(source).getBoard(NOW);
+    expect(board.tickets).toEqual([]);
+  });
+
+  it('lo de esta jornada no se marca como arrastrado', async () => {
+    const { source } = fakeSource({ rows: [row('confirmed')] });
+    const board = await createKitchenRepository(source).getBoard(NOW);
+    expect(board.tickets[0].fromPreviousDay).toBeUndefined();
+  });
+
+  it('una fecha de creación ilegible NO saca el pedido del tablero', async () => {
+    // Ante la duda, entra: ver una comanda de más es molesto, perderla no se
+    // recupera.
+    const { source } = fakeSource({ rows: [row('ready', { created_at: 'no-es-fecha' })] });
+    const board = await createKitchenRepository(source).getBoard(NOW);
     expect(board.tickets).toHaveLength(1);
   });
 });

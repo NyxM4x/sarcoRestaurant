@@ -23,6 +23,10 @@ import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
 import { isReviewDecision, type ReviewResult } from '@/lib/payment-proof/review-result';
 import { sweepExpiredOrders } from '@/lib/payment-proof/expiry-service';
+import {
+  openAttemptForLooseProof,
+  type LooseProofOutcome,
+} from '@/lib/payment-proof/loose-proof-service';
 import { createMenuRepository } from '@/lib/menu';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import {
@@ -125,6 +129,33 @@ export async function reviewPaymentAttemptAction(
   }
 
   const result = await decidePaymentAttempt(attemptId, decision);
+  if (result.ok) revalidatePath('/dashboard');
+  return result;
+}
+
+/**
+ * Pone en revisión un comprobante que quedó SUELTO (03-09-2026).
+ *
+ * Un comprobante unido a su pedido pero sin intento —un reenvío marcado como
+ * duplicado, o una excepción de enrutado— se veía en pantalla y no había forma
+ * de aceptarlo: no existía ningún botón capaz de abrirle revisión. La única
+ * salida era borrar el pedido y cobrar por WhatsApp, y así se perdió un pago
+ * bueno de un cliente que solo había mandado su comprobante dos veces.
+ *
+ * Mismo permiso que decidir un pago —`canReviewPayments`, que incluye a
+ * cocina— porque es el paso previo de la misma decisión y lo pulsa la misma
+ * persona, con el comprobante delante.
+ *
+ * NO acepta el pago ni avisa a nadie: solo hace aparecer CONFIRMAR y RECHAZAR.
+ */
+export async function reviewLooseProofAction(proofId: string): Promise<LooseProofOutcome> {
+  const role = await currentSessionRole();
+  if (role === null || !canReviewPayments(role)) return { ok: false, reason: 'error' };
+  if (typeof proofId !== 'string' || !UUID_RE.test(proofId)) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const result = await openAttemptForLooseProof(proofId);
   if (result.ok) revalidatePath('/dashboard');
   return result;
 }

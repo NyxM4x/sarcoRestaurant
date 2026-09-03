@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState, useTransition } from 'react';
-import { reviewPaymentAttemptAction } from '@/app/dashboard/actions';
+import { reviewLooseProofAction, reviewPaymentAttemptAction } from '@/app/dashboard/actions';
 import type { AttemptView, PaymentView, ProofView } from '@/lib/dashboard/attempt-review';
 import {
   NOTIFICATION_FAILED_NOTICE,
@@ -103,11 +103,18 @@ export function KitchenPaymentPanel({
 
       {/* Comprobantes que llegaron pero no se pudieron asociar a este intento.
           Se muestran igualmente: es la señal de que algo llegó y alguien tiene
-          que mirarlo, que es justo lo que se perdía cuando no se pintaban. */}
+          que mirarlo, que es justo lo que se perdía cuando no se pintaban.
+
+          Y desde el 03-09-2026 traen su propio botón. Verlos sin poder hacer
+          nada con ellos era peor que no verlos: un cliente reenvió su
+          comprobante —había pagado de más y quería avisarlo—, el reenvío entró
+          como duplicado, y quien cocinaba se quedó con el archivo delante y
+          ningún botón para aceptar el pago. El pedido acabó borrándose y
+          cobrándose por WhatsApp a mano. */}
       {sueltos.length > 0 && (
         <ul className="mt-1.5 space-y-1">
           {sueltos.map((p) => (
-            <ProofRow key={p.id} proof={p} />
+            <ProofRow key={p.id} proof={p} onReviewed={onDecided} />
           ))}
         </ul>
       )}
@@ -260,12 +267,29 @@ function AttemptBlock({
   );
 }
 
+/** Qué decir cuando la revisión no se pudo abrir. Cada motivo, su frase. */
+const LOOSE_ERRORS: Record<string, string> = {
+  not_found: 'No se encontró este comprobante. Recarga el tablero.',
+  no_order: 'Este comprobante no está unido a ningún pedido.',
+  already_linked: 'Ya estaba en revisión. Recarga el tablero.',
+  already_paid: 'Este pedido ya tiene un pago aceptado.',
+  error: 'No se pudo abrir la revisión. Intenta de nuevo.',
+};
+
 /**
  * Un comprobante. Sin miniatura a propósito: en el KDS el espacio del ticket es
  * para los platos, y una foto de comprobante no se juzga en 80 píxeles. El botón
  * abre el archivo a tamaño completo por el endpoint autenticado.
+ *
+ * `onReviewed` solo llega en los comprobantes SUELTOS —los que no pertenecen a
+ * ningún episodio de revisión— y es lo que los saca del callejón sin salida:
+ * abre el intento sobre el pedido que el comprobante ya tenía y hace aparecer
+ * CONFIRMAR y RECHAZAR. No acepta el pago: eso lo sigue decidiendo quien mira.
  */
-function ProofRow({ proof }: { proof: ProofView }) {
+function ProofRow({ proof, onReviewed }: { proof: ProofView; onReviewed?: () => void }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
   if (!proof.isAvailable) {
     return (
       <li className="flex items-center gap-1.5 rounded bg-red-50 px-2 py-1">
@@ -278,6 +302,18 @@ function ProofRow({ proof }: { proof: ProofView }) {
       </li>
     );
   }
+
+  const revisar = () => {
+    setError(null);
+    start(async () => {
+      const res = await reviewLooseProofAction(proof.id);
+      // Tras un conflicto también se refresca: puede que otro lo haya puesto en
+      // revisión un segundo antes, y entonces lo que hay que ver es el estado
+      // real y no un error.
+      if (res.ok || res.reason === 'already_linked') onReviewed?.();
+      if (!res.ok) setError(LOOSE_ERRORS[res.reason] ?? LOOSE_ERRORS.error);
+    });
+  };
 
   return (
     <li>
@@ -292,6 +328,27 @@ function ProofRow({ proof }: { proof: ProofView }) {
           <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px]">Duplicado</span>
         )}
       </a>
+
+      {onReviewed && (
+        <>
+          {/* Dice lo que va a pasar, no lo que es: "poner en revisión" deja al
+              cocinero adivinando si eso cobra algo. Esto no cobra nada — hace
+              aparecer los botones con los que él decide. */}
+          <button
+            type="button"
+            disabled={pending}
+            onClick={revisar}
+            className="mt-1 h-11 w-full rounded-lg border-2 border-emerald-600 text-xs font-extrabold uppercase tracking-wide text-emerald-800 active:bg-emerald-50 disabled:opacity-50"
+          >
+            {pending ? 'Abriendo…' : 'Usar este comprobante'}
+          </button>
+          {error && (
+            <p role="alert" className="mt-1 text-[11px] font-bold leading-tight text-red-700">
+              {error}
+            </p>
+          )}
+        </>
+      )}
     </li>
   );
 }

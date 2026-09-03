@@ -149,8 +149,21 @@ export type DeliveryCollect = DeliveryCollectKind & {
    *
    * Solo cuando la instrucción NO está confirmada por una lectura: si el
    * comprobante dice con claridad qué pagó, un botón al lado solo invita a
-   * contradecir un dato bueno. Una marca de persona ya puesta SÍ se puede
-   * cambiar — quien se equivoca tiene que poder corregirse.
+   * contradecir un dato bueno.
+   *
+   * ── Y solo ANTES de aceptar el comprobante (03-09-2026) ────────────────────
+   *
+   * Aceptar el pago es el instante en que sale el aviso al grupo de reparto
+   * (`decide-attempt`), y ese mensaje lleva dentro esta misma instrucción. A
+   * partir de ahí la marca deja de ser una nota de pantalla: es lo que ya está
+   * escrito en el teléfono de quien reparte, y cambiarla en el KDS no cambia el
+   * mensaje —solo hace que las dos pantallas digan cosas distintas del mismo
+   * pedido, con el repartidor en la puerta—.
+   *
+   * Los botones vivían además en "Pedidos listos", que es la pantalla que queda
+   * abierta mientras se empaca: dos botones grandes uno al lado del otro, sobre
+   * un pedido ya cerrado, a un toque de decir que no se cobre un envío que sí
+   * hay que cobrar. Después de aceptar, esto es un TÍTULO y no un control.
    */
   canOverride: boolean;
 };
@@ -217,6 +230,18 @@ export interface KitchenTicket {
    * efectivo se cobre todo es una consecuencia, no el dato.
    */
   deliveryCollect: DeliveryCollect | null;
+  /**
+   * ¿Este pedido viene de una jornada anterior? (03-09-2026)
+   *
+   * Lo pone `getBoard`, que es quien conoce la ventana: aquí no hay noción de
+   * jornada. Ausente —el caso normal— significa "es de hoy".
+   *
+   * Existe porque el número que se pinta en el grid va sin la fecha
+   * (`ORD-036`), así que un pedido arrastrado de anoche y uno de esta noche se
+   * ven idénticos. La marca es lo que impide que rescatar un pedido perdido
+   * cree una confusión nueva delante de la plancha.
+   */
+  fromPreviousDay?: boolean;
 }
 
 /**
@@ -255,7 +280,23 @@ function esperandoConfirmacionDePago(
 ): boolean {
   if (row.payment_method !== 'qr') return false;
   if (payment === null) return true;
-  return !payment.attempts.some((a) => a.status === 'accepted');
+  return !pagoAceptadoDe(payment);
+}
+
+/**
+ * ¿Consta un comprobante ACEPTADO para este pedido?
+ *
+ * ALGÚN intento aceptado, no el último: aceptar es irreversible en lo que a
+ * este archivo respecta —el aviso al grupo de reparto ya salió— y un
+ * comprobante posterior no lo deshace.
+ *
+ * Se pregunta desde dos sitios y por motivos distintos: si el pedido sigue
+ * esperando confirmación para el resumen, y si la instrucción de cobro ya está
+ * congelada. Es la misma pregunta, así que es la misma función.
+ */
+function pagoAceptadoDe(payment: PaymentView | null): boolean {
+  if (payment === null) return false;
+  return payment.attempts.some((a) => a.status === 'accepted');
 }
 
 /**
@@ -395,8 +436,19 @@ function etiquetaDelPago(payment: PaymentView | null): ProofAmountLabelView | nu
 export function deliveryCollectOf(
   row: RawKitchenOrderRow,
   etiqueta: ProofAmountLabelView | null,
+  /**
+   * ¿Hay ya un comprobante ACEPTADO para este pedido?
+   *
+   * Cierra la marca a mano: ver `canOverride`. Por defecto `false` —"no consta
+   * que se haya aceptado"— para que quien llame sin saberlo, como el aviso al
+   * grupo de reparto, se comporte exactamente como antes.
+   */
+  pagoAceptado = false,
 ): DeliveryCollect | null {
   if (row.delivery_type !== 'delivery') return null;
+
+  /** Aceptado el pago, la instrucción es un título y ya no un control. */
+  const sePuedeMarcar = !pagoAceptado;
 
   const total = Number(row.total_amount) || 0;
   const subtotal = Number(row.subtotal_amount) || 0;
@@ -417,15 +469,20 @@ export function deliveryCollectOf(
   // 1. La palabra de quien miró el comprobante. Gana sobre todo lo demás, y se
   //    puede volver a cambiar: quien se equivoca tiene que poder corregirse.
   if (row.delivery_fee_paid === true) {
-    return { kind: 'pagado', basis: 'persona', canOverride: true };
+    return { kind: 'pagado', basis: 'persona', canOverride: sePuedeMarcar };
   }
   if (row.delivery_fee_paid === false) {
     const deducido = segunElPedido();
     // Marcar "hay que cobrarlo" sobre un pedido sin importes no inventa cifra:
     // se dice lo que se sabe, que es que falta el envío.
     return deducido !== null && deducido.kind !== 'pagado'
-      ? { ...deducido, basis: 'persona', canOverride: true }
-      : { kind: 'envio', amount: envio > 0 ? envio : 0, basis: 'persona', canOverride: true };
+      ? { ...deducido, basis: 'persona', canOverride: sePuedeMarcar }
+      : {
+          kind: 'envio',
+          amount: envio > 0 ? envio : 0,
+          basis: 'persona',
+          canOverride: sePuedeMarcar,
+        };
   }
 
   // 2. Lo que leyó el análisis. Un pago por el total cubre el envío aunque la
@@ -444,8 +501,11 @@ export function deliveryCollectOf(
   }
 
   // 4. Lo que queda —sin etiqueta, o `revisar_monto`— es una deducción. Se dice
-  //    igual, pero marcada como tal y con el botón para zanjarla.
-  return { ...deducido, basis: 'pedido', canOverride: true };
+  //    igual, pero marcada como tal y con el botón para zanjarla mientras el
+  //    pago siga en revisión. Aceptado el comprobante, la deducción ya viajó al
+  //    grupo de reparto: se congela con su aviso de "sin confirmar" a la vista,
+  //    que es exactamente lo que el repartidor tiene escrito.
+  return { ...deducido, basis: 'pedido', canOverride: sePuedeMarcar };
 }
 
 export function toKitchenTickets(
@@ -501,7 +561,15 @@ export function toKitchenTickets(
       // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
       gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
       amountLabel: etiqueta,
-      deliveryCollect: deliveryCollectOf(row, etiqueta),
+      // Sin haber podido consultar los pagos no se afirma que el comprobante
+      // esté aceptado, así que la marca sigue disponible: congelar por un fallo
+      // de consulta dejaría a quien empaca sin forma de corregir una deducción
+      // equivocada, que es lo contrario de lo que este candado protege.
+      deliveryCollect: deliveryCollectOf(
+        row,
+        etiqueta,
+        pagosConsultados && pagoAceptadoDe(payment),
+      ),
     });
   }
   return sortByAge(tickets);
