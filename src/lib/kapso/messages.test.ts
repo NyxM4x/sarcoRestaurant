@@ -5,6 +5,7 @@ import {
   buildMenuCtaPayload,
   buildTextPayload,
   buildWebLocationRequestBodyText,
+  LOCATION_HOW_TO_TEXT,
   LOCATION_REQUEST_BODY_TEXT,
   MENU_CTA_BODY_TEXT,
   menuCtaBodyText,
@@ -48,18 +49,16 @@ describe('buildTextPayload', () => {
 });
 
 describe('buildLocationRequestPayload', () => {
-  it('sin bodyText usa EXACTAMENTE el copy actual del WhatsApp Flow', () => {
+  it('sin bodyText usa el copy del WhatsApp Flow más las instrucciones', () => {
     const payload = buildLocationRequestPayload('59170000001');
     expect(payload).toEqual({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: '59170000001',
-      type: 'interactive',
-      interactive: {
-        type: 'location_request_message',
-        body: { text: LOCATION_REQUEST_BODY_TEXT },
-        action: { name: 'send_location' },
-      },
+      type: 'text',
+      text: { body: `${LOCATION_REQUEST_BODY_TEXT}
+
+${LOCATION_HOW_TO_TEXT}` },
     });
     // Blindaje del copy por defecto: no debe cambiar.
     expect(LOCATION_REQUEST_BODY_TEXT).toBe(
@@ -67,18 +66,32 @@ describe('buildLocationRequestPayload', () => {
     );
   });
 
-  it('con el copy web cambia solo el texto del cuerpo', () => {
-    const payload = buildLocationRequestPayload('59170000001', WEB_LOCATION_REQUEST_BODY_TEXT);
-    expect(payload.interactive.body.text).toBe(WEB_LOCATION_REQUEST_BODY_TEXT);
+  it('ya NO manda el botón interactivo', () => {
+    // El botón `send_location` daba problemas en el último paso del flujo. Se
+    // puede quitar porque el pin sin contexto ya lo recoge `attachLooseLocation`
+    // y lo adjunta al pedido que estaba esperando ubicación.
+    const serializado = JSON.stringify(buildLocationRequestPayload('59170000001'));
+    expect(serializado).not.toContain('interactive');
+    expect(serializado).not.toContain('location_request_message');
+    expect(serializado).not.toContain('send_location');
   });
 
-  it('interactive.type y action.name permanecen intactos con y sin bodyText', () => {
-    const def = buildLocationRequestPayload('59170000001');
-    const web = buildLocationRequestPayload('59170000001', WEB_LOCATION_REQUEST_BODY_TEXT);
-    for (const payload of [def, web]) {
-      expect(payload.type).toBe('interactive');
-      expect(payload.interactive.type).toBe('location_request_message');
-      expect(payload.interactive.action.name).toBe('send_location');
+  it('con el copy web cambia solo el texto de delante', () => {
+    const payload = buildLocationRequestPayload('59170000001', WEB_LOCATION_REQUEST_BODY_TEXT);
+    expect(payload.text.body).toBe(`${WEB_LOCATION_REQUEST_BODY_TEXT}
+
+${LOCATION_HOW_TO_TEXT}`);
+  });
+
+  it('las instrucciones van en LOS DOS caminos, no solo en el web', () => {
+    // Se añaden en el builder y no en cada copy justamente para esto: un camino
+    // nuevo no puede nacer sin ellas.
+    for (const payload of [
+      buildLocationRequestPayload('59170000001'),
+      buildLocationRequestPayload('59170000001', WEB_LOCATION_REQUEST_BODY_TEXT),
+    ]) {
+      expect(payload.type).toBe('text');
+      expect(payload.text.body).toContain('ENVIAR UBICACIÓN ACTUAL');
     }
   });
 
@@ -113,11 +126,12 @@ describe('buildWebLocationRequestBodyText', () => {
   });
 
   it('no altera el copy del WhatsApp Flow', () => {
-    // El flujo del Flow no pasa bodyText: conserva su texto original.
+    // El flujo del Flow no pasa bodyText: conserva su texto original, con las
+    // instrucciones detrás y sin nada del pedido.
     const flow = buildLocationRequestPayload('59170000001');
-    expect(flow.interactive.body.text).toBe(LOCATION_REQUEST_BODY_TEXT);
-    expect(flow.interactive.body.text).not.toContain('Pedido');
-    expect(flow.interactive.body.text).not.toContain('ORD-');
+    expect(flow.text.body).toContain(LOCATION_REQUEST_BODY_TEXT);
+    expect(flow.text.body).not.toContain('Pedido');
+    expect(flow.text.body).not.toContain('ORD-');
   });
 });
 

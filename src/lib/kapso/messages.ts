@@ -27,14 +27,35 @@ export function buildWebLocationRequestBodyText(orderNumber: string): string {
 }
 
 /**
- * Payload exacto del location_request_message (formato Kapso/WhatsApp Cloud).
+ * Cómo se manda la ubicación, dicho paso a paso.
  *
- * `bodyText` es opcional y solo cambia `interactive.body.text`; cuando se omite
- * (undefined) se conserva EXACTAMENTE el texto del WhatsApp Flow. Si se pasa
- * explícitamente, no puede estar vacío ni ser solo espacios. La forma del
- * payload (`interactive.type = 'location_request_message'`,
- * `action.name = 'send_location'`) no varía. `toDigits` se espera ya normalizado
- * (lo hace el transporte).
+ * Nombra la opción con las palabras EXACTAS que WhatsApp pinta en pantalla
+ * —"Enviar ubicación actual"— porque una instrucción que hay que traducir a lo
+ * que se ve es una instrucción que no se sigue.
+ */
+export const LOCATION_HOW_TO_TEXT =
+  'Toca el clip 📎 → Ubicación → ENVIAR UBICACIÓN ACTUAL';
+
+/**
+ * Petición de ubicación, como MENSAJE DE TEXTO.
+ *
+ * ── Por qué ya no lleva el botón ─────────────────────────────────────
+ *
+ * Era un `interactive.location_request_message` con su botón `send_location`, y
+ * el botón daba problemas en el último paso del flujo (03-09-2026): el cliente
+ * se quedaba ahí y el pedido nunca llegaba a cotizarse. Ahora es texto plano con
+ * las instrucciones dentro.
+ *
+ * Quitarlo NO rompe la correlación, y esa es la razón de que se pueda quitar.
+ * El camino bueno sigue siendo `context.id` —el wamid de ESTE mensaje— cuando el
+ * cliente responde citándolo; y cuando manda el pin con el clip, sin citar nada,
+ * lo recoge `attachLooseLocation`, que busca un pedido en `awaiting_location` de
+ * ese teléfono y le adjunta las coordenadas. Ese camino existe desde 0028
+ * justamente porque mucha gente ya ignoraba el botón.
+ *
+ * `bodyText` mantiene su significado: omitido, el copy del WhatsApp Flow;
+ * pasado, el del checkout web. Las instrucciones se añaden AQUÍ y no en cada
+ * copy, para que ningún camino pueda quedarse sin ellas.
  */
 export function buildLocationRequestPayload(
   toDigits: string,
@@ -43,21 +64,7 @@ export function buildLocationRequestPayload(
   if (bodyText.trim() === '') {
     throw new Error('buildLocationRequestPayload: bodyText must not be empty');
   }
-  return {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: toDigits,
-    type: 'interactive',
-    interactive: {
-      type: 'location_request_message',
-      body: {
-        text: bodyText,
-      },
-      action: {
-        name: 'send_location',
-      },
-    },
-  } as const;
+  return buildTextPayload(toDigits, bodyText + '\n\n' + LOCATION_HOW_TO_TEXT);
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createKapsoTransport } from './transport';
 import {
   buildWebLocationRequestBodyText,
+  LOCATION_HOW_TO_TEXT,
   LOCATION_REQUEST_BODY_TEXT,
   MENU_CTA_BODY_TEXT,
   MENU_CTA_BUTTON_TEXT,
@@ -46,7 +47,7 @@ function fakeFetch(status: number, jsonBody: unknown, captured?: Captured[]) {
 }
 
 describe('createKapsoTransport.sendLocationRequest', () => {
-  it('envía el payload EXACTO de location_request_message y devuelve el wamid', async () => {
+  it('envía la petición de ubicación como TEXTO y devuelve el wamid', async () => {
     const captured: Captured[] = [];
     const client = createKapsoTransport({
       ...CONFIG,
@@ -64,17 +65,16 @@ describe('createKapsoTransport.sendLocationRequest', () => {
     expect(captured[0].method).toBe('POST');
     expect(captured[0].headers['x-api-key']).toBe('test-api-key');
     expect(captured[0].headers['content-type']).toBe('application/json');
-    // Payload exacto confirmado por Kapso Support.
+    // Ya no es el interactivo: el botón `send_location` se retiró porque
+    // atascaba el último paso del flujo. Va el copy y, debajo, cómo mandarla.
     expect(captured[0].body).toEqual({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: '59170000001',
-      type: 'interactive',
-      interactive: {
-        type: 'location_request_message',
-        body: { text: LOCATION_REQUEST_BODY_TEXT },
-        action: { name: 'send_location' },
-      },
+      type: 'text',
+      text: { body: `${LOCATION_REQUEST_BODY_TEXT}
+
+${LOCATION_HOW_TO_TEXT}` },
     });
   });
 
@@ -390,12 +390,10 @@ describe('createKapsoTransport.sendLocationRequest — opciones (Fase 5.2D)', ()
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: '59170000001',
-      type: 'interactive',
-      interactive: {
-        type: 'location_request_message',
-        body: { text: LOCATION_REQUEST_BODY_TEXT },
-        action: { name: 'send_location' },
-      },
+      type: 'text',
+      text: { body: `${LOCATION_REQUEST_BODY_TEXT}
+
+${LOCATION_HOW_TO_TEXT}` },
     });
   });
 
@@ -412,7 +410,7 @@ describe('createKapsoTransport.sendLocationRequest — opciones (Fase 5.2D)', ()
     );
   });
 
-  it('propaga bodyText personalizado sin alterar type ni action.name', async () => {
+  it('propaga bodyText personalizado y conserva las instrucciones', async () => {
     const captured: Captured[] = [];
     const client = createKapsoTransport({
       ...CONFIG,
@@ -424,12 +422,10 @@ describe('createKapsoTransport.sendLocationRequest — opciones (Fase 5.2D)', ()
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: '59170000001',
-      type: 'interactive',
-      interactive: {
-        type: 'location_request_message',
-        body: { text: WEB_LOCATION_REQUEST_BODY_TEXT },
-        action: { name: 'send_location' },
-      },
+      type: 'text',
+      text: { body: `${WEB_LOCATION_REQUEST_BODY_TEXT}
+
+${LOCATION_HOW_TO_TEXT}` },
     });
   });
 
