@@ -645,3 +645,92 @@ describe('ticket — la instrucción de cobro se congela al aceptar el pago (03-
     expect(cobro('accepted', {}, false)?.canOverride).toBe(true);
   });
 });
+
+describe('ticket — un pago rechazado saca la comanda del tablero (03-09-2026)', () => {
+  /**
+   * Rechazar ya bloqueaba INICIAR, pero el ticket se quedaba ocupando su celda
+   * con el cartel de por qué no se podía cocinar. En hora punta es una comanda
+   * muerta entre las vivas: se lee, se interpreta y se descarta una y otra vez,
+   * por cada persona que pasa por la pantalla.
+   */
+  const AHORA = Date.parse('2026-09-03T22:00:00.000Z');
+  const haceMinutos = (n: number) => new Date(AHORA - n * 60_000).toISOString();
+
+  const rechazado = (reviewedAt: string) =>
+    ({
+      attempts: [
+        {
+          id: 'a1',
+          status: 'rejected',
+          reviewedAt,
+          proofs: [{ id: 'p1', receivedAt: reviewedAt, amountLabel: null }],
+        },
+      ],
+      unlinkedProofs: [],
+      hasPendingReview: false,
+    }) as never;
+
+  const tablero = (status: OrderStatus, reviewedAt: string, consultados = true) =>
+    toKitchenTickets(
+      [row('order-1', status, { payment_method: 'qr' })],
+      [],
+      { 'order-1': rechazado(reviewedAt) },
+      consultados,
+      AHORA,
+    );
+
+  it('dentro de la ventana de gracia ya no ocupa sitio', () => {
+    expect(tablero('confirmed', haceMinutos(1))).toEqual([]);
+  });
+
+  it('vencida la ventana, tampoco', () => {
+    expect(tablero('confirmed', haceMinutos(60))).toEqual([]);
+  });
+
+  it('pero NO se saca lo que ya está en la plancha', () => {
+    // Mismo criterio que el filtro de entrada: hacer desaparecer de la pantalla
+    // una hamburguesa que ya se está haciendo no la devuelve al refrigerador,
+    // solo deja a quien cocina sin saber qué estaba haciendo.
+    const tickets = tablero('preparing', haceMinutos(1));
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0].stage).toBe('in_progress');
+  });
+
+  it('si no se pudieron consultar los pagos, la comanda se queda', () => {
+    // La puerta lee `unknown` y abre: un fallo de consulta no puede vaciar el
+    // tablero. Es el mismo criterio de todo el archivo.
+    expect(tablero('confirmed', haceMinutos(1), false)).toHaveLength(1);
+  });
+
+  it('el pedido sigue vivo en la base: esto es la VISTA, no una cancelación', () => {
+    // La comanda vuelve sola en cuanto el cliente reenvía y se abre un intento
+    // nuevo. Por eso se filtra al pintar y no se toca `orders.status`.
+    const conReenvio = toKitchenTickets(
+      [row('order-1', 'confirmed', { payment_method: 'qr' })],
+      [],
+      {
+        'order-1': {
+          attempts: [
+            {
+              id: 'a2',
+              status: 'pending_review',
+              reviewedAt: null,
+              proofs: [{ id: 'p2', receivedAt: haceMinutos(0), amountLabel: null }],
+            },
+            {
+              id: 'a1',
+              status: 'rejected',
+              reviewedAt: haceMinutos(5),
+              proofs: [{ id: 'p1', receivedAt: haceMinutos(6), amountLabel: null }],
+            },
+          ],
+          unlinkedProofs: [],
+          hasPendingReview: true,
+        } as never,
+      },
+      true,
+      AHORA,
+    );
+    expect(conReenvio).toHaveLength(1);
+  });
+});

@@ -452,6 +452,18 @@ export interface PaymentProof {
   analysis_amount_label: ProofAmountLabel | null;
   /** Numero de transaccion leido. Reconoce el mismo pago en una captura nueva. */
   analysis_reference: string | null;
+  /**
+   * Lo que el modelo leyo como DESTINO del dinero (0034).
+   *
+   * Es contra esto que se emiten `account_mismatch`, `holder_mismatch` y
+   * `bank_mismatch`. Antes se tiraba en cuanto se emitia la acusacion, y sin
+   * ello un falso positivo solo se podia diagnosticar reabriendo la imagen.
+   *
+   * Solo el destino —quien COBRA—; el remitente no se guarda.
+   */
+  analysis_destination_account: string | null;
+  analysis_destination_holder: string | null;
+  analysis_destination_bank: string | null;
   analysis_model: string | null;
   analyzed_at: string | null;
   created_at: string;

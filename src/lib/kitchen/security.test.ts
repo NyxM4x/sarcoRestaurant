@@ -205,9 +205,28 @@ describe('seguridad — la cocina no altera notificaciones ni alertas', () => {
 
 describe('pantalla de cocina — accesibilidad y toque', () => {
   it('el color nunca comunica solo: la tarjeta acompaña con texto', () => {
+    /*
+      La cabecera codifica la etapa con color —ámbar nuevo, azul en
+      preparación, rojo atrasado— así que la etapa tiene que poder leerse sin
+      distinguir esos colores.
+
+      Hasta el 03-09-2026 eso lo garantizaba `STAGE_LABELS` en la cabecera.
+      Ahora esa línea lleva solo DELIVERY o RECOJO, al doble de tamaño: es el
+      dato que decide si el pedido se empaca para la moto o para el mostrador,
+      y compartía renglón con otras dos cosas a 12 px.
+
+      La etapa no se quedó sin texto. La dicen los BOTONES, que son fijos y
+      siempre visibles: INICIAR solo existe en un pedido nuevo, COMPLETAR y
+      RETORNAR mientras se cocina, DEVOLVER A COCINA cuando ya está listo. Por
+      eso lo que se exige aquí es que la tarjeta siga sacando sus botones de la
+      máquina de estados y no los escriba a mano.
+
+      Lo que NO puede perderse es la palabra de la alerta: el rojo de "atrasado"
+      no tiene ningún botón que lo diga.
+    */
     const card = componentSrc('KitchenTicketCard.tsx');
     expect(card).toContain('Atrasado');
-    expect(card).toContain('STAGE_LABELS');
+    expect(card).toContain('buttonsForStage');
     expect(card).toContain('aria-hidden="true"');
   });
 

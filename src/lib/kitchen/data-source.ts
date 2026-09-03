@@ -82,7 +82,8 @@ const KITCHEN_PROOF_COLUMNS =
   'id,source_message_id,order_id,attempt_id,association_method,routing_exception,' +
   'declared_mime_type,verified_mime_type,safe_filename,duplicate_of_id,' +
   'capture_status,received_at,analysis_status,analysis_verdict,analysis_reasons,' +
-  'analysis_amount_label';
+  'analysis_amount_label,analysis_destination_account,analysis_destination_holder,' +
+  'analysis_destination_bank';
 
 export function createSupabaseKitchenDataSource(
   client: SupabaseClient = getSupabaseAdmin(),

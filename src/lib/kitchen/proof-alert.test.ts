@@ -24,12 +24,22 @@ const SOSPECHOSO: ProofView['analysis'] = {
   verdict: 'suspicious',
   headline: 'Revisar este comprobante',
   reasons: ['Pagó menos de lo que debía'],
+  destination: null,
 };
 
 const ILEGIBLE: ProofView['analysis'] = {
   verdict: 'unreadable',
   headline: 'No se pudo leer el comprobante',
   reasons: ['No se pudo leer el comprobante'],
+  destination: null,
+};
+
+/** Uno cuya acusación es sobre el destino: trae lo que se leyó en la imagen. */
+const OTRO_DESTINO: ProofView['analysis'] = {
+  verdict: 'suspicious',
+  headline: 'Revisar este comprobante',
+  reasons: ['La cuenta que recibe el dinero NO es la nuestra'],
+  destination: 'MAMANI TERCEROS LUCIA · BNB · 4010775520',
 };
 
 function pago(proofs: ProofView[], over: Partial<PaymentView['attempts'][0]> = {}): PaymentView {
@@ -63,6 +73,8 @@ describe('aviso del análisis en el ticket', () => {
     expect(proofAlertOf(pago([proof('p1', SOSPECHOSO)]))).toEqual({
       headline: 'Revisar este comprobante',
       reasons: ['Pagó menos de lo que debía'],
+      // Sin acusación de destino no hay nada que mostrar (0034).
+      destination: null,
       tone: 'red',
     });
   });
@@ -194,5 +206,34 @@ describe('el aviso necesita que la CONSULTA traiga sus datos', () => {
     // convertirse en añadirlas todas.
     expect(columnas).not.toContain('storage_key');
     expect(columnas).not.toContain('storage_namespace');
+  });
+});
+
+describe('alerta — a quién dice que fue el dinero (0034)', () => {
+  /**
+   * La noche del 02→03-09-2026 salieron 24 comprobantes `suspicious` de 45, y
+   * ninguno era falso: se verificaron uno a uno con la banca móvil. Nueve
+   * acusaban al titular. Con la acusación sola —"el titular que cobra NO es el
+   * nuestro"— no hay forma de saber desde el ticket si el equivocado es el
+   * cliente o el filtro; hay que abrir la imagen para cada uno.
+   *
+   * El nombre leído lo resuelve de un vistazo, y es además lo que delata que el
+   * fallo es nuestro cuando el nombre que sale es el correcto.
+   */
+  it('el destino leído viaja hasta la alerta del ticket', () => {
+    const alerta = proofAlertOf(pago([proof('p1', OTRO_DESTINO)]));
+    expect(alerta?.destination).toBe('MAMANI TERCEROS LUCIA · BNB · 4010775520');
+  });
+
+  it('sin acusación de destino no se pinta nada', () => {
+    // Junto a un aviso de monto o de fecha, el titular sería ruido: no es lo
+    // que hay que comprobar.
+    const alerta = proofAlertOf(pago([proof('p1', SOSPECHOSO)]));
+    expect(alerta?.destination).toBeNull();
+  });
+
+  it('con varios comprobantes gana el primero que traiga destino', () => {
+    const alerta = proofAlertOf(pago([proof('p1', SOSPECHOSO), proof('p2', OTRO_DESTINO)]));
+    expect(alerta?.destination).toBe('MAMANI TERCEROS LUCIA · BNB · 4010775520');
   });
 });

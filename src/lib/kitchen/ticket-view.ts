@@ -539,6 +539,32 @@ export function toKitchenTickets(
     const payment = payments[row.id] ?? null;
     if (pagosConsultados && esperandoComprobante(row, stage, payment)) continue;
 
+    // Sin haber podido consultar los pagos se pasa `null`, que la puerta lee
+    // como `unknown`: abre y lo dice. Pasar la vista vacía diría "este pedido
+    // no ha pagado nada", que es una afirmación que nadie comprobó.
+    const gate = paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs);
+
+    // ── Un pago RECHAZADO saca la comanda del tablero (03-09-2026) ───────────
+    //
+    // Rechazar ya bloqueaba el botón de INICIAR, pero el ticket se quedaba
+    // ocupando su celda con un cartel de por qué no se podía cocinar. En hora
+    // punta eso es una comanda muerta en medio de las vivas: se lee, se
+    // interpreta y se descarta una y otra vez, por cada persona que pasa por la
+    // pantalla.
+    //
+    // Sale de la vista, NO de la base: el pedido sigue vivo su ventana de
+    // gracia, el cliente conserva los minutos que se le prometieron por
+    // WhatsApp, y si reenvía un comprobante bueno se abre un intento nuevo y la
+    // comanda vuelve sola. Cancelarlo aquí, en cambio, convertiría cada foto
+    // borrosa en trabajo manual por WhatsApp.
+    //
+    // Solo mientras está NUEVO, por el mismo motivo que el filtro de entrada:
+    // si la hamburguesa ya está en la plancha, hacerla desaparecer de la
+    // pantalla no la devuelve al refrigerador.
+    if (stage === 'new' && (gate.state === 'rejected_grace' || gate.state === 'expired')) {
+      continue;
+    }
+
     // Una sola vez: la usan la etiqueta y el cálculo de lo que se cobra.
     const etiqueta = etiquetaDelPago(payment);
 
@@ -556,10 +582,7 @@ export function toKitchenTickets(
       // trampa que ya evita el filtro de entrada de arriba.
       awaitingPaymentConfirmation: pagosConsultados && esperandoConfirmacionDePago(row, payment),
       payment,
-      // Sin haber podido consultar los pagos se pasa `null`, que la puerta lee
-      // como `unknown`: abre y lo dice. Pasar la vista vacía diría "este
-      // pedido no ha pagado nada", que es una afirmación que nadie comprobó.
-      gate: paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs),
+      gate,
       amountLabel: etiqueta,
       // Sin haber podido consultar los pagos no se afirma que el comprobante
       // esté aceptado, así que la marca sigue disponible: congelar por un fallo

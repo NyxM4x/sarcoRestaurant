@@ -78,6 +78,13 @@ describe('análisis — el recorrido completo', () => {
           amountLabel: 'pago_productos',
           reference: 'TX-1',
           model: 'gpt-4o-mini',
+          // Lo leído del destino se guarda aunque el veredicto sea `ok` (0034):
+          // cuando cuadra sirve para comprobar que el filtro mira lo que debe, y
+          // cuando no, es lo único con lo que se distingue un fallo de lectura
+          // de un alias que falta.
+          destinationAccount: '1234567890',
+          destinationHolder: 'DON ZARCO',
+          destinationBank: 'Banco Unión',
         },
       },
     ]);

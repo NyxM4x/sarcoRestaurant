@@ -190,3 +190,161 @@ describe('comprobantes reales — el de ayer reenviado hoy', () => {
     expect(j.reasons).toContain('stale_receipt');
   });
 });
+
+/**
+ * ── Los comprobantes de la noche del 02→03-09-2026 ──────────────────────────
+ *
+ * Estos SÍ son los de producción, y son los que explicaron por qué de 45
+ * comprobantes salieron 24 sospechosos sin que ninguno lo fuera —se verificaron
+ * uno a uno con la banca móvil—.
+ *
+ * El destino es real: es la cuenta del negocio, la que va impresa en el QR que
+ * se le pasa a cada cliente. Los REMITENTES no: los nombres de los seis
+ * clientes que pagaron esa noche están sustituidos por inventados, porque un
+ * fixture no necesita saber quién paga y un repositorio no es sitio para eso.
+ *
+ * Es un QR ESTÁTICO de Yape, así que la "cuenta" destino es el número de
+ * teléfono del cobro. De ahí que tres bancos distintos escriban ese mismo
+ * número de tres maneras.
+ *
+ * Las dos causas que destaparon, y que estos casos fijan para siempre:
+ *
+ *   1. La MÁSCARA. Altoke imprime `78***705` y BNB `784**705`. Pegando los
+ *      dígitos visibles sale `78705` y `784705`, cuyas colas de cuatro son
+ *      `8705` y `4705` — la cuenta real termina en `6705`. Todos los pagos por
+ *      esos dos bancos salían acusados de ir a otra cuenta.
+ *
+ *   2. El NOMBRE junto al bloque equivocado. BCP pinta "A la cuenta / Del
+ *      banco" y justo debajo "De la cuenta / A nombre de", así que el nombre
+ *      más cercano al destino es el del remitente.
+ */
+describe('comprobantes reales — la noche del 02→03-09-2026', () => {
+  /** La cuenta del QR del negocio, tal como debe quedar configurada. */
+  const QR_ZARCO = parseExpectedAccount({
+    bank: 'Banco de Crédito de Bolivia',
+    bankAliases: 'BCP|YAPE|BANCO DE CREDITO|BANCO DE CREDITO DE BOLIVIA',
+    accountNumber: '78486705',
+    holder: 'CRISTIAN MORALES CASTRO',
+    holderAliases: 'MORALES CASTRO CRISTIAN',
+  })!;
+
+  const contexto = (paidAtLocal: string): ProofJudgeContext => ({
+    expected: QR_ZARCO,
+    // El comprobante llega por WhatsApp a los pocos minutos de pagarlo.
+    receivedAtMs: Date.parse(`${paidAtLocal}:00.000Z`) + 4 * 60 * 60 * 1000 + 3 * 60_000,
+    referenceReused: false,
+  });
+
+  const REALES: Array<{ banco: string; facts: ProofFacts; paidAtLocal: string }> = [
+    {
+      // Altoke (Banco Solidario) · Bs 79 · pedido ORD-260902-025.
+      // "Para" + cuenta tapada por el medio: `78***705`.
+      banco: 'Altoke / Banco Solidario',
+      paidAtLocal: '2026-09-03T02:51',
+      facts: leido({
+        bank: 'Banco Solidario S.A.',
+        destinationBank: 'Banco de Crédito de Bolivia',
+        destinationAccount: '78***705',
+        destinationHolder: 'CRISTIAN MORALES CASTRO',
+        amount: 79,
+        transactionRef: '03092026/295/398/001/1598',
+      }),
+    },
+    {
+      // Yape · Bs 48 · pedido ORD-260902-024. Cuenta entera y "Destino: Yape".
+      banco: 'Yape (BCP)',
+      paidAtLocal: '2026-09-03T02:45',
+      facts: leido({
+        bank: 'Yape',
+        destinationBank: 'Yape',
+        destinationAccount: '78486705',
+        destinationHolder: 'Cristian Morales Castro',
+        amount: 48,
+        transactionRef: '925698701',
+      }),
+    },
+    {
+      // Altoke · Bs 48 · pedido ORD-260902-021. Misma forma que el primero.
+      banco: 'Altoke / Banco Solidario',
+      paidAtLocal: '2026-09-03T01:55',
+      facts: leido({
+        bank: 'Banco Solidario S.A.',
+        destinationBank: 'Banco de Crédito de Bolivia',
+        destinationAccount: '78***705',
+        destinationHolder: 'CRISTIAN MORALES CASTRO',
+        amount: 48,
+        transactionRef: '02092026/295/398/101/8701',
+      }),
+    },
+    {
+      // BNB · Bs 18 · pedido ORD-260902-018. "Nombre del destinatario" y
+      // "Se acreditó a la cuenta", con otra máscara: `784**705`.
+      banco: 'BNB (transferencia interbancaria)',
+      paidAtLocal: '2026-09-03T01:30',
+      facts: leido({
+        bank: 'BNB',
+        destinationBank: 'BANCO DE CREDITO',
+        destinationAccount: '784**705',
+        destinationHolder: 'CRISTIAN MORALES CASTRO',
+        amount: 18,
+        transactionRef: '1P37400265',
+      }),
+    },
+    {
+      // Yape · Bs 18 · pedido ORD-260902-013.
+      banco: 'Yape (BCP)',
+      paidAtLocal: '2026-09-03T00:24',
+      facts: leido({
+        bank: 'Yape',
+        destinationBank: 'Yape',
+        destinationAccount: '78486705',
+        destinationHolder: 'Cristian Morales Castro',
+        amount: 18,
+        transactionRef: '925671511',
+      }),
+    },
+    {
+      // BCP · Bs 33 · pedido ORD-260902-012. EL CASO DEL NOMBRE MAL SITUADO:
+      // "A la cuenta: 78486705 / Del banco: yape" y debajo "De la cuenta: … /
+      // A nombre de: <quien paga>". El nombre leído como destino es el del
+      // REMITENTE, y aquí va a propósito el inventado que lo representa.
+      banco: 'BCP (banca web)',
+      paidAtLocal: '2026-09-02T23:42',
+      facts: leido({
+        bank: 'Banco de Crédito de Bolivia S.A.',
+        destinationBank: 'yape',
+        destinationAccount: '78486705',
+        destinationHolder: 'ROSA QUISPE VARGAS',
+        amount: 33,
+        transactionRef: '20260902234223',
+      }),
+    },
+  ];
+
+  it.each(REALES)('$banco: pago legítimo, sin alerta', ({ facts, paidAtLocal }) => {
+    const j = judgeProof(facts, contexto(paidAtLocal));
+    expect(j.reasons).toEqual([]);
+    expect(j.verdict).toBe('ok');
+  });
+
+  it('la máscara del medio no puede acusar a la cuenta propia', () => {
+    // El fallo, aislado: los dígitos visibles de `78***705` no son contiguos.
+    for (const enmascarada of ['78***705', '784**705', '78xx705', '****6705']) {
+      const j = judgeProof(
+        leido({ destinationAccount: enmascarada, destinationHolder: null, destinationBank: null }),
+        contexto('2026-09-03T01:00'),
+      );
+      expect(j.reasons, enmascarada).not.toContain('account_mismatch');
+    }
+  });
+
+  it('pero una máscara de OTRA cuenta sigue acusando', () => {
+    // El arreglo no puede convertirse en un pase libre: los extremos visibles
+    // tienen que ser los nuestros.
+    const j = judgeProof(
+      leido({ destinationAccount: '99***123', destinationHolder: null, destinationBank: null }),
+      contexto('2026-09-03T01:00'),
+    );
+    expect(j.reasons).toContain('account_mismatch');
+  });
+});

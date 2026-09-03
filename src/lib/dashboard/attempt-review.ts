@@ -88,6 +88,38 @@ export interface ProofAnalysisView {
   headline: string;
   /** Motivos concretos, en el orden en que se detectaron. */
   reasons: string[];
+  /**
+   * A quien dice el comprobante que fue el dinero, tal como se leyo (0034).
+   *
+   * `null` salvo que la acusacion sea sobre el DESTINO —cuenta, titular o
+   * banco— y se haya leido algo. Solo entonces aporta: junto a un aviso de
+   * monto o de fecha seria ruido.
+   *
+   * Convierte una acusacion en un hecho comprobable. "La cuenta que recibe NO
+   * es la nuestra" obliga a abrir la imagen para saber si es verdad; leer el
+   * nombre que se leyo lo resuelve de un vistazo — y ensena cuando el
+   * equivocado es el filtro y no el cliente.
+   */
+  destination: string | null;
+}
+
+/** Motivos que hablan del DESTINO del dinero, los unicos que piden ese dato. */
+const MOTIVOS_DE_DESTINO = new Set(['account_mismatch', 'holder_mismatch', 'bank_mismatch']);
+
+/**
+ * Lo leido del destino, en una linea: `TITULAR · BANCO · CUENTA`.
+ *
+ * Se pinta lo que haya y en ese orden —el nombre es lo que un humano reconoce
+ * de un vistazo, la cuenta lo que menos—. `null` si no se leyo nada: una linea
+ * que dijera "fue a: —" solo ocuparia sitio.
+ */
+function destinoLeido(row: ProofUiRow): string | null {
+  const partes = [
+    row.analysis_destination_holder,
+    row.analysis_destination_bank,
+    row.analysis_destination_account,
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  return partes.length === 0 ? null : partes.join(' · ');
 }
 
 /**
@@ -104,10 +136,12 @@ function toAnalysisView(row: ProofUiRow): ProofAnalysisView | null {
   if (verdict === null || verdict === 'ok') return null;
   const headline = verdictHeadline(verdict);
   if (headline === null) return null;
+  const motivos = row.analysis_reasons ?? [];
   return {
     verdict,
     headline,
-    reasons: (row.analysis_reasons ?? []).map(analysisReasonLabel),
+    reasons: motivos.map(analysisReasonLabel),
+    destination: motivos.some((m) => MOTIVOS_DE_DESTINO.has(m)) ? destinoLeido(row) : null,
   };
 }
 

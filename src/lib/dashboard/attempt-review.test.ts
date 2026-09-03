@@ -38,6 +38,9 @@ function proof(id: string, over: Partial<ProofUiRow> = {}): ProofUiRow {
     analysis_verdict: null,
     analysis_reasons: [],
     analysis_amount_label: null,
+    analysis_destination_account: null,
+    analysis_destination_holder: null,
+    analysis_destination_bank: null,
     ...over,
   };
 }

@@ -61,6 +61,17 @@ export interface ExpectedAccount {
 /** Cuántos dígitos finales bastan para reconocer la cuenta enmascarada. */
 export const ACCOUNT_TAIL_DIGITS = 4;
 
+/**
+ * Cuántos dígitos visibles se exigen a una cuenta enmascarada para compararla.
+ *
+ * Cuatro repartidos entre el principio y el final. Con menos —`7***5`— la
+ * comparación acertaría por azar demasiado a menudo, y ni reconoce ni acusa.
+ */
+const MASKED_MIN_VISIBLE_DIGITS = 4;
+
+/** Lo que un banco usa para tapar dígitos: `78***705`, `784**705`, `78xx705`. */
+const MASK_CHARS = /[*xX•·]/;
+
 /** Deja solo los dígitos: fuera guiones, espacios, puntos y asteriscos. */
 export function digitsOf(value: string | null | undefined): string {
   return (value ?? '').replace(/\D+/g, '');
@@ -106,6 +117,27 @@ function matchesOneAccount(read: string | null, expected: string | null): FieldM
   if (!leido || !esperado) return 'unknown';
   if (leido === esperado) return 'match';
 
+  // ── Cuentas TAPADAS POR EL MEDIO (03-09-2026) ────────────────────────────
+  //
+  // Antes de comparar nada más: si el banco tapó dígitos centrales, los que se
+  // ven NO son contiguos y pegarlos produce un número que no existe.
+  //
+  // `78***705` daba `78705`, cuya cola de cuatro es `8705`; la cuenta real
+  // `78486705` termina en `6705`. Mismatch — y la acusación decía "la cuenta
+  // que recibe el dinero NO es la nuestra" sobre un pago perfectamente bueno.
+  //
+  // Le pasaba a los dos bancos que enmascaran así, Altoke (`78***705`) y BNB
+  // (`784**705`), en TODOS sus comprobantes. La noche del 02→03-09-2026 fue una
+  // de las dos causas de que 24 de 45 comprobantes salieran sospechosos sin que
+  // ninguno lo fuera.
+  //
+  // Con la máscara delante, lo que se compara es lo que de verdad se ve: que la
+  // cuenta esperada EMPIECE por los dígitos de la izquierda y TERMINE por los de
+  // la derecha.
+  if (MASK_CHARS.test(read ?? '')) {
+    return matchesMaskedAccount(read ?? '', esperado);
+  }
+
   // Un fragmento más corto que la cola no distingue lo suficiente NI para
   // reconocer ni para acusar: con dos dígitos visibles, una de cada cien cuentas
   // coincidiría por azar. Se comprueba ANTES que la inclusión, porque `90` está
@@ -117,6 +149,31 @@ function matchesOneAccount(read: string | null, expected: string | null): FieldM
   if (leido.includes(esperado) || esperado.includes(leido)) return 'match';
   const cola = (v: string) => v.slice(-ACCOUNT_TAIL_DIGITS);
   return cola(leido) === cola(esperado) ? 'match' : 'mismatch';
+}
+
+/**
+ * Compara una cuenta enmascarada contra la esperada, por sus dos extremos.
+ *
+ * `78***705` contra `78486705`: empieza por `78`, termina en `705`. Coincide.
+ * `78***705` contra `12345705` no: no empieza por `78`.
+ *
+ * Un extremo vacío no se exige —hay bancos que solo dejan ver el final, y
+ * `****6705` sigue reconociendo—, pero entre los dos tienen que sumar dígitos
+ * suficientes; si no, la respuesta es `unknown` y no una acusación.
+ */
+function matchesMaskedAccount(read: string, esperado: string): FieldMatch {
+  const partes = read.split(new RegExp(`${MASK_CHARS.source}+`));
+  const cabeza = digitsOf(partes[0]);
+  const cola = digitsOf(partes[partes.length - 1]);
+
+  if (cabeza.length + cola.length < MASKED_MIN_VISIBLE_DIGITS) return 'unknown';
+  // La cuenta esperada tiene que ser al menos tan larga como lo que se ve, o
+  // los extremos se solaparían y cualquier cosa encajaría.
+  if (esperado.length < cabeza.length + cola.length) return 'mismatch';
+
+  const empieza = cabeza === '' || esperado.startsWith(cabeza);
+  const termina = cola === '' || esperado.endsWith(cola);
+  return empieza && termina ? 'match' : 'mismatch';
 }
 
 /**
