@@ -8,8 +8,7 @@ import { serviceNoticeAt } from './service-hours';
  *
  * ── Las cuatro franjas, en el orden en que las vive un cliente ──────────────
  *
- *   03:50 → 04:00   estamos por cerrar
- *   04:00 → 05:00   puede que la plancha siga prendida: preguntamos
+ *   03:50 → 05:00   puede que la plancha siga prendida: preguntamos
  *   05:00 → 17:30   cerrados
  *   17:30 → 18:00   abriendo, ya puedes ir armando
  *
@@ -43,34 +42,23 @@ describe('aviso de apertura (17:30–18:00)', () => {
   });
 });
 
-describe('aviso de cierre (03:50–04:00)', () => {
-  it('no aparece a las 03:49', () => {
+describe('puede que la plancha siga prendida (03:50–05:00)', () => {
+  it('no aparece a las 03:49: a esa hora se está sirviendo y punto', () => {
     expect(serviceNoticeAt(enBolivia('2026-09-03T07:49:00.000Z'))).toBeNull();
   });
 
-  it('aparece a las 03:50 en punto', () => {
+  it('aparece a las 03:50, diez minutos ANTES del cierre', () => {
+    // Antes ahí había otro cartel ("atención fuera de horario") que decía casi
+    // lo mismo con otras palabras. Dos carteles para la misma duda es uno de
+    // más: el de las 03:55 y el de las 04:30 están en la misma situación.
     const aviso = serviceNoticeAt(enBolivia('2026-09-03T07:50:00.000Z'));
-    expect(aviso?.kind).toBe('closing');
-  });
-
-  it('menciona las 04:00 y no promete que se vaya a preparar', () => {
-    const aviso = serviceNoticeAt(enBolivia('2026-09-03T07:50:00.000Z'));
-    expect(aviso?.body).toContain('04:00');
-    expect(aviso?.body).not.toContain('prepararemos');
-  });
-
-  it('a las 04:00 deja paso a la franja de la plancha', () => {
-    // Antes seguía hasta las 04:15 diciendo lo mismo. Ahora el cierre acaba EN
-    // el cierre, y lo que sigue es otra promesa distinta.
-    expect(serviceNoticeAt(enBolivia('2026-09-03T08:00:00.000Z'))?.kind).toBe('after_hours');
-  });
-});
-
-describe('puede que la plancha siga prendida (04:00–05:00)', () => {
-  it('aparece a las 04:00 en punto', () => {
-    const aviso = serviceNoticeAt(enBolivia('2026-09-03T08:00:00.000Z'));
     expect(aviso?.kind).toBe('after_hours');
     expect(aviso?.title).toBe('Puede que todavía alcancemos');
+  });
+
+  it('sigue en el cierre, a las 04:00 en punto', () => {
+    const aviso = serviceNoticeAt(enBolivia('2026-09-03T08:00:00.000Z'));
+    expect(aviso?.kind).toBe('after_hours');
   });
 
   it('sigue a las 04:45', () => {
@@ -83,6 +71,7 @@ describe('puede que la plancha siga prendida (04:00–05:00)', () => {
     const aviso = serviceNoticeAt(enBolivia('2026-09-03T08:30:00.000Z'));
     expect(aviso?.body).toContain('consultamos');
     expect(aviso?.body).toContain('plancha');
+    expect(aviso?.body).toContain('04:00');
   });
 
   it('a las 05:00 se acaba: ya no hay nada que preguntar', () => {
@@ -125,7 +114,16 @@ describe('con el local abierto no se muestra nada', () => {
     expect(serviceNoticeAt(enBolivia('2026-09-03T07:00:00.000Z'))).toBeNull();
   });
 
-  it('barrido de las 24 horas: cuatro franjas, y ninguna se pisa', () => {
+  it('el aviso de cierre ya no existe: nadie devuelve ese kind', () => {
+    // Se fusionó con el de la plancha el 04-09-2026. Si volviera a aparecer,
+    // serían dos carteles seguidos para la misma duda.
+    const base = Date.parse('2026-09-02T04:00:00.000Z');
+    for (let i = 0; i < 24 * 60; i += 1) {
+      expect(serviceNoticeAt(base + i * 60_000)?.kind, `minuto ${i}`).not.toBe('closing');
+    }
+  });
+
+  it('barrido de las 24 horas: tres franjas, y ninguna se pisa', () => {
     const conAviso: string[] = [];
     // Un minuto cada vez, arrancando en 00:00 Bolivia.
     const base = Date.parse('2026-09-02T04:00:00.000Z');
@@ -134,8 +132,7 @@ describe('con el local abierto no se muestra nada', () => {
       if (aviso !== null) conAviso.push(aviso.kind);
     }
 
-    expect(conAviso.filter((k) => k === 'closing')).toHaveLength(10); // 03:50–04:00
-    expect(conAviso.filter((k) => k === 'after_hours')).toHaveLength(60); // 04:00–05:00
+    expect(conAviso.filter((k) => k === 'after_hours')).toHaveLength(70); // 03:50–05:00
     expect(conAviso.filter((k) => k === 'closed')).toHaveLength(750); // 05:00–17:30
     expect(conAviso.filter((k) => k === 'opening')).toHaveLength(30); // 17:30–18:00
     expect(conAviso).toHaveLength(850);
