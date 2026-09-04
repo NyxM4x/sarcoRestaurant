@@ -35,7 +35,7 @@ import { BOLIVIA_UTC_OFFSET_MS } from '@/lib/orders/business-day';
 
 /** Aviso a mostrar, ya resuelto. `null` = no mostrar nada. */
 export interface ServiceNotice {
-  kind: 'opening' | 'closing';
+  kind: 'opening' | 'closing' | 'closed';
   title: string;
   body: string;
 }
@@ -53,6 +53,29 @@ export const OPENING_NOTICE_FROM = hm(17, 30);
 export const OPENING_NOTICE_UNTIL = hm(18, 0);
 
 /** Cierre: desde diez minutos antes de las 04:00 y hasta el cuarto de hora. */
+/**
+ * El día entero con el local cerrado (04-09-2026).
+ *
+ * Entre las 05:30 y las 17:30 el menú se veía EXACTAMENTE igual que a las diez
+ * de la noche: precios, fotos y el botón de pedir, sin una palabra que dijera
+ * que no hay nadie en la plancha. El cliente que entra a media tarde arma su
+ * pedido creyendo que le llega, y lo que recibe es silencio hasta las seis.
+ *
+ * ── Por qué empieza a las 05:30 y no a las 04:00 ────────────────────────────
+ *
+ * Porque entre el cierre y esa hora todavía se despacha. El horario dice 04:00
+ * y el aviso de cierre lo repite, pero la cocina a veces sigue sirviendo un
+ * rato más y ese pedido tardío se atiende. Poner "estamos cerrados" ahí sería
+ * echar a un cliente al que sí se le habría preparado.
+ *
+ * ── Y por qué termina a las 17:30 ───────────────────────────────────────────
+ *
+ * Porque ahí empieza el aviso de apertura, que dice algo mejor: que ya se puede
+ * ir armando el pedido. Las dos franjas se tocan sin pisarse.
+ */
+export const CLOSED_NOTICE_FROM = hm(5, 30);
+export const CLOSED_NOTICE_UNTIL = hm(17, 30);
+
 export const CLOSING_NOTICE_FROM = hm(3, 50);
 export const CLOSING_NOTICE_UNTIL = hm(4, 15);
 
@@ -81,11 +104,27 @@ const CLOSING: ServiceNotice = {
  * punto el local ya abrió y el cartel de "estamos abriendo" sobra. Es el mismo
  * criterio que gobierna el vencimiento de una promoción.
  */
+/**
+ * El local está cerrado y falta mucho para abrir.
+ *
+ * Dice la hora de apertura y qué puede hacer mientras tanto, como los otros dos
+ * avisos. Lo que NO hace es prometer que el pedido se prepara ya: es la única
+ * franja en la que no hay nadie en la cocina, y de eso justamente avisa.
+ */
+const CLOSED: ServiceNotice = {
+  kind: 'closed',
+  title: 'Estamos cerrados',
+  body:
+    'Abrimos hoy a las 18:00. Puedes dejar tu pedido armado, pero recién lo ' +
+    'preparamos cuando abramos.',
+};
+
 export function serviceNoticeAt(ms: number): ServiceNotice | null {
   const minuto = boliviaMinutes(ms);
 
   if (minuto >= OPENING_NOTICE_FROM && minuto < OPENING_NOTICE_UNTIL) return OPENING;
   if (minuto >= CLOSING_NOTICE_FROM && minuto < CLOSING_NOTICE_UNTIL) return CLOSING;
+  if (minuto >= CLOSED_NOTICE_FROM && minuto < CLOSED_NOTICE_UNTIL) return CLOSED;
 
   return null;
 }

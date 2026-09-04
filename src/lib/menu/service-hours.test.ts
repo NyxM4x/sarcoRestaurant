@@ -9,8 +9,10 @@ import { serviceNoticeAt } from './service-hours';
 const enBolivia = (iso: string): number => Date.parse(iso);
 
 describe('aviso de apertura (17:30–18:00)', () => {
-  it('no aparece a las 17:29', () => {
-    expect(serviceNoticeAt(enBolivia('2026-09-02T21:29:00.000Z'))).toBeNull();
+  it('a las 17:29 todavía manda el cartel de cerrado', () => {
+    // Ya no hay ni un minuto sin aviso entre las 05:30 y las 18:00: hasta las
+    // 17:30 el local está cerrado, y a partir de ahí ya se puede ir armando.
+    expect(serviceNoticeAt(enBolivia('2026-09-02T21:29:00.000Z'))?.kind).toBe('closed');
   });
 
   it('aparece a las 17:30 en punto', () => {
@@ -59,23 +61,46 @@ describe('aviso de cierre (03:50–04:15)', () => {
   });
 });
 
+describe('aviso de local cerrado (05:30–17:30)', () => {
+  it('no aparece a las 05:29: todavía se puede estar despachando', () => {
+    expect(serviceNoticeAt(enBolivia('2026-09-03T09:29:00.000Z'))).toBeNull();
+  });
+
+  it('aparece a las 05:30 en punto', () => {
+    const aviso = serviceNoticeAt(enBolivia('2026-09-03T09:30:00.000Z'));
+    expect(aviso?.kind).toBe('closed');
+    expect(aviso?.title).toBe('Estamos cerrados');
+  });
+
+  it('a media tarde sigue, que es cuando el menú engañaba', () => {
+    // 15:00 Bolivia: precios, fotos y botón de pedir, sin una palabra de que
+    // no hay nadie en la plancha.
+    expect(serviceNoticeAt(enBolivia('2026-09-02T19:00:00.000Z'))?.kind).toBe('closed');
+  });
+
+  it('dice a qué hora se abre y qué puede hacer mientras tanto', () => {
+    const aviso = serviceNoticeAt(enBolivia('2026-09-02T19:00:00.000Z'));
+    expect(aviso?.body).toContain('18:00');
+    expect(aviso?.body).toContain('armado');
+  });
+
+  it('a las 17:30 deja paso al aviso de apertura, que dice algo mejor', () => {
+    expect(serviceNoticeAt(enBolivia('2026-09-02T21:30:00.000Z'))?.kind).toBe('opening');
+  });
+});
+
 describe('el resto del día no muestra nada', () => {
   it('en plena noche de servicio no hay cartel', () => {
     // 21:00 Bolivia, con el local abierto y trabajando.
     expect(serviceNoticeAt(enBolivia('2026-09-03T01:00:00.000Z'))).toBeNull();
   });
 
-  it('de madrugada cerrada tampoco', () => {
-    // 06:00 Bolivia.
-    expect(serviceNoticeAt(enBolivia('2026-09-03T10:00:00.000Z'))).toBeNull();
+  it('entre el cierre y las 05:30 tampoco: ahí todavía se despacha', () => {
+    // 05:00 Bolivia.
+    expect(serviceNoticeAt(enBolivia('2026-09-03T09:00:00.000Z'))).toBeNull();
   });
 
-  it('ni a media tarde', () => {
-    // 15:00 Bolivia.
-    expect(serviceNoticeAt(enBolivia('2026-09-02T19:00:00.000Z'))).toBeNull();
-  });
-
-  it('barrido de las 24 horas: solo dos franjas producen aviso', () => {
+  it('barrido de las 24 horas: tres franjas, y ninguna se pisa', () => {
     const conAviso: string[] = [];
     // Un minuto cada vez, arrancando en 00:00 Bolivia.
     const base = Date.parse('2026-09-02T04:00:00.000Z');
@@ -83,9 +108,10 @@ describe('el resto del día no muestra nada', () => {
       const aviso = serviceNoticeAt(base + i * 60_000);
       if (aviso !== null) conAviso.push(aviso.kind);
     }
-    // 30 minutos de apertura + 25 de cierre.
+    // 30 de apertura + 25 de cierre + 720 con el local cerrado (05:30–17:30).
     expect(conAviso.filter((k) => k === 'opening')).toHaveLength(30);
     expect(conAviso.filter((k) => k === 'closing')).toHaveLength(25);
-    expect(conAviso).toHaveLength(55);
+    expect(conAviso.filter((k) => k === 'closed')).toHaveLength(720);
+    expect(conAviso).toHaveLength(775);
   });
 });
