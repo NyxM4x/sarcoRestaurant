@@ -7,8 +7,14 @@ Aquí van las **fotos individuales** de cada producto del menú.
 > emoji, según la categoría), sin pedir nada a la red y sin errores en consola.
 
 Las fotos se generaron con `sharp` desde los originales del cliente: cuadradas
-1:1 a 800×800, WebP calidad 80. El recorte es centrado salvo en `salchipapa`,
-cuyo original trae el rótulo "SABOR ÚNICO" arriba y se recortó por debajo.
+1:1 a 800×800, WebP calidad 80, con recorte centrado.
+
+Los **seis platos** se rehicieron el 04-09-2026 con fotos nuevas del local.
+Llegaron verticales (9:16, 720×1280 y 900×1600, hasta 181 KB) y se normalizaron
+al mismo 800×800 que el resto: sin eso, la vitrina mezclaba proporciones y cada
+tarjeta pesaba el triple. El recorte es **centrado** y no el de saliencia de
+`sharp` (`strategy.attention`), que se probó y cortaba el pan de arriba en
+cuatro de las seis. Quedaron entre 33 y 48 KB.
 
 ## Cómo agregar una foto real
 
