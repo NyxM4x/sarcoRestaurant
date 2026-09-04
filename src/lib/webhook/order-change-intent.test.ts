@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   catalogTermsFromNames,
   isKitchenNoteRequest,
+  isOrderChangeAnnouncement,
   isOrderChangeRequest,
   kitchenNoteFrom,
   KITCHEN_NOTE_MAX_LENGTH,
+  ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH,
 } from './order-change-intent';
 
 /**
@@ -166,5 +168,65 @@ describe('isOrderChangeRequest — cuándo SÍ hay que rearmar', () => {
   it('nada de texto, nada que cambiar', () => {
     expect(isOrderChangeRequest(null, CARTA)).toBe(false);
     expect(isOrderChangeRequest('   ', CARTA)).toBe(false);
+  });
+});
+
+describe('isOrderChangeAnnouncement — pide cambiar antes de decir qué', () => {
+  it('la frase que abrió el caso del 04-09-2026', () => {
+    // 81 segundos antes de "Una hamburguesa con papas", que sí se reconocía.
+    // En ese hueco el turno se lo quedó el modelo y derivó la conversación.
+    expect(isOrderChangeAnnouncement('Puedo aumentar')).toBe(true);
+  });
+
+  it('las formas en que se pregunta lo mismo', () => {
+    expect(isOrderChangeAnnouncement('quiero agregar')).toBe(true);
+    expect(isOrderChangeAnnouncement('se puede aumentar?')).toBe(true);
+    expect(isOrderChangeAnnouncement('puedo añadir algo mas')).toBe(true);
+    expect(isOrderChangeAnnouncement('quiero cambiar mi pedido')).toBe(true);
+    expect(isOrderChangeAnnouncement('puedo modificar el pedido porfa')).toBe(true);
+    expect(isOrderChangeAnnouncement('quiero quitar una cosa')).toBe(true);
+    expect(isOrderChangeAnnouncement('puedo aumentarle')).toBe(true);
+  });
+
+  it('reconocer el olvido ya es pedir el cambio', () => {
+    expect(isOrderChangeAnnouncement('me equivoqué')).toBe(true);
+    expect(isOrderChangeAnnouncement('me olvidé de algo')).toBe(true);
+    expect(isOrderChangeAnnouncement('no puse todo')).toBe(true);
+  });
+
+  it('el verbo tiene que CERRAR la frase: con complemento ya no es un anuncio', () => {
+    // "Puedo aumentar el ají" es una preferencia de cocina disfrazada, y
+    // mandarle a rearmar su pedido por un condimento es el error barato que
+    // este límite evita. Sigue el camino de hoy.
+    expect(isOrderChangeAnnouncement('puedo aumentar el aji')).toBe(false);
+    expect(isOrderChangeAnnouncement('aumentame la mayonesa')).toBe(false);
+  });
+
+  it('lo que también se cambia y no es el pedido', () => {
+    expect(isOrderChangeAnnouncement('puedo cambiar la direccion')).toBe(false);
+    expect(isOrderChangeAnnouncement('me falta pagar')).toBe(false);
+    expect(isOrderChangeAnnouncement('puedo cambiar la forma de pago')).toBe(false);
+    expect(isOrderChangeAnnouncement('cuanto falta')).toBe(false);
+  });
+
+  it('preguntar por el pedido no es querer cambiarlo', () => {
+    expect(isOrderChangeAnnouncement('hola')).toBe(false);
+    expect(isOrderChangeAnnouncement('puedo pedir')).toBe(false);
+    expect(isOrderChangeAnnouncement('ya salio mi pedido?')).toBe(false);
+    expect(isOrderChangeAnnouncement('cuanto seria')).toBe(false);
+  });
+
+  it('una parrafada no es un anuncio: ahí el detalle ya va dentro', () => {
+    const largo =
+      'hola buenas noches disculpe la molestia una consulta por favor si es que se puede cambiar';
+    expect(largo.length).toBeGreaterThan(ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH);
+    expect(isOrderChangeAnnouncement(largo)).toBe(false);
+  });
+
+  it('no necesita catálogo: lo que lo define es que NO nombra producto', () => {
+    // La vía del catálogo se cae con `menu_items` ilegible; esta no.
+    expect(isOrderChangeAnnouncement('puedo aumentar')).toBe(true);
+    expect(isOrderChangeAnnouncement(null)).toBe(false);
+    expect(isOrderChangeAnnouncement('   ')).toBe(false);
   });
 });

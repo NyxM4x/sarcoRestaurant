@@ -426,6 +426,35 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
   });
 
+  it('"puedo aumentar" reabre el pedido, y el modelo no llega a hablar', async () => {
+    const cta = spyCta();
+    const agente = spyChannel();
+    let recordado = 0;
+
+    // Con el recordatorio en cooldown, que es como estaba el 04-09-2026: antes
+    // de esto la decisión era `none` y el turno se lo quedaba el modelo, que
+    // derivó la conversación a una persona y la dejó callada dos horas.
+    const { processed } = await deliver(JSON.stringify(envelope({ text: 'Puedo aumentar' })), {
+      sendMenuCta: cta.sendMenuCta,
+      lookupCustomerState: estado(conPedidoPorPagar({ proofRemindedRecently: true })),
+      agentChannel: agente.channel,
+      sendProofReminder: async () => {
+        recordado += 1;
+        return { ok: true };
+      },
+    });
+
+    expect(cta.enviados[0]).toMatchObject({
+      replacesOrderId: 'order-uuid',
+      buttonText: 'Cambiar mi pedido',
+    });
+    expect(recordado).toBe(0);
+    expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
+    // Lo que de verdad arregla esto: el turno queda cerrado y `request_human`
+    // ni se plantea.
+    expect(agente.turns).toHaveLength(0);
+  });
+
   it('con el pago ya en revisión no se cambian las líneas: hay dinero de por medio', async () => {
     const cta = spyCta();
 

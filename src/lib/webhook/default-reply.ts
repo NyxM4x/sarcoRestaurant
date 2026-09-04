@@ -3,6 +3,7 @@ import type { PaymentGateState } from '@/lib/payment-proof/payment-gate';
 import { PROOF_TARGET_TTL_MS } from '@/lib/payment-proof/association';
 import {
   isKitchenNoteRequest,
+  isOrderChangeAnnouncement,
   isOrderChangeRequest,
   kitchenNoteFrom,
 } from './order-change-intent';
@@ -42,7 +43,8 @@ import {
  *   3. Pide algo para la COCINA sobre un pedido que aún no se cocina
  *      ("sin cebolla") → se anota y se le contesta que sí.
  *   4. Quiere CAMBIAR lo que lleva su pedido y todavía no lo pagó
- *      ("mándame 2 sodas más") → se le devuelve su pedido para rearmarlo.
+ *      ("mándame 2 sodas más", "puedo aumentar") → se le devuelve su pedido
+ *      para rearmarlo.
  *   5. Tiene un pedido ESPERANDO SU COMPROBANTE → se le recuerda el comprobante.
  *   6. Tiene cualquier otro pedido ABIERTO      → nada; sigue el camino de hoy.
  *
@@ -271,7 +273,16 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // líneas por debajo dejaría al cliente pagando una cosa y recibiendo otra.
     // Ese caso sigue el camino de hoy y acaba donde acaban las excepciones.
     if (order.status === 'confirmed' && order.payment === 'no_proof') {
-      if (isOrderChangeRequest(texto, state.catalogTerms ?? [])) {
+      // Las DOS formas de pedirlo, y la segunda es la que llega primero: el
+      // cliente pregunta si puede antes de decir qué quiere. Reconocer solo la
+      // que nombra productos dejaba ese primer mensaje sin respuesta
+      // determinística, y con él el turno se lo quedaba el modelo — que el
+      // 04-09-2026 derivó la conversación a una persona y la calló dos horas.
+      // Ver `isOrderChangeAnnouncement`.
+      if (
+        isOrderChangeRequest(texto, state.catalogTerms ?? []) ||
+        isOrderChangeAnnouncement(texto)
+      ) {
         return { action: 'order_change', order };
       }
     }

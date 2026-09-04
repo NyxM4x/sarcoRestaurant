@@ -217,3 +217,110 @@ export function isOrderChangeRequest(
 
   return MARCAS_DE_CAMBIO.test(norm) || CANTIDAD_CON_COSA.test(norm);
 }
+
+// ── El ANUNCIO: pide cambiar antes de decir qué ─────────────────────────────
+
+/**
+ * "Puedo aumentar" — la frase con la que empieza casi todo cambio (04-09-2026).
+ *
+ * `isOrderChangeRequest` exige nombrar algo que se venda, y esa exigencia deja
+ * fuera justo el primer mensaje: la gente pregunta si puede antes de decir qué
+ * quiere. Una conversación real de esa madrugada lo enseña entero:
+ *
+ *   01:58  "Puedo aumentar"                    → no nombra producto: nadie contestó
+ *   01:59  "Una hamburguesa con papas"         → esto SÍ lo reconocía… pero ya era tarde
+ *
+ * Entre las dos frases pasaron 81 segundos, y en ese hueco el turno cayó al
+ * modelo —el determinístico no tenía nada que decir— que derivó la conversación
+ * a una persona y la dejó en pausa dos horas. Cuando el cliente por fin nombró
+ * los productos, el bot ya estaba callado; acabó armando un SEGUNDO pedido y el
+ * negocio con dos comandas del mismo cliente, que es lo que 0035 venía a evitar.
+ *
+ * Reconocer el anuncio cierra el turno ahí mismo: sale el botón y el modelo ni
+ * llega a hablar. Es la forma más barata de que `request_human` no se dispare.
+ *
+ * ── Por qué esto puede prescindir del catálogo ──────────────────────────────
+ *
+ * Porque lo que lo define es la AUSENCIA de producto. Las otras dos preguntas
+ * del módulo necesitan la carta para descartar que el cliente nombrara algo;
+ * esta reconoce la frase que, por construcción, no nombra nada. De paso queda
+ * inmune al día en que `menu_items` no se pueda leer.
+ *
+ * ── Dónde está la línea, y por qué ahí ──────────────────────────────────────
+ *
+ * El verbo tiene que CERRAR la frase: "puedo aumentar" es un anuncio, "puedo
+ * aumentar el ají" es una preferencia de cocina disfrazada. Lo único que se
+ * recorta antes de mirar son las colas que no dicen nada del contenido ("algo",
+ * "más", "mi pedido", "porfa"). Con esa regla, todo lo que lleve un complemento
+ * de verdad sigue el camino de hoy en vez de mandar a rearmar por un condimento.
+ *
+ * Sigue siendo el lado barato del error: un anuncio mal leído le manda al
+ * cliente un botón que no necesitaba, y el que no se lee le cuesta el pedido.
+ */
+
+/**
+ * Tope de longitud de un anuncio.
+ *
+ * Un anuncio son tres palabras; lo que pasa de aquí ya trae el detalle dentro y
+ * lo tiene que leer la vía del catálogo, que sabe qué se vende.
+ */
+export const ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH = 80;
+
+/**
+ * El verbo CIERRA la frase: no hay complemento que interpretar.
+ *
+ * En infinitivo, que es como se pregunta ("¿puedo aumentar?", "quiero
+ * agregar"), y con el enclítico que la gente les pega ("aumentarle",
+ * "cambiarlo").
+ */
+const ANUNCIO_DE_CAMBIO =
+  /(^|\s)(aumentar|agregar|anadir|sumar|incrementar|cambiar|corregir|modificar|rehacer|quitar|sacar|eliminar|poner)(me|le|lo|la|los|las|selo|sela)?$/;
+
+/**
+ * Colas que no dicen nada del contenido, y por eso se recortan antes de mirar.
+ *
+ * "Quiero agregar algo más porfa" es exactamente el mismo anuncio que "quiero
+ * agregar": ninguna de esas tres palabras nombra lo que el cliente quiere.
+ */
+const COLA_SIN_CONTENIDO =
+  /(?:\s+(?:algo|alguna cosa|una cosa|otra cosa|otras cosas|cosas|mas|un poco|la cantidad|cantidad|mi pedido|el pedido|mi orden|la orden|mi compra|porfa|porfis|porfavor|por favor|please|ahora|ahorita))+$/;
+
+/**
+ * Reconocer un olvido ya es pedir el cambio, aunque no haya verbo detrás.
+ *
+ * Es el momento en que uno relee lo que pidió: llega el total y aparece el "me
+ * equivoqué". No hace falta que diga qué falta para devolverle su pedido.
+ */
+const ANUNCIO_DE_ERROR =
+  /(^|\s)(me equivoque|me equivoco|equivoque|equivocado|me falto|me falta|me olvide|se me olvido|olvide|no puse|puse mal|esta mal mi pedido|mi pedido esta mal)(\s|$)/;
+
+/**
+ * Lo que también se "cambia" y no es el contenido del pedido.
+ *
+ * Estas palabras aparecen justo en este momento de la conversación —el cliente
+ * tiene su total y su QR delante— y significan otra cosa: "me falta pagar" o
+ * "puedo cambiar la dirección" no piden rearmar nada. Sigue su camino de hoy.
+ */
+const FUERA_DEL_PEDIDO =
+  /(^|\s)(pagar|pago|pagos|pague|pagando|comprobante|qr|transferencia|deposito|recibo|efectivo|factura|envio|delivery|reparto|direccion|ubicacion|domicilio|numero|telefono|nombre|hora|demora|tiempo)(\s|$)/;
+
+/**
+ * ¿Anuncia que quiere cambiar su pedido, sin decir todavía qué?
+ *
+ * Solo tiene sentido preguntárselo a quien YA tiene un pedido armado y sin
+ * pagar: fuera de ese estado, "puedo aumentar" no se refiere a nada. Esa guarda
+ * la pone quien llama (`default-reply.ts`), que es quien conoce el pedido.
+ */
+export function isOrderChangeAnnouncement(text: string | null | undefined): boolean {
+  if (typeof text !== 'string') return false;
+
+  const norm = normalizeIntentText(text);
+  if (norm === '' || norm.length > ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH) return false;
+
+  // Habla de algo que se cambia y no es lo que lleva dentro el pedido.
+  if (FUERA_DEL_PEDIDO.test(norm)) return false;
+
+  if (ANUNCIO_DE_ERROR.test(norm)) return true;
+
+  return ANUNCIO_DE_CAMBIO.test(norm.replace(COLA_SIN_CONTENIDO, ''));
+}

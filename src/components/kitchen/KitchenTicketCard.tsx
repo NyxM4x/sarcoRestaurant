@@ -269,7 +269,15 @@ export function KitchenTicketCard({
               <p className="text-[11px] font-bold uppercase leading-none tracking-wider text-zinc-500">
                 Notas
               </p>
-              <p className="mt-1 text-[16px] font-medium leading-tight text-zinc-800">
+              {/* La nota es una INSTRUCCIÓN, y se lee como tal: negrita y un punto
+                  por debajo del producto (19 px). Con 16 px en peso medio se
+                  perdía dentro de su propia caja gris —"sin cebolla" pesaba menos
+                  que el nombre del plato al que corrige—, y a medio metro de la
+                  plancha una nota que no destaca es una nota que no se ejecuta.
+
+                  18 y no 19: por encima competiría con el producto, y quien lee
+                  tiene que ver PRIMERO qué prepara y después cómo. */}
+              <p className="mt-1 text-[18px] font-bold leading-tight text-zinc-800">
                 {ticket.notes}
               </p>
             </div>
