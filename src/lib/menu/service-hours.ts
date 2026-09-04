@@ -35,7 +35,7 @@ import { BOLIVIA_UTC_OFFSET_MS } from '@/lib/orders/business-day';
 
 /** Aviso a mostrar, ya resuelto. `null` = no mostrar nada. */
 export interface ServiceNotice {
-  kind: 'opening' | 'closing' | 'closed';
+  kind: 'opening' | 'closing' | 'after_hours' | 'closed';
   title: string;
   body: string;
 }
@@ -61,23 +61,34 @@ export const OPENING_NOTICE_UNTIL = hm(18, 0);
  * que no hay nadie en la plancha. El cliente que entra a media tarde arma su
  * pedido creyendo que le llega, y lo que recibe es silencio hasta las seis.
  *
- * ── Por qué empieza a las 05:30 y no a las 04:00 ────────────────────────────
+ * ── Por qué empieza a las 05:00 y no a las 04:00 ────────────────────────────
  *
- * Porque entre el cierre y esa hora todavía se despacha. El horario dice 04:00
- * y el aviso de cierre lo repite, pero la cocina a veces sigue sirviendo un
- * rato más y ese pedido tardío se atiende. Poner "estamos cerrados" ahí sería
- * echar a un cliente al que sí se le habría preparado.
+ * Porque la hora de después del cierre tiene su propio aviso: hasta las 05:00
+ * la plancha puede seguir prendida y lo que se le dice al cliente es que
+ * preguntamos (`AFTER_HOURS`). A las 05:00 ya no hay nada que preguntar.
  *
  * ── Y por qué termina a las 17:30 ───────────────────────────────────────────
  *
  * Porque ahí empieza el aviso de apertura, que dice algo mejor: que ya se puede
  * ir armando el pedido. Las dos franjas se tocan sin pisarse.
  */
-export const CLOSED_NOTICE_FROM = hm(5, 30);
+export const CLOSED_NOTICE_FROM = hm(5, 0);
 export const CLOSED_NOTICE_UNTIL = hm(17, 30);
 
 export const CLOSING_NOTICE_FROM = hm(3, 50);
-export const CLOSING_NOTICE_UNTIL = hm(4, 15);
+export const CLOSING_NOTICE_UNTIL = hm(4, 0);
+
+/**
+ * La hora en la que la plancha PUEDE seguir prendida (04:00–05:00).
+ *
+ * El horario termina a las 04:00, pero no todas las noches a la misma hora
+ * real: hay días en que se sigue sirviendo un rato. Esa hora no es "abierto"
+ * —prometerlo sería mentir la mitad de las noches— ni "cerrado" —decirlo echa a
+ * un cliente al que sí se le habría preparado—. Es la única franja en la que la
+ * respuesta honesta es "preguntamos y te decimos".
+ */
+export const AFTER_HOURS_NOTICE_FROM = hm(4, 0);
+export const AFTER_HOURS_NOTICE_UNTIL = hm(5, 0);
 
 const OPENING: ServiceNotice = {
   kind: 'opening',
@@ -119,11 +130,27 @@ const CLOSED: ServiceNotice = {
     'preparamos cuando abramos.',
 };
 
+/**
+ * Pasadas las 04:00, cuando todavía puede quedar plancha.
+ *
+ * No promete y no niega, igual que el aviso de cierre: dice exactamente qué va a
+ * pasar con su pedido, que es que alguien va a preguntar. Es lo único cierto a
+ * esa hora.
+ */
+const AFTER_HOURS: ServiceNotice = {
+  kind: 'after_hours',
+  title: 'Puede que todavía alcancemos',
+  body:
+    'Nuestro horario termina a las 04:00, pero a veces la plancha sigue ' +
+    'prendida. Manda tu pedido y consultamos si aún te lo podemos preparar.',
+};
+
 export function serviceNoticeAt(ms: number): ServiceNotice | null {
   const minuto = boliviaMinutes(ms);
 
   if (minuto >= OPENING_NOTICE_FROM && minuto < OPENING_NOTICE_UNTIL) return OPENING;
   if (minuto >= CLOSING_NOTICE_FROM && minuto < CLOSING_NOTICE_UNTIL) return CLOSING;
+  if (minuto >= AFTER_HOURS_NOTICE_FROM && minuto < AFTER_HOURS_NOTICE_UNTIL) return AFTER_HOURS;
   if (minuto >= CLOSED_NOTICE_FROM && minuto < CLOSED_NOTICE_UNTIL) return CLOSED;
 
   return null;
