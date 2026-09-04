@@ -426,6 +426,48 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
   });
 
+  it('"paso yo a recogerlo" convierte el pedido, no le recuerda el pago', async () => {
+    const cta = spyCta();
+    const convertidos: string[] = [];
+    let recordado = 0;
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'Pasar yo a recogerlo' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conPedidoPorPagar()),
+        switchToPickup: async (input) => {
+          convertidos.push(input.orderId);
+          return { ok: true };
+        },
+        sendProofReminder: async () => {
+          recordado += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    expect(convertidos).toEqual(['order-uuid']);
+    expect(recordado).toBe(0);
+    expect(cta.enviados).toHaveLength(0);
+    expect(processed?.body).toMatchObject({ handled: 'pickup_switch', result: 'switched' });
+  });
+
+  it('si no se pudo convertir, NO se le dice que quedó para recoger', async () => {
+    // El repartidor ya salió, o el envío consta cobrado. El mensaje sigue su
+    // camino en vez de darle por buena una conversión que no ocurrió.
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'paso a recogerlo' })),
+      {
+        lookupCustomerState: estado(conPedidoPorPagar()),
+        switchToPickup: async () => ({ ok: false }),
+        sendProofReminder: async () => ({ ok: true }),
+      },
+    );
+
+    expect(processed?.body).not.toMatchObject({ handled: 'pickup_switch' });
+  });
+
   it('"puedo aumentar" reabre el pedido, y el modelo no llega a hablar', async () => {
     const cta = spyCta();
     const agente = spyChannel();

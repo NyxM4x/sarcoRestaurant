@@ -402,6 +402,27 @@ export function proofReminderText(orderNumber: string, totalAmount: number): str
 }
 
 /**
+ * El pedido pasa a recojo porque el cliente dijo que se lo lleva él.
+ *
+ * Dice las TRES cosas que cambian para él, en el orden en que le importan: que
+ * ya no hay envío, cuánto queda por pagar, y que no tiene que hacer nada con el
+ * QR que ya tiene. Esa última frase es la que evita el mensaje siguiente:
+ * cambiar el tipo de entrega no cambia lo que se paga por QR —el envío nunca
+ * viajó en él, se cobraba en la puerta—, pero el cliente no tiene por qué
+ * saberlo, y sin decírselo vuelve a preguntar.
+ *
+ * NO promete deshacerlo. Mientras no exista el camino de vuelta automático,
+ * ofrecerlo sería la promesa que este proyecto no hace.
+ */
+export function pickupSwitchText(orderNumber: string, foodAmount: number): string {
+  return (
+    `Listo 🛍️ Tu pedido ${shortOrderNumber(orderNumber)} queda para que lo recojas ` +
+    `en el local. Ya no pagas envío: son ${formatBs(foodAmount)} y el QR que te ` +
+    'mandamos sigue valiendo. Te avisamos apenas esté listo.'
+  );
+}
+
+/**
  * Lo que recibe quien pide algo para la plancha sobre un pedido ya armado.
  *
  * ── Por qué no se le manda a rearmar el pedido ──────────────────────────────

@@ -7,6 +7,7 @@ import {
   isOrderChangeRequest,
   kitchenNoteFrom,
 } from './order-change-intent';
+import { isPickupSwitchRequest } from './pickup-switch-intent';
 
 /**
  * QUÉ RECIBE EL CLIENTE CUANDO NO PIDIÓ NADA CONCRETO — módulo PURO (03-09-2026).
@@ -45,8 +46,10 @@ import {
  *   4. Quiere CAMBIAR lo que lleva su pedido y todavía no lo pagó
  *      ("mándame 2 sodas más", "puedo aumentar") → se le devuelve su pedido
  *      para rearmarlo.
- *   5. Tiene un pedido ESPERANDO SU COMPROBANTE → se le recuerda el comprobante.
- *   6. Tiene cualquier otro pedido ABIERTO      → nada; sigue el camino de hoy.
+ *   5. Dice que pasa ÉL a recogerlo ("paso a recogerlo", "para llevar") → el
+ *      pedido deja de ser delivery y se le confirma con el nuevo total.
+ *   6. Tiene un pedido ESPERANDO SU COMPROBANTE → se le recuerda el comprobante.
+ *   7. Tiene cualquier otro pedido ABIERTO      → nada; sigue el camino de hoy.
  *
  * Todo lo demás recibe el botón, escriba lo que escriba.
  */
@@ -87,6 +90,23 @@ export const OPEN_ORDER_WINDOW_MS = PROOF_TARGET_TTL_MS;
  * sacar la foto.
  */
 export const PROOF_REMINDER_COOLDOWN_MS = 15 * 60 * 1000;
+
+/**
+ * Estados en los que un pedido todavía puede pasar a recojo.
+ *
+ * Son aquellos en los que NADIE salió aún hacia una puerta. `on_the_way` queda
+ * fuera por lo evidente, y `awaiting_location` también, pero por lo contrario:
+ * ese pedido aún no tiene total ni QR, así que no hay nada que recalcular ni
+ * nada que confirmarle. Ese cliente sigue el camino de hoy.
+ *
+ * Las guardas finas —que el aviso de reparto no haya salido, que el envío no
+ * conste cobrado— las pone `pickup-switch-service`, que es quien lee la fila.
+ */
+export const PICKUP_SWITCHABLE_STATUSES: readonly OrderStatus[] = [
+  'confirmed',
+  'preparing',
+  'ready',
+];
 
 /** El pedido abierto del cliente, con lo justo para decidir y para escribirle. */
 export interface OpenOrderSnapshot {
@@ -148,6 +168,8 @@ export type DefaultReplyDecision =
   | { action: 'kitchen_note'; order: OpenOrderSnapshot; note: string }
   /** Mandarle el enlace que reabre SU pedido para cambiar lo que lleva dentro. */
   | { action: 'order_change'; order: OpenOrderSnapshot }
+  /** Pasar su pedido a recojo: se lo lleva él y ya no hay envío que cobrar. */
+  | { action: 'pickup_switch'; order: OpenOrderSnapshot }
   | { action: 'none'; reason: DefaultReplySkipReason };
 
 export interface DefaultReplyInput {
@@ -247,6 +269,21 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
 
   const order = state.openOrder;
   if (order !== null) {
+    // ── "Paso yo a recogerlo" ──────────────────────────────────────────────
+    //
+    // Va ANTES que todo lo demás porque es lo más específico que puede traer un
+    // mensaje en este punto, y lo único que cambia por dónde SALE el pedido.
+    // Contestarle "mandanos el comprobante" a quien acaba de decir que pasa a
+    // recogerlo no es solo no haberlo leído: manda además al repartidor a una
+    // puerta donde ya no lo esperan.
+    //
+    // No mira el pago, y no es un descuido: pasar a recojo no cambia un centavo
+    // de lo que se paga por QR, porque el envío nunca viajó en él —se cobra en
+    // la puerta—. Lo único que desaparece es esa puerta.
+    if (PICKUP_SWITCHABLE_STATUSES.includes(order.status) && isPickupSwitchRequest(texto)) {
+      return { action: 'pickup_switch', order };
+    }
+
     // ── "Sin cebolla" ──────────────────────────────────────────────────────
     //
     // Va ANTES que el recordatorio del pago, y también antes de su cooldown:

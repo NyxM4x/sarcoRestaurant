@@ -23,6 +23,7 @@ import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
+import { switchOrderToPickup } from '@/lib/orders/pickup-switch-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
   acceptKapsoWebhook,
@@ -106,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),
+      switchToPickup: (input) => switchOrderToPickup(input),
       // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
       outbound: createSupabaseOutboundStore(supabase),
       // Fase 6D.2F.2B: historial del cliente + human takeover.

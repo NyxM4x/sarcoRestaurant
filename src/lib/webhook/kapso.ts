@@ -260,6 +260,21 @@ export type AppendKitchenNote = (input: {
 }) => Promise<{ ok: boolean }>;
 
 /**
+ * Pasa el pedido a recojo cuando el cliente dice que se lo lleva él.
+ *
+ * `ok: false` = no se convirtió, por guarda o por fallo. El webhook lo trata
+ * como un mensaje SIN atender: nunca se le dice al cliente que quedó para
+ * recoger si el pedido sigue saliendo a reparto.
+ */
+export type SwitchToPickup = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. */
+  sourceMessageId: string;
+  orderId: string;
+}) => Promise<{ ok: boolean }>;
+
+/**
  * Comprobación del cliente atascado (0027 / 29-08-2026).
  *
  * Corre una vez por entrega, después de persistir los mensajes y con
@@ -441,6 +456,7 @@ export interface HandleKapsoWebhookParams {
    * puerto, "sin cebolla" cae en el recordatorio del comprobante.
    */
   appendKitchenNote?: AppendKitchenNote;
+  switchToPickup?: SwitchToPickup;
   /** Avisa al equipo del cliente que lleva muchos mensajes y no consigue pedir. */
   checkStuckCustomer?: CheckStuckCustomer;
   /**
@@ -624,6 +640,7 @@ async function responderPorDefecto(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
+  switchToPickup?: SwitchToPickup;
   },
   /** Texto entrante del cliente, o `null` si el mensaje no era texto suyo. */
   texto: string | null,
@@ -680,6 +697,26 @@ async function responderPorDefecto(
       log.info('webhook_default_reply_skipped', { reason: decision.reason });
     }
     return null;
+  }
+
+  if (decision.action === 'pickup_switch') {
+    // Sin puerto no se contesta que sí: decirle "queda para recoger" sin haberlo
+    // convertido dejaría al repartidor saliendo igual.
+    if (!deps.switchToPickup) return null;
+
+    const convertido = await deps.switchToPickup({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderId: decision.order.orderId,
+    });
+    // Ni el número de pedido ni el texto: solo si se pudo.
+    log.info('webhook_pickup_switch', { result: convertido.ok ? 'switched' : 'skipped' });
+
+    // Si no se pudo —ya salió el repartidor, el envío consta cobrado—, este
+    // mensaje NO queda atendido: sigue su camino y lo verá una persona.
+    if (!convertido.ok) return null;
+    return { ok: true, handled: 'pickup_switch', result: 'switched' };
   }
 
   if (decision.action === 'kitchen_note') {
@@ -832,6 +869,7 @@ async function processMessage(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
+  switchToPickup?: SwitchToPickup;
   },
 ): Promise<Record<string, unknown>> {
   const { message, conversationPhone, from } = ctx;
@@ -1462,6 +1500,7 @@ async function processEnvelopes(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
+  switchToPickup?: SwitchToPickup;
   },
 ): Promise<EnvelopeResult[]> {
   const results: EnvelopeResult[] = [];
@@ -2118,6 +2157,7 @@ async function runBusiness(
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
       appendKitchenNote: params.appendKitchenNote,
+      switchToPickup: params.switchToPickup,
     });
 
     // ── Comprobantes de pago ─────────────────────────────────────────────────
