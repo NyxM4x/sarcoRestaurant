@@ -170,35 +170,37 @@ describe('handoff — derivar pausa y avisa, y no le dice nada al cliente', () =
   });
 });
 
-describe('handoff — la puerta: derivar exige conversación de verdad', () => {
-  it('en el primer mensaje NO deriva: no pausa, no avisa, no escribe nada', async () => {
-    // Es la forma de tres de los cuatro falsos positivos. El cliente no se
-    // queda sin respuesta: `handed: false` deja el turno vivo y el modelo
-    // redacta. Lo que no ocurre es la derivación.
-    MENSAJES = 1;
+describe('handoff — la puerta: derivar exige un MOTIVO', () => {
+  it('sin motivo NO deriva, por larga que sea la conversación', async () => {
+    // La forma de las 29 alarmas falsas del 04-09-2026: mensajes sin nada que
+    // una persona pueda arreglar, de clientes que ya llevaban rato escribiendo.
+    // El cliente no se queda sin respuesta —`handed: false` deja el turno vivo
+    // y el modelo redacta—; lo que no ocurre es la derivación.
+    MENSAJES = 10;
 
-    const res = await createHandoffPort().escalate(entrada);
-
-    expect(res).toEqual({ handed: false });
+    for (const texto of ['😓', '?', 'Okay', 'Efectivo', 'Estoy viendo su live']) {
+      const res = await createHandoffPort().escalate({ ...entrada, inboundText: texto });
+      expect(res, texto).toEqual({ handed: false });
+    }
     expect(PAUSAS).toEqual([]);
     expect(AVISOS).toEqual([]);
   });
 
-  it('justo por debajo del umbral tampoco', async () => {
-    MENSAJES = 3;
-    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: false });
-    expect(PAUSAS).toEqual([]);
-  });
+  it('un problema real deriva en el PRIMER mensaje', async () => {
+    // Lo que el umbral viejo hacía esperar hasta el cuarto.
+    MENSAJES = 1;
 
-  it('con conversación suficiente, deriva', async () => {
-    MENSAJES = 4;
-    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: true });
+    const res = await createHandoffPort().escalate({
+      ...entrada,
+      inboundText: 'me cobraron de mas',
+    });
+
+    expect(res).toEqual({ handed: true });
     expect(PAUSAS).toHaveLength(1);
     expect(AVISOS).toHaveLength(1);
   });
 
-  it('quien pide una persona con todas las letras NO espera turno', async () => {
-    // Y ni siquiera se cuenta: la petición explícita decide sola.
+  it('quien pide una persona con todas las letras cruza igual', async () => {
     MENSAJES = 1;
 
     const res = await createHandoffPort().escalate({
@@ -210,22 +212,25 @@ describe('handoff — la puerta: derivar exige conversación de verdad', () => {
     expect(PAUSAS).toHaveLength(1);
   });
 
-  it('si no se puede contar, NO deriva', async () => {
-    // Fail closed. Un contador ciego que deja pasar todo no es una puerta.
-    MENSAJES = null;
-
-    expect(await createHandoffPort().escalate(entrada)).toEqual({ handed: false });
-    expect(PAUSAS).toEqual([]);
-  });
-
-  it('pero una petición explícita cruza aunque la base no responda', async () => {
+  it('ya no depende de la base: deriva aunque no se pueda consultar nada', async () => {
+    // La puerta se decide con el mensaje delante. Un Supabase caído ya no puede
+    // impedir que llegue a una persona quien dice que le cobraron de más.
     MENSAJES = null;
 
     const res = await createHandoffPort().escalate({
       ...entrada,
-      inboundText: 'pasame con el encargado por favor',
+      inboundText: 'esto es una estafa, devuelvan mi plata',
     });
 
     expect(res).toEqual({ handed: true });
+  });
+
+  it('y tampoco puede hacer que derive quien no tenía motivo', async () => {
+    MENSAJES = null;
+
+    expect(
+      await createHandoffPort().escalate({ ...entrada, inboundText: 'okay gracias' }),
+    ).toEqual({ handed: false });
+    expect(PAUSAS).toEqual([]);
   });
 });

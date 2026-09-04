@@ -1,81 +1,57 @@
 /**
- * Cuánta conversación hace falta antes de que el modelo pueda derivar — PURO.
+ * Qué hace falta para que el modelo pueda derivar — PURO.
  *
- * ── Por qué existe esta puerta ──────────────────────────────────────────────
+ * ── La puerta se invirtió el 04-09-2026 ─────────────────────────────────────
  *
- * En dos días, `request_human` derivó cuatro conversaciones que no lo
- * necesitaban, y las cuatro comparten la misma forma:
+ * Hasta esa noche esto contaba conversación: con cuatro mensajes del cliente en
+ * seis horas, el modelo podía derivar. El umbral existía porque `request_human`
+ * se disparaba en el primer "hola", y cortó ese caso — pero no el de fondo.
  *
- *   · "hola"                                        → mensaje 1
- *   · "hola como esta zarco cuanto me saldria..."   → mensaje 1
- *   · "cuanto sale el envio"                        → mensaje 1
- *   · "Aquí cuánto cobra"                           → mensaje 3
+ * Las últimas 29 derivaciones reales salieron de "😓", "?", "Okay", "Efectivo",
+ * "Estoy viendo su live" y frases por el estilo (la lista entera está en
+ * `problem-signal.ts`). Ninguna pedía una persona; varias eran clientes
+ * intentando pedir o pagar. Todas pasaron el umbral, porque para entonces ya
+ * llevaban cuatro mensajes escritos. Contar mensajes mide cuánto lleva
+ * escribiendo alguien, no si le pasa algo.
  *
- * Ninguna traía queja, enfado ni historial. Eran preguntas que el agente
- * debía contestar, y el modelo eligió la única casilla que le quedaba libre.
- * Se intentó cerrarlo dos veces por redacción —de la descripción y del
- * prompt— y se midió con el eval: la primera no cambió nada y la segunda lo
- * empeoró.
+ * Así que el umbral se retira y en su lugar va una condición sobre el MENSAJE:
+ * o pide una persona con todas las letras, o dice algo que solo una persona
+ * puede arreglar. Sin ninguna de las dos, el modelo contesta y no deriva.
  *
- * Así que el freno deja de ser una instrucción y pasa a ser una condición.
+ * ── Lo que se gana además de las alarmas ────────────────────────────────────
  *
- * ── Por qué CUATRO ─────────────────────────────────────────────────────────
+ * El umbral tenía un coste que estaba anotado y asumido: "una queja legítima en
+ * el primer mensaje —'me llegó frío'— ya no deriva al instante". Con la puerta
+ * invertida, esa queja deriva en el primer mensaje, que es cuando había que
+ * atenderla. La regla nueva es a la vez más estrecha y más rápida.
  *
- * Porque es el primer número que deja fuera los cuatro fallos observados, y
- * no uno más. No sale de una intuición sobre cuánta paciencia merece un
- * cliente: sale de dónde ocurrieron los errores.
+ * ── Lo que cuesta, dicho claro ──────────────────────────────────────────────
  *
- * Lo que cuesta es real y hay que decirlo: una queja legítima en el primer
- * mensaje —"me llegó frío"— ya no deriva al instante. El cliente recibe una
- * respuesta del agente y la derivación llega dos o tres mensajes después. Se
- * acepta porque el daño no es simétrico: contestar de más a quien necesitaba
- * una persona cuesta unos minutos; callar dos horas a quien preguntaba un
- * precio cuesta el cliente.
- *
- * Y el caso que de verdad no admite espera —pedir una persona con todas las
- * letras— no pasa por aquí: lo atiende `explicit-request.ts`.
- *
- * ── Por qué SEIS HORAS ─────────────────────────────────────────────────────
- *
- * La ventana existe para que el umbral signifique "esta conversación", no
- * "este cliente". Sin ella, un habitual que escribió veinte veces la semana
- * pasada tendría derecho a derivar en su primer "hola" de hoy — que es
- * exactamente el fallo que esto viene a cerrar, con más pasos.
- *
- * Seis horas cubren de sobra una jornada de servicio (18:00 a 04:00) sin
- * arrastrar la de ayer.
+ * Un cliente con un problema real que lo escriba de una forma que no
+ * reconozcamos deja de derivar al instante: recibe la respuesta del modelo y, si
+ * insiste con "quiero hablar con alguien", entonces sí. Se acepta porque el daño
+ * no es simétrico —callar dos horas a quien preguntaba un precio cuesta el
+ * cliente— y porque la lista de señales se corrige mirando conversaciones
+ * reales, que es como se escribió.
  */
 
-/** Mensajes del cliente que hacen falta antes de que el modelo pueda derivar. */
-export const HANDOFF_MIN_CUSTOMER_MESSAGES = 4;
-
-/** Cuánto atrás se cuentan esos mensajes. */
-export const HANDOFF_COUNT_WINDOW_HOURS = 6;
-
 export interface HandoffGateInput {
-  /**
-   * Mensajes del cliente en la ventana. `null` = no se pudo contar.
-   *
-   * Se distingue de `0` a propósito: cero es una conversación que empieza, y
-   * `null` es no saber. Las dos impiden derivar, pero por razones distintas y
-   * merecen logs distintos.
-   */
-  customerMessages: number | null;
-  /** ¿Pidió una persona con todas las letras? Entonces la puerta no aplica. */
+  /** ¿Pidió una persona con todas las letras? Ver `explicit-request.ts`. */
   explicitRequest: boolean;
+  /**
+   * ¿El mensaje trae un problema que solo una persona resuelve? Ver
+   * `problem-signal.ts`: dinero mal cobrado, pedido en mal estado, queja.
+   */
+  problemSignal: boolean;
 }
 
 /**
  * ¿Puede derivar el modelo en este turno?
  *
- * FAIL-CLOSED ante un conteo indisponible: un contador ciego que deja pasar
- * todo no es una puerta, es una puerta pintada. Si Supabase no responde, lo
- * que se pierde es una derivación —y el cliente recibe igual su respuesta del
- * agente, porque el turno sigue—; lo que se evitaría perdiendo la puerta es
- * mucho peor y ya se vio cuatro veces.
+ * No consulta nada: se decide con el mensaje delante. Que ya no haga falta
+ * contar mensajes en la base es un efecto secundario, no el motivo — pero
+ * significa que esta puerta no puede fallar por una consulta caída.
  */
 export function canHandOff(input: HandoffGateInput): boolean {
-  if (input.explicitRequest) return true;
-  if (input.customerMessages === null) return false;
-  return input.customerMessages >= HANDOFF_MIN_CUSTOMER_MESSAGES;
+  return input.explicitRequest || input.problemSignal;
 }

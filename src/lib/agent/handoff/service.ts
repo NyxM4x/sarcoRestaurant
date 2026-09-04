@@ -1,5 +1,4 @@
 import 'server-only';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { notifyHandoff } from '@/lib/alerts/handoff-notice-service';
@@ -7,15 +6,16 @@ import { createAgentStore } from '../memory/repository';
 import { pauseAgentForHandoff } from '../control/handoff-pause';
 import { PAUSE_REASON_HANDOFF_REQUESTED } from '../core/types';
 import type { HandoffPort } from '../tools/request-human';
-import { canHandOff, HANDOFF_COUNT_WINDOW_HOURS } from './handoff-gate';
+import { canHandOff } from './handoff-gate';
 import { isExplicitHumanRequest } from './explicit-request';
+import { hasProblemSignal } from './problem-signal';
 
 /**
  * Derivar una conversación a una persona — cableado server-only.
  *
  * Son tres cosas, en este orden y por este motivo:
  *
- *   0. COMPROBAR — ¿hay conversación suficiente para que derivar tenga sentido?
+ *   0. COMPROBAR — ¿hay un motivo en el mensaje para derivar?
  *   1. PAUSAR    — primero que el aviso, para que nadie hable encima.
  *   2. AVISAR    — al equipo, best-effort.
  *
@@ -46,58 +46,24 @@ import { isExplicitHumanRequest } from './explicit-request';
 /** Minutos que calla el agente tras derivar. */
 export const HANDOFF_PAUSE_MINUTES = 120;
 
-/**
- * Mensajes del cliente en la ventana. `null` = no se pudo contar.
- *
- * Se cuenta por TELÉFONO y no por conversación para no depender de una lectura
- * previa: es la misma clave con la que el resto del sistema identifica a un
- * cliente, y `agent_conversations.customer_phone` es única.
- */
-async function contarMensajesDelCliente(
-  supabase: SupabaseClient,
-  customerPhone: string,
-): Promise<number | null> {
-  const desde = new Date(
-    Date.now() - HANDOFF_COUNT_WINDOW_HOURS * 60 * 60 * 1000,
-  ).toISOString();
-
-  const { data: conv, error: errConv } = await supabase
-    .from('agent_conversations')
-    .select('id')
-    .eq('customer_phone', customerPhone)
-    .maybeSingle();
-  if (errConv) return null;
-  // Sin conversación no hay mensajes: cero, no "no se pudo". La persistencia
-  // del entrante corre antes del turno, así que llegar aquí sin fila sería
-  // raro — y en todo caso cero es la respuesta correcta.
-  if (!conv) return 0;
-
-  const { count, error } = await supabase
-    .from('agent_messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('agent_conversation_id', (conv as { id: string }).id)
-    .eq('actor', 'customer')
-    .gte('message_timestamp', desde);
-
-  return error ? null : (count ?? 0);
-}
-
 export function createHandoffPort(): HandoffPort {
   return {
     async escalate({ customerPhone, sourceMessageId, inboundText }) {
       const supabase = getSupabaseAdmin();
 
-      // 0. LA PUERTA. Quien pide una persona con todas las letras la cruza sin
-      // contar nada; el resto necesita que la conversación exista de verdad.
+      // 0. LA PUERTA. Se decide con el mensaje delante y sin consultar nada: o
+      // pide una persona con todas las letras, o trae un problema que solo una
+      // persona arregla. Ver `handoff-gate.ts` para por qué dejó de contar
+      // mensajes el 04-09-2026.
       const explicitRequest = isExplicitHumanRequest(inboundText);
-      const customerMessages = explicitRequest
-        ? null // no hace falta contar: la petición explícita ya decide.
-        : await contarMensajesDelCliente(supabase, customerPhone);
+      const problemSignal = explicitRequest ? false : hasProblemSignal(inboundText);
 
-      if (!canHandOff({ customerMessages, explicitRequest })) {
+      if (!canHandOff({ explicitRequest, problemSignal })) {
         // El cliente NO se queda sin respuesta: `handed: false` deja el turno
         // vivo y el modelo redacta. Lo que no ocurre es la derivación.
-        log.info('agent.handoff_below_threshold', { messages: customerMessages });
+        //
+        // Sin el texto ni el teléfono: solo por qué no se derivó.
+        log.info('agent.handoff_no_reason');
         return { handed: false };
       }
 
