@@ -17,9 +17,25 @@ import type { AgentPauseState, AgentStore } from '@/lib/agent/core/types';
  * simple lectura. Estas primitivas sirven para la barrera #1 y para diagnóstico.
  *
  * IMPORTANTE: la pausa es SOLO del Agent Core. Las comunicaciones
- * determinísticas del sistema (confirmación de pedido, solicitud de ubicación,
- * QR, CTA del menú) no pasan por aquí y deben seguir saliendo con normalidad
- * aunque un humano esté atendiendo la conversación.
+ * determinísticas que CIERRAN algo que el cliente empezó —la confirmación de su
+ * pedido, la solicitud de ubicación, su QR— no pasan por aquí y deben seguir
+ * saliendo con normalidad aunque un humano esté atendiendo: son la segunda
+ * mitad de un acto suyo, y callarlas lo dejaría a medias.
+ *
+ * ── El CTA del menú dejó de estar en esa lista (03-09-2026) ─────────────────
+ *
+ * Estaba, y con la misma razón: entonces solo salía cuando el cliente escribía
+ * una de un puñado de frases, así que era la respuesta a una petición concreta.
+ * Desde que el botón es la respuesta POR DEFECTO de cualquier texto
+ * (`webhook/default-reply.ts`), ya no cierra nada — abre. Y abrir una
+ * conversación encima de la persona que la está atendiendo es exactamente lo
+ * que un cliente lee como que no le escuchamos: el 03-09-2026 uno pidió
+ * "responder sin ia" y lo que no puede pasar es que la siguiente cosa que
+ * reciba sea otro mensaje automático.
+ *
+ * Esa comprobación NO se hace aquí: el camino determinista no pasa por el core.
+ * La hace `lookupCustomerState`, que consulta esta misma pausa con `isPauseActive`
+ * — una sola regla, leída desde dos sitios.
  */
 
 /** `true` si el agente puede actuar. Una conversación desconocida está activa. */

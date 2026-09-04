@@ -886,6 +886,14 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
     // Persistirse no es ser accionable. Una ubicación recién llegada es lo más
     // "nuevo" del lote y aun así el turno no puede anclarse en ella: ya la
     // atendió su ruta.
+    //
+    // ── Y desde el 03-09-2026 tampoco ancla nadie más ────────────────────────
+    //
+    // La ubicación CIERRA la ráfaga, y su ruta ya le contestó al cliente con su
+    // total y su QR. Anclar en el "gracias" anterior le pondría encima una frase
+    // del modelo sobre un mensaje que ya no era la pregunta. Lo que este test
+    // protege no cambia —una ubicación no ancla—; lo que cambia es que ahora,
+    // cuando el último mensaje del cliente ya tiene respuesta, no hay turno.
     const spy = canalConHistoria([VIEJO]);
     const raw = batchBody([
       envelope({ wamid: VIEJO, text: 'gracias' }),
@@ -897,9 +905,29 @@ describe('lotes — un WAMID ya consumido no deja al nuevo sin respuesta', () =>
       attachOrderLocation: spy.attachOrderLocation,
     });
 
-    expect(processed?.body).toMatchObject({ anchor_index: 0 });
-    expect(spy.turns[0].providerMessageId).toBe(VIEJO);
+    expect(processed?.body).toMatchObject({ anchor_index: null });
+    expect(spy.turns).toHaveLength(0);
+    // La ubicación se atendió igual: lo que se calla es el modelo, no la ruta.
     expect(spy.attached).toEqual([PHONE_DIGITS]);
+  });
+
+  it('si el ÚLTIMO mensaje es una pregunta, el determinístico anterior no la calla', async () => {
+    // El contrapeso del test de arriba, y la razón de mirar el ÚLTIMO y no "si
+    // hubo alguno": aquí el cliente mandó su ubicación y DESPUÉS preguntó otra
+    // cosa. Su pregunta sigue siendo del modelo.
+    const spy = spyChannel();
+    const raw = batchBody([
+      locationEnvelope('wamid.LOC_NUEVA'),
+      envelope({ wamid: 'wamid.PREGUNTA', text: 'y cuánto tarda?' }),
+    ]);
+
+    const { processed } = await deliver(raw, {
+      agentChannel: spy.channel,
+      attachOrderLocation: spy.attachOrderLocation,
+    });
+
+    expect(spy.turns.map((m) => m.providerMessageId)).toEqual(['wamid.PREGUNTA']);
+    expect(processed?.body).toMatchObject({ anchor_index: 1, agent_turn: 'replied' });
   });
 });
 

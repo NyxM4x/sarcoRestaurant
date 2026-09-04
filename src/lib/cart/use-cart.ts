@@ -82,6 +82,19 @@ export interface UseCart {
   remove: (code: string) => void;
   drop: (code: string) => void;
   clear: () => void;
+  /**
+   * Deja el carrito con EXACTAMENTE lo que se le pasa (0035).
+   *
+   * Existe para un solo caso: el cliente que abre el enlace de "Cambiar mi
+   * pedido" y tiene que encontrarse dentro lo que ya había pedido. No es un
+   * `add` repetido —eso escribiría N veces y dispararía N renders— ni un
+   * `clear` seguido de altas.
+   *
+   * Quien lo llame decide si pisa algo: aquí no se comprueba nada. La regla
+   * —sembrar solo sobre un carrito vacío— vive en `MenuStore`, que es quien
+   * sabe si el cliente venía de otra cosa.
+   */
+  seed: (next: CartState) => void;
 }
 
 export function useCart(items: MenuItem[]): UseCart {
@@ -111,9 +124,17 @@ export function useCart(items: MenuItem[]): UseCart {
 
   const clear = useCallback(() => update(clearCartState()), [update]);
 
+  // Pasa por `parseStoredCart` para heredar sus mismas guardas: cantidades
+  // recortadas al máximo por producto y entradas en cero descartadas. Sembrar
+  // no puede meter en el carrito nada que el cliente no pudiera poner a mano.
+  const seed = useCallback(
+    (next: CartState) => update(parseStoredCart(serializeCart(next))),
+    [update],
+  );
+
   const quantity = useCallback((code: string) => quantityOf(cart, code), [cart]);
   const summary = useMemo(() => summarizeCart(cart, items), [cart, items]);
   const units = useMemo(() => totalUnits(cart), [cart]);
 
-  return { cart, hydrated, units, summary, quantity, add, remove, drop, clear };
+  return { cart, hydrated, units, summary, quantity, add, remove, drop, clear, seed };
 }

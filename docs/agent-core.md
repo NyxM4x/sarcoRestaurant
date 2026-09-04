@@ -330,9 +330,11 @@ sistema hizo, no**.
 | `automation` (acción conocida) | **`system`** | una **línea de evento**, nunca el contenido de la fila |
 | `automation` (acción desconocida) | — | **se omite** del contexto |
 
-La línea, literal y completa:
+Las líneas, literales y completas:
 
 > Evento del canal: el sistema envió un menú interactivo al cliente.
+> Evento del canal: el sistema derivó la conversación a una persona del equipo.
+> Evento del canal: el sistema le recordó al cliente que envíe el comprobante de su pedido.
 
 Es **factual y nada más**. No dice "no hace falta repetirlo" ni "ya fue
 atendido": eso sería el cooldown otra vez, escrito en prosa, justo después de
@@ -340,8 +342,8 @@ haberlo quitado. Un mensaje nuevo del cliente puede necesitar el menú otra vez,
 y eso lo decide el turno actual.
 
 `ContextMessage` no lleva metadata: el repositorio lee `metadata.action` y lo
-reduce en el sitio a una **lista blanca** (`toAutomationAction`, hoy solo
-`send_menu`). Lo que sale hacia el core es un valor de un conjunto cerrado, y es
+reduce en el sitio a una **lista blanca** (`toAutomationAction`: `send_menu`,
+`human_handoff` y `proof_reminder`). Lo que sale hacia el core es un valor de un conjunto cerrado, y es
 **fail-closed**: una acción que no esté en la lista **no llega al modelo**.
 Describir en genérico algo que no sabemos interpretar sería inventar, y un
 automatismo futuro no debería aparecer en la conversación hasta que alguien

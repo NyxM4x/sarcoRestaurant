@@ -223,6 +223,14 @@ export interface MenuSession {
   phone_number_id: string;
   created_at: string;
   expires_at: string;
+  /**
+   * Pedido al que este enlace viene a SUSTITUIR (0035). `null` = sesión normal.
+   *
+   * Lo escribe el botón "Cambiar mi pedido" y lo lee el checkout para reemplazar
+   * en vez de acumular. Es la autoridad del reemplazo: el enlace lo emitimos
+   * nosotros, así que quien lo abre puede cambiar ESE pedido y ningún otro.
+   */
+  replaces_order_id: string | null;
 }
 
 // ── Filas del Agent Foundation (0014) ──

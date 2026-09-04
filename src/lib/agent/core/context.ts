@@ -28,9 +28,18 @@ export const CONTEXT_MAX_MESSAGES = 24;
  * interpretar sería inventar, y un automatismo futuro no debería aparecer en la
  * conversación hasta que alguien decida cómo se cuenta.
  */
-export type AutomationAction = 'send_menu' | 'human_handoff';
+export type AutomationAction =
+  | 'send_menu'
+  | 'human_handoff'
+  | 'proof_reminder'
+  | 'kitchen_note';
 
-const AUTOMATION_ACTIONS: readonly AutomationAction[] = ['send_menu', 'human_handoff'];
+const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
+  'send_menu',
+  'human_handoff',
+  'proof_reminder',
+  'kitchen_note',
+];
 
 /** ¿Es una acción conocida? Todo lo demás cae al evento genérico. */
 export function toAutomationAction(raw: unknown): AutomationAction | null {
@@ -170,6 +179,19 @@ export function automationEventLine(action: AutomationAction | null | undefined)
     // levantó), tiene que saber que aquí ya intervino una persona y no empezar
     // de cero como si nada hubiera pasado.
     return 'Evento del canal: el sistema derivó la conversación a una persona del equipo.';
+  }
+  if (action === 'proof_reminder') {
+    // El pedido de este cliente ya está armado, cotizado y con su QR: lo único
+    // que falta es su comprobante. Sin esta línea el modelo ve un saliente
+    // nuestro sin saber de qué iba, y a alguien que está por pagar puede
+    // acabar ofreciéndole el menú otra vez.
+    return 'Evento del canal: el sistema le recordó al cliente que envíe el comprobante de su pedido.';
+  }
+  if (action === 'kitchen_note') {
+    // El cliente pidió algo para la plancha ("sin cebolla") y el sistema ya lo
+    // anotó en su pedido. Sin esta línea, el modelo podría volver a ofrecerle
+    // arreglar lo que ya está arreglado.
+    return 'Evento del canal: el sistema anotó en el pedido una preferencia que pidió el cliente.';
   }
   return null;
 }

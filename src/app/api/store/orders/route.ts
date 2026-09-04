@@ -13,6 +13,7 @@ import {
   dispatchExistingWebOrderWhatsApp,
   initializeAndDispatchWebOrderWhatsApp,
 } from '@/lib/orders/notifications/service';
+import { replaceSupersededOrder } from '@/lib/orders/order-replacement';
 
 // Requiere APIs de Node (crypto, service_role) — no Edge. Siempre dinámico.
 export const runtime = 'nodejs';
@@ -72,6 +73,18 @@ function buildDeps(): WebCheckoutDeps {
       initializeAndDispatch: initializeAndDispatchWebOrderWhatsApp,
       dispatchExisting: dispatchExistingWebOrderWhatsApp,
     }),
+
+    /**
+     * 0035 — si el enlace venía del botón "Cambiar mi pedido", el anterior se
+     * cancela después de responder. `replaceSupersededOrder` nunca lanza y
+     * comprueba por su cuenta que haya algo que sustituir: una sesión normal
+     * sale por `not_a_replacement` sin tocar nada.
+     */
+    scheduleOrderReplacement: (input) => {
+      after(async () => {
+        await replaceSupersededOrder(input);
+      });
+    },
   };
 }
 

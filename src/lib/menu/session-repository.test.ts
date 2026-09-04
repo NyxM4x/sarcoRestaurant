@@ -41,6 +41,10 @@ function fakeSupabase(result: { data: unknown; error: { message: string } | null
           query.filters.push({ op: 'gt', column, value });
           return builder;
         },
+        is(column: string, value: unknown) {
+          query.filters.push({ op: 'is', column, value });
+          return builder;
+        },
         order(column: string, opts: unknown) {
           query.filters.push({ op: 'order', column, value: opts });
           return builder;
@@ -75,6 +79,9 @@ describe('createMenuSessionRepository.findValidByPhone (6D.2E)', () => {
     expect(q.table).toBe('menu_sessions');
     expect(q.filters).toContainEqual({ op: 'eq', column: 'customer_phone', value: '59170000000' });
     expect(q.filters.some((f) => f.op === 'gt' && f.column === 'expires_at')).toBe(true);
+    // 0035: un enlace de CAMBIO nunca se reutiliza como menú. Devolvérselo a
+    // quien solo pidió la carta cancelaría un pedido que nadie quería cancelar.
+    expect(q.filters).toContainEqual({ op: 'is', column: 'replaces_order_id', value: null });
     expect(q.filters).toContainEqual({ op: 'order', column: 'expires_at', value: { ascending: false } });
     expect(q.filters).toContainEqual({ op: 'limit', column: '', value: 1 });
     expect(q.terminator).toBe('maybeSingle');

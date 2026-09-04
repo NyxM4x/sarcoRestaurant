@@ -36,13 +36,21 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
     deliveries: createMenuDeliveryStore(getSupabaseAdmin()),
 
     session: {
-      async createUrl({ sourceMessageId: id, customerPhone, phoneNumberIdFromEvent }) {
+      async createUrl({
+        sourceMessageId: id,
+        customerPhone,
+        phoneNumberIdFromEvent,
+        replacesOrderId,
+      }) {
         // Comportamiento intacto (6D.2E): reutiliza la sesión vigente no
         // consumida y, si no la hay, crea una con token reproducible.
         const created = await createMenuSessionWithUrl({
           source_message_id: id,
           customer_phone: customerPhone,
           phone_number_id_from_event: phoneNumberIdFromEvent,
+          // 0035: cuando viene, el enlace nace propio y con el pedido escrito
+          // dentro. Nunca se reutiliza uno anterior.
+          replaces_order_id: replacesOrderId ?? null,
         });
         return {
           sessionUrl: created.session_url,
@@ -56,10 +64,20 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
       // `menu_sessions`: se envía por el número por el que llegó.
       // El copy se resuelve AQUÍ, en el borde: `dispatchMenu` decide que hay que
       // mandar el menú y por qué; qué palabras acompañan al botón es del canal.
-      sendCta: ({ customerPhone, menuUrl, phoneNumberId: from, reason, ctaContext, bodyText }) =>
+      sendCta: ({
+        customerPhone,
+        menuUrl,
+        phoneNumberId: from,
+        reason,
+        ctaContext,
+        bodyText,
+        buttonText,
+      }) =>
         getKapsoClient().sendMenuCtaUrl(customerPhone, {
           phoneNumberId: from,
           menuUrl,
+          // La etiqueta solo cambia cuando el enlace hace otra cosa (0035).
+          buttonText,
           // El texto ya redactado gana, y solo lo trae quien lleva un dato que
           // no cabe en una constante — hoy, la tarifa del envío. Ver
           // `DispatchMenuInput.bodyText`.
@@ -77,13 +95,27 @@ export const sendMenuCtaMessage: SendMenuCta = async ({
   sourceMessageId,
   reason,
   ctaContext,
+  replacesOrderId,
+  buttonText,
+  bodyText,
 }) => {
   if (!sourceMessageId) {
     throw new Error('sendMenuCta: sourceMessageId required for idempotence');
   }
 
   return dispatchMenu(
-    { customerPhone: toDigits, sourceMessageId, phoneNumberId, reason, ctaContext },
+    {
+      customerPhone: toDigits,
+      sourceMessageId,
+      phoneNumberId,
+      reason,
+      ctaContext,
+      // 0035: los tres solo viajan cuando el enlace abre un pedido para
+      // cambiarlo. Ausentes, este adaptador se comporta como siempre.
+      replacesOrderId,
+      buttonText,
+      bodyText,
+    },
     createMenuDispatchDeps(),
   );
 };

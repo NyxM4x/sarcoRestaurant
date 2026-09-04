@@ -207,12 +207,18 @@ export function createKapsoTransport(cfg: KapsoTransportConfig) {
       customerPhone: string,
       // `bodyText` ausente = el cuerpo de saludo de siempre. El transporte NO
       // elige el texto: lo recibe ya decidido, igual que recibe la URL.
-      options?: SendOptions & { menuUrl?: string; bodyText?: string },
+      options?: SendOptions & { menuUrl?: string; bodyText?: string; buttonText?: string },
     ): Promise<KapsoSendResult> {
       const to = normalizePhone(customerPhone);
       if (!to) return { ok: false, error: 'invalid_phone' };
       return postMessage(
-        buildMenuCtaPayload(to, options?.menuUrl, undefined, options?.bodyText),
+        buildMenuCtaPayload(
+          to,
+          options?.menuUrl,
+          undefined,
+          options?.bodyText,
+          options?.buttonText,
+        ),
         { phoneNumberId: options?.phoneNumberId },
       );
     },

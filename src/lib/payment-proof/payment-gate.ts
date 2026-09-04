@@ -31,8 +31,22 @@
  * hora punta, y sin ninguna forma de saltársela desde una tablet. Un pedido de
  * más se recupera; una noche con la cocina parada, no.
  */
-import type { PaymentMethod } from '@/types';
-import type { PaymentView } from '@/lib/dashboard/attempt-review';
+import type { PaymentMethod, PaymentReviewStatus } from '@/types';
+
+/**
+ * Lo UNICO que esta puerta mira de un pago: en que quedo cada intento.
+ *
+ * Es un tipo estructural, no la vista del panel. `PaymentView` encaja aqui tal
+ * cual —la pantalla del KDS sigue pasando la suya sin cambiar una linea— y a la
+ * vez el webhook puede preguntar por el estado de un pago sin construir
+ * comprobantes, etiquetas ni tonos que nadie va a pintar.
+ *
+ * Que la firma pida lo minimo es lo que impide que esta regla se copie: quien
+ * solo tiene los intentos ya no necesita una segunda version de la puerta.
+ */
+export interface PaymentAttemptsSnapshot {
+  attempts: readonly { status: PaymentReviewStatus; reviewedAt: string | null }[];
+}
 
 /**
  * Cuánto tiene el cliente para reenviar un comprobante después de un rechazo.
@@ -97,7 +111,7 @@ function abre(state: PaymentGateState): boolean {
  */
 export function paymentGateOf(
   paymentMethod: PaymentMethod | null,
-  payment: PaymentView | null,
+  payment: PaymentAttemptsSnapshot | null,
   nowMs: number,
 ): PaymentGate {
   const gate = (state: PaymentGateState, graceEndsAtMs: number | null = null): PaymentGate => ({
@@ -161,7 +175,7 @@ export function paymentGateOf(
  */
 export function shouldCancelForExpiry(
   paymentMethod: PaymentMethod | null,
-  payment: PaymentView | null,
+  payment: PaymentAttemptsSnapshot | null,
   nowMs: number,
 ): boolean {
   return paymentGateOf(paymentMethod, payment, nowMs).state === 'expired';

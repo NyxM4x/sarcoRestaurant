@@ -113,7 +113,23 @@ export interface WebCheckoutDeps {
    * `mode`; nunca el token de sesión, el teléfono ni el carrito.
    */
   scheduleNotificationDispatch?: ScheduleNotificationDispatch;
+  /**
+   * Programa la sustitución del pedido anterior, si el enlace venía del botón
+   * "Cambiar mi pedido" (0035). Opcional: sin ella el checkout se comporta
+   * EXACTAMENTE como antes y ningún pedido se cancela nunca.
+   *
+   * Recibe el id del pedido nuevo y el de la sesión — a qué pedido sustituir lo
+   * sabe la sesión, no el navegador. Corre después de responder, como las
+   * notificaciones: el cliente ya tiene su pedido y esto es consecuencia.
+   */
+  scheduleOrderReplacement?: ScheduleOrderReplacement;
 }
+
+/** Registra la sustitución para después de la respuesta (con `after()`). */
+export type ScheduleOrderReplacement = (input: {
+  newOrderId: string;
+  menuSessionId: string;
+}) => void;
 
 /** Acción que el frontend debe tomar tras crear el pedido. */
 export type NextAction = 'order_confirmed' | 'return_to_whatsapp_for_location';
@@ -331,6 +347,18 @@ export async function handleCreateWebOrder(
     // El pedido ya está creado: un fallo al REGISTRAR el trabajo no puede
     // convertir una respuesta exitosa en error. Se registra sin detalle técnico.
     log.warn('store.orders.notification_schedule_failed', { order_id: row.order_id, mode });
+  }
+
+  // 7. Sustitución (0035). Solo cuando la RPC CREÓ el pedido: en un reintento
+  // idempotente el anterior ya se canceló en la primera pasada, y volver a
+  // intentarlo no encontraría nada que cancelar. Mismo trato que arriba — un
+  // fallo al registrar el trabajo no convierte un pedido creado en un error.
+  if (row.created) {
+    try {
+      deps.scheduleOrderReplacement?.({ newOrderId: row.order_id, menuSessionId });
+    } catch {
+      log.warn('store.orders.replacement_schedule_failed', { order_id: row.order_id });
+    }
   }
 
   // 201 solo cuando la RPC creó el pedido; 200 en un reintento con el mismo carrito.

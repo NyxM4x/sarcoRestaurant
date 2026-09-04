@@ -20,6 +20,9 @@ import {
 } from '@/lib/delivery/quote-request-service';
 import { expandMapsLink } from '@/lib/delivery/maps-link-service';
 import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
+import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
+import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
+import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
   acceptKapsoWebhook,
@@ -93,6 +96,16 @@ export async function POST(request: Request): Promise<Response> {
       askLocationForQuote: (input) => askLocationForQuote(input),
       // Avisa al equipo del cliente que escribe y escribe sin conseguir pedir.
       checkStuckCustomer: (phone) => escalateIfStuck(phone),
+      // 03-09-2026: el botón del menú es la respuesta por defecto de todo texto
+      // que ninguna otra puerta atendió. Estos dos puertos son los que hacen
+      // posible que tenga excepciones —un humano atendiendo, un pedido en
+      // curso—; sin ellos no sale nada por defecto y el texto cae en el agente,
+      // que es el comportamiento anterior. Ver `webhook/default-reply.ts`.
+      lookupCustomerState: (phone) => lookupCustomerState(phone),
+      sendProofReminder: (input) => sendProofReminder(input),
+      // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
+      // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
+      appendKitchenNote: (input) => appendKitchenNote(input),
       // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
       outbound: createSupabaseOutboundStore(supabase),
       // Fase 6D.2F.2B: historial del cliente + human takeover.

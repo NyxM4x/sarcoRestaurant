@@ -3,6 +3,77 @@
 Documento **trackeado** de la única autoridad sobre el efecto *"mandarle el
 menú a un cliente"* (Fase 6D.2F.5A).
 
+## Quién recibe el menú (03-09-2026)
+
+**El botón es la respuesta por defecto de todo texto entrante.** Antes salía por
+lista blanca —`menu-intent.ts` reconocía un puñado de frases y el resto caía en
+el modelo—, y esa lista nunca alcanzó: el 03-09-2026 una conversación entera
+terminó sin menú y con el cliente escribiendo *"me puede responder sin ia si"*.
+
+```
+texto del cliente
+   │
+   ├─ ¿trigger QA (TESTMENU9842)?      → menú, sin más comprobaciones
+   ├─ ¿lo pidió (isMenuIntent/saludo)? ─┐
+   ├─ ¿ubicación, link, coordenadas?   → su camino
+   ├─ ¿"cuánto sale el envío"?         → su camino
+   ├─ ¿pedido armado (nfm_reply)?      → su camino
+   └─ cualquier otra cosa ─────────────┴→ decideDefaultReply()
+```
+
+Las dos puertas que mandan el menú —la petición explícita y el default—
+atraviesan `decideDefaultReply` (`src/lib/webhook/default-reply.ts`), que es
+puro y decide con el estado del cliente, nunca con sus palabras:
+
+| Situación | Petición explícita | Cualquier otro texto |
+|---|---|---|
+| nada abierto | menú | menú |
+| estado desconocido (consulta caída, puerto sin cablear) | menú | **nada** |
+| **un humano atendiendo** (pausa vigente) | **nada** | **nada** |
+| pedido `confirmed` y el texto es una preferencia de cocina | **se anota + "claro que sí"** | **se anota + "claro que sí"** |
+| pedido `confirmed` sin comprobante y pide cambiar lo que lleva | **botón "Cambiar mi pedido"** | **botón "Cambiar mi pedido"** |
+| pedido esperando comprobante | **recordatorio del comprobante** | **recordatorio** |
+| ese recordatorio ya salió hace <15 min | nada | nada |
+| otro pedido abierto (en revisión, cocinándose, en camino) | menú | nada |
+
+### "Sin cebolla" no es rearmar el pedido (04-09-2026)
+
+Después de la cotización, el cliente que escribe puede querer dos cosas que se
+parecen y no lo son:
+
+| Lo que escribe | Qué es | Qué recibe |
+|---|---|---|
+| "sin cebolla", "con ketchup", "auméntame la mayonesa" | una **preferencia**: no cambia ni una línea ni un centavo | se escribe en `orders.notes` —lo que la cocina imprime— y se le confirma |
+| "mándame 2 sodas más", "no puse la gaseosa" | un **cambio de líneas**: cambia el total, el QR y la comanda | el botón *Cambiar mi pedido*, que reabre su pedido para rearmarlo — ver `docs/order-change.md` |
+
+`kitchen-note-intent.ts` decide, y su asimetría es toda la seguridad: hace falta
+una marca de preferencia **y** que no aparezca ningún producto de la carta ni
+ninguna cantidad. Los dos errores no cuestan lo mismo — una preferencia tratada
+como cambio molesta; un cambio tratado como preferencia deja el total viejo con
+comida nueva. En la duda, no se anota.
+
+Los términos de producto salen de `menu_items` en tiempo de ejecución: el día
+que la carta incluya "Cebolla frita", "sin cebolla" deja de anotarse solo. Y si
+la carta no se pudo leer, **no se anota nada**.
+
+La nota se escribe solo mientras el pedido siga en `confirmed`, que es cuando
+todavía no ha entrado a la plancha, y el guard viaja dentro del `UPDATE`. Si no
+se pudo escribir, el mensaje de confirmación **no sale**: el cliente sigue su
+camino en vez de quedarse tranquilo con una nota que la cocina nunca verá.
+
+Reglas de entrega, además de la idempotencia por WAMID:
+
+- **Un botón por entrega.** Un lote con `"quiero pedir"` y `"a cuanto"` manda uno,
+  no dos (`menuAlreadySent`).
+- **Dentro de una ráfaga contesta el último mensaje** (`isBatchAnchor`), salvo
+  que alguno sea una petición explícita, que contesta por sí misma.
+- **El menú cierra la entrega**: si salió un CTA, no hay turno del agente. Es la
+  misma regla que `effectCompletesTurn` aplica a `send_menu` — el botón ES la
+  respuesta, y una frase después solo puede repetirla o contradecirla.
+
+El interruptor de apagado es el puerto `lookupCustomerState`: sin él no sale
+nada por defecto y todo vuelve al comportamiento anterior.
+
 ## Por qué existe
 
 Hasta 6D.2F.5A el CTA se enviaba directo desde el webhook. La única
@@ -80,6 +151,10 @@ un solo sitio: `@/lib/kapso/send-outcome`.
 | `agent_suggestion` | nadie lo pidió; al agente le pareció útil |
 | `qa_trigger` | `TESTMENU9842` |
 
+El trigger de QA es lo ÚNICO que se salta la tabla de arriba: existe para
+comprobar de punta a punta que el CTA sale, y un diagnóstico que a veces calla
+—porque quien prueba tenía un pedido abierto— no diagnostica nada.
+
 **El motivo lo decide el backend**, a partir de qué detector disparó. La tool
 `send_menu()` no lleva `force` ni `reason`: no acepta **ningún** argumento, y el
 motivo se fija dentro de la propia tool.
@@ -114,11 +189,15 @@ con `isExplicitMenuRequest` (`src/lib/agent/business/menu-request.ts`):
 | nombra el menú o la carta | `explicit_request` |
 | pregunta cualquier otra cosa | `agent_suggestion` |
 
-No es `menu-intent.ts` y no debe convertirse en él. `isMenuIntent` **dispara**
-el pipeline determinístico y por eso reconoce frases enteras; esto solo se
-evalúa cuando el modelo ya decidió enviar, así que le basta con dos sustantivos.
-Entender "mandme la carta" sigue siendo trabajo del modelo — de hecho
-`isMenuIntent` no la reconoce, y por eso el mensaje llega al agente.
+No es `menu-intent.ts` y no debe convertirse en él. `isMenuIntent` decide qué
+mensajes se atienden **antes** que la ubicación y la cotización, y por eso
+reconoce frases enteras; esto solo etiqueta, así que le basta con dos
+sustantivos.
+
+Desde que el botón es el default, `isExplicitMenuRequest` etiqueta también la
+ruta determinística cuando dispara por defecto: `"mandame la carta"` no está en
+`isMenuIntent` —y no hace falta que esté—, pero nombra la carta, así que su CTA
+queda en el ledger como `explicit_request` y no como una sugerencia.
 
 La tolerancia a typos se limita a dos transformaciones que no pueden convertir
 otra palabra en estas: **letras repetidas** (`mennu`, `carrta`) y

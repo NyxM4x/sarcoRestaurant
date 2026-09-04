@@ -113,6 +113,13 @@ export interface MenuSessionPort {
     sourceMessageId: string;
     customerPhone: string;
     phoneNumberIdFromEvent: string | null;
+    /**
+     * Pedido al que el enlace viene a SUSTITUIR (0035). Ausente = enlace normal.
+     *
+     * Viaja hasta la sesión porque es ella quien lo guarda: el checkout lo lee
+     * de ahí, no del navegador. Ver `menu_sessions.replaces_order_id`.
+     */
+    replacesOrderId?: string | null;
   }): Promise<{ sessionUrl: string; effectivePhoneNumberId: string }>;
 }
 
@@ -131,6 +138,8 @@ export interface MenuSendPort {
      * es una lectura del mensaje anterior. Ver `menu/cta-context.ts`.
      */
     ctaContext?: MenuCtaContext | null;
+    /** Etiqueta del botón. Ausente = "Ver menú", que es lo que dice casi siempre. */
+    buttonText?: string;
     /**
      * Por qué se manda. Decide QUÉ TEXTO acompaña al botón — no a quién ni con
      * qué enlace.
@@ -183,6 +192,16 @@ export interface DispatchMenuInput {
   phoneNumberId: string | null;
   reason: MenuSendReason;
   /**
+   * Pedido al que este enlace viene a SUSTITUIR (0035). Ausente = ninguno.
+   *
+   * Cambia lo que el enlace SIGNIFICA, no a quién se manda: el checkout que lo
+   * reciba reemplazará ese pedido en vez de acumular otro. Por eso viaja aquí y
+   * no en el copy — el texto se puede reescribir, esto no.
+   */
+  replacesOrderId?: string | null;
+  /** Etiqueta del botón. Ausente = la de siempre. */
+  buttonText?: string;
+  /**
    * Cuerpo del mensaje, ya redactado por quien llama. Ausente = lo elige el
    * canal a partir de `reason` y `ctaContext`, que es el caso normal.
    *
@@ -228,6 +247,7 @@ export async function dispatchMenu(
     sourceMessageId: input.sourceMessageId,
     customerPhone: input.customerPhone,
     phoneNumberIdFromEvent: input.phoneNumberId,
+    replacesOrderId: input.replacesOrderId ?? null,
   });
 
   // ── 2. Claim ──────────────────────────────────────────────────────────────
@@ -252,6 +272,7 @@ export async function dispatchMenu(
     ctaContext: input.ctaContext ?? null,
     reason: input.reason,
     bodyText: input.bodyText,
+    buttonText: input.buttonText,
   });
 
   if (!sent.ok) {

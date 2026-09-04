@@ -8,7 +8,9 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import { createMenuSessionRepository } from '@/lib/menu/session-repository';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
+import { loadOrderCart, type OrderCart } from '@/lib/orders/order-cart';
 import { MenuHeader } from '@/components/menu/MenuHeader';
+import { ReplacingOrderBanner } from '@/components/menu/ReplacingOrderBanner';
 import { MenuStore } from '@/components/menu/MenuStore';
 import { ServiceNoticeBanner } from '@/components/menu/ServiceNoticeBanner';
 
@@ -51,6 +53,14 @@ export default async function MenuPage(props: {
   const sessionToken = typeof searchParams.session === 'string' ? searchParams.session : null;
 
   let sessionValid = true;
+  /**
+   * El pedido que este enlace viene a CAMBIAR (0035), ya convertido en carrito.
+   *
+   * Lo decide la SESIÓN, no el navegador: el enlace lo emitimos nosotros con el
+   * pedido escrito dentro, así que nadie puede abrir el menú de otro pedido
+   * cambiándose un parámetro de la URL.
+   */
+  let replacingOrder: OrderCart | null = null;
   if (sessionToken) {
     try {
       const tokenHash = hashMenuSessionToken(sessionToken);
@@ -58,6 +68,10 @@ export default async function MenuPage(props: {
       const session = await repo.findByHash(tokenHash);
       if (!session) {
         sessionValid = false;
+      } else if (session.replaces_order_id) {
+        // Si esto falla, el menú se abre igual y vacío: tener que rearmar es
+        // peor que hoy, pero mucho mejor que una pantalla de error.
+        replacingOrder = await loadOrderCart(session.replaces_order_id);
       }
     } catch (error) {
       log.error('menu.page.validateSession', {
@@ -101,6 +115,7 @@ export default async function MenuPage(props: {
     <main className="flex-1 bg-donzarco-surface text-zinc-900">
       <MenuHeader />
       <ServiceNoticeBanner serverNow={serverNow} />
+      {replacingOrder && <ReplacingOrderBanner orderNumber={replacingOrder.orderNumber} />}
 
       {items === null ? (
         <MenuUnavailable
@@ -121,6 +136,15 @@ export default async function MenuPage(props: {
           promotions={promotions}
           serverNow={serverNow}
           sessionToken={sessionToken}
+          // 0035: cuando el enlace viene a cambiar un pedido, el carrito se
+          // siembra con lo que ya había dentro.
+          replacingOrder={
+            replacingOrder && {
+              orderNumber: replacingOrder.orderNumber,
+              items: replacingOrder.items,
+              promotions: replacingOrder.promotions,
+            }
+          }
         />
       )}
     </main>

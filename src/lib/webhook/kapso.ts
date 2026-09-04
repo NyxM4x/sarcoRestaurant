@@ -13,8 +13,11 @@ import {
   parsePlainCoords,
 } from '@/lib/delivery/maps-link';
 import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
+import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/messages';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isGreetingOnly, isMenuIntent } from './menu-intent';
+import { decideDefaultReply, type CustomerStateSnapshot } from './default-reply';
+import { isExplicitMenuRequest } from '@/lib/agent/business/menu-request';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
 import {
   processOutboundEvent,
@@ -136,6 +139,15 @@ export interface SendMenuCtaInput {
    * y por eso NO se persiste: no es un hecho del envío. Ver `menu/cta-context.ts`.
    */
   ctaContext?: MenuCtaContext | null;
+  /**
+   * Pedido al que el enlace viene a SUSTITUIR (0035). Cambia lo que el enlace
+   * hace, no a quién se manda: el checkout que lo reciba reemplazará ese pedido.
+   */
+  replacesOrderId?: string | null;
+  /** Etiqueta del botón. Ausente = "Ver menú". */
+  buttonText?: string;
+  /** Cuerpo ya redactado en backend. Ausente = lo elige el canal. */
+  bodyText?: string;
 }
 
 /**
@@ -185,6 +197,66 @@ export type AskLocationForQuote = (input: {
   sourceMessageId: string;
   /** Qué texto toca. Ausente = el de siempre. Ver `askLocationForQuote`. */
   reason?: 'asked' | 'link_without_coords';
+}) => Promise<{ ok: boolean }>;
+
+/**
+ * En qué situación está el cliente que escribió (03-09-2026).
+ *
+ * Responde a la única pregunta que hace falta para el botón por defecto: ¿hay
+ * alguien atendiéndole, y tiene un pedido en curso? La implementación real es
+ * server-only y consulta la pausa del agente, el pedido abierto más reciente y
+ * el estado de su pago.
+ *
+ * `null` significa NO SE PUDO AVERIGUAR —una consulta que falla, un teléfono
+ * ilegible— y no "está despejado". Ante ese `null` no sale nada por defecto:
+ * ver `decideDefaultReply`.
+ *
+ * NUNCA lanza: un fallo de contabilidad no puede tumbar una entrega que ya
+ * atendió el pedido, la ubicación o el comprobante del cliente.
+ */
+export type LookupCustomerState = (
+  customerPhone: string,
+) => Promise<CustomerStateSnapshot | null>;
+
+/**
+ * Recordatorio del comprobante para el cliente que ya tiene su QR (03-09-2026).
+ *
+ * Es la respuesta por defecto de quien armó su pedido, recibió su total y aún no
+ * mandó el pago: a ese, el menú no le sirve de nada. El texto lo construye el
+ * canal a partir de datos del backend (`proofReminderText`); aquí solo viajan el
+ * número de pedido y el monto.
+ *
+ * NUNCA lanza. Opcional: sin ella ese cliente no recibe nada, que es lo que
+ * pasaba antes de esta política.
+ */
+export type SendProofReminder = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
+  sourceMessageId: string;
+  orderNumber: string;
+  totalAmount: number;
+}) => Promise<{ ok: boolean }>;
+
+/**
+ * "Sin cebolla" anotado en el pedido y confirmado al cliente (04-09-2026).
+ *
+ * DOS efectos que no se pueden separar: se escribe la nota en `orders.notes`
+ * —que es lo que la cocina imprime— y solo entonces se le contesta al cliente
+ * que sí. Si la nota no llega a escribirse, el mensaje NO sale: un "claro que
+ * sí" sin nota es exactamente la promesa falsa que este proyecto persigue desde
+ * agosto.
+ *
+ * NUNCA lanza. Opcional: sin ella, esas frases siguen su camino de hoy.
+ */
+export type AppendKitchenNote = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. */
+  sourceMessageId: string;
+  orderId: string;
+  /** El texto del cliente, ya saneado por `kitchenNoteFrom`. */
+  note: string;
 }) => Promise<{ ok: boolean }>;
 
 /**
@@ -349,6 +421,26 @@ export interface HandleKapsoWebhookParams {
   expandMapsLink?: ExpandMapsLink;
   /** 0027: "¿cuánto sale el envío?" antes de que mande el pin. */
   askLocationForQuote?: AskLocationForQuote;
+  /**
+   * En qué situación está el cliente que acaba de escribir (03-09-2026).
+   *
+   * Es el INTERRUPTOR de la política "el botón por defecto": sin este puerto no
+   * se manda nada por defecto y el texto suelto sigue cayendo en el agente,
+   * exactamente como antes. No hay un modo intermedio a ciegas, y es
+   * deliberado — lo que este puerto contesta incluye "hay un humano atendiendo
+   * ahora mismo", y eso no se puede suponer.
+   */
+  lookupCustomerState?: LookupCustomerState;
+  /**
+   * Recordatorio del comprobante para quien ya tiene su QR (03-09-2026). Sin
+   * este puerto ese cliente no recibe nada, que es lo que pasaba antes.
+   */
+  sendProofReminder?: SendProofReminder;
+  /**
+   * Preferencias de cocina sobre un pedido ya armado (04-09-2026). Sin este
+   * puerto, "sin cebolla" cae en el recordatorio del comprobante.
+   */
+  appendKitchenNote?: AppendKitchenNote;
   /** Avisa al equipo del cliente que lleva muchos mensajes y no consigue pedir. */
   checkStuckCustomer?: CheckStuckCustomer;
   /**
@@ -507,6 +599,183 @@ function deterministicDeclined(body: Record<string, unknown>): boolean {
 }
 
 /**
+ * Lo que recibe un cliente cuyo mensaje no encajó en ninguna puerta (03-09-2026).
+ *
+ * Devuelve el body cuando ATENDIÓ el mensaje, y `null` cuando no hay nada que
+ * mandar — y entonces el mensaje sigue su camino de siempre hacia el agente.
+ * Ese `null` es el que conserva intacto el comportamiento anterior en todo lo
+ * que esta política no toca: sin puerto cableado, sin texto, sin ser el ancla
+ * del lote o con un humano atendiendo, aquí no pasa nada.
+ *
+ * La DECISIÓN es pura y vive en `default-reply.ts`. Esto es solo el brazo: lee
+ * el estado, pregunta qué hacer y lo hace.
+ */
+async function responderPorDefecto(
+  ctx: {
+    message: Record<string, unknown> | undefined;
+    conversationPhone: string | null;
+    from: string | null;
+    phoneNumberId: string | null;
+    ultimoTextoDelLote?: boolean;
+    menuYaEnviadoEnElLote?: boolean;
+  },
+  deps: {
+    sendMenuCta: SendMenuCta;
+    lookupCustomerState?: LookupCustomerState;
+    sendProofReminder?: SendProofReminder;
+    appendKitchenNote?: AppendKitchenNote;
+  },
+  /** Texto entrante del cliente, o `null` si el mensaje no era texto suyo. */
+  texto: string | null,
+  opciones: {
+    /**
+     * ¿Viene de la puerta de intención (`isMenuIntent`, el saludo pelado)?
+     *
+     * Las DOS puertas pasan por aquí desde el 03-09-2026, y esa es la parte
+     * importante del cambio: antes, la petición explícita mandaba el botón sin
+     * mirar nada, así que un cliente con una persona atendiéndole recibía un
+     * CTA automático por escribir "quiero pedir". Las excepciones no pueden
+     * depender de qué palabras usó.
+     */
+    explicita: boolean;
+    /** Motivo del ledger cuando dispara la puerta de intención. */
+    reason?: MenuSendReason;
+    /** Estado ya consultado en este mismo mensaje. Evita preguntar dos veces. */
+    estado?: CustomerStateSnapshot | null;
+  },
+): Promise<Record<string, unknown> | null> {
+  const toDigits = normalizePhone(ctx.from ?? ctx.conversationPhone ?? '');
+  const sourceMessageId = typeof ctx.message?.id === 'string' ? ctx.message.id : null;
+  // Sin destinatario o sin WAMID no hay envío posible NI idempotencia que lo
+  // proteja. Se declina en silencio: es el mismo criterio de la puerta del menú,
+  // salvo que aquí nadie pidió nada, así que tampoco hay nada que rechazar.
+  if (!toDigits || !sourceMessageId) return null;
+
+  const phoneDigits = normalizePhone(ctx.conversationPhone ?? ctx.from ?? '');
+  // Sin el puerto no se consulta nada y el estado queda desconocido. Lo que pasa
+  // entonces lo decide `decideDefaultReply`, y no es lo mismo para los dos
+  // caminos: al que pidió el menú se le manda igual —comportamiento de siempre—
+  // y al que no, no se le manda nada. Esa asimetría es el interruptor: sin
+  // cablear, esta política no existe y nada de lo anterior cambia.
+  const state =
+    opciones.estado !== undefined
+      ? opciones.estado
+      : deps.lookupCustomerState
+        ? await deps.lookupCustomerState(phoneDigits || toDigits)
+        : null;
+
+  const decision = decideDefaultReply({
+    text: texto,
+    isBatchAnchor: ctx.ultimoTextoDelLote === true,
+    menuAlreadySent: ctx.menuYaEnviadoEnElLote === true,
+    explicitIntent: opciones.explicita,
+    state,
+  });
+
+  if (decision.action === 'none') {
+    // Solo el motivo, que es un enum cerrado: ni teléfono, ni texto, ni número
+    // de pedido. Sirve para responder "¿por qué este cliente no recibió nada?"
+    // sin tener que leer la conversación de nadie.
+    if (decision.reason !== 'no_text' && decision.reason !== 'not_anchor') {
+      log.info('webhook_default_reply_skipped', { reason: decision.reason });
+    }
+    return null;
+  }
+
+  if (decision.action === 'kitchen_note') {
+    // Sin puerto no se contesta que sí: sin escribir la nota, decirlo sería
+    // mentir. Cae al camino de siempre, que como mucho le recordará el pago.
+    if (!deps.appendKitchenNote) return null;
+
+    const anotada = await deps.appendKitchenNote({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderId: decision.order.orderId,
+      note: decision.note,
+    });
+    // Ni la nota ni el número de pedido viajan al log: es texto del cliente.
+    log.info('webhook_kitchen_note', { result: anotada.ok ? 'saved' : 'failed' });
+
+    // Si no se pudo anotar, este mensaje NO queda atendido: se devuelve `null`
+    // y sigue su camino —el agente puede contestarle— en vez de darle por
+    // buena una preferencia que la cocina nunca verá.
+    if (!anotada.ok) return null;
+    return { ok: true, handled: 'kitchen_note', result: 'saved' };
+  }
+
+  if (decision.action === 'order_change') {
+    // El MISMO despacho de siempre —claim, ledger, memoria—, con dos datos que
+    // cambian lo que el enlace significa: a qué pedido sustituye y qué dice el
+    // botón. El copy lo construye el canal con datos del backend (su número y
+    // su total), nunca el modelo. Ver `orderChangeCtaText`.
+    const sent = await deps.sendMenuCta({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      // Pidió cambiar SU pedido: eso es una petición explícita, aunque no haya
+      // dicho "menú" en ninguna parte.
+      reason: 'explicit_request',
+      replacesOrderId: decision.order.orderId,
+      buttonText: MENU_CHANGE_BUTTON_TEXT,
+      bodyText: orderChangeCtaText(decision.order.orderNumber, decision.order.totalAmount),
+    });
+
+    if (sent.result === 'failed' || sent.result === 'send_unknown') {
+      throw new MenuCtaSendError(sent.error);
+    }
+    log.info('webhook_order_change_offered', { result: sent.result });
+    return { ok: true, handled: 'order_change', result: sent.result };
+  }
+
+  if (decision.action === 'proof_reminder') {
+    // Sin puerto de recordatorio no se improvisa con el menú: mandarle la carta
+    // a quien está por pagar es exactamente lo que esta rama evita.
+    if (!deps.sendProofReminder) return null;
+
+    const avisado = await deps.sendProofReminder({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderNumber: decision.order.orderNumber,
+      totalAmount: decision.order.totalAmount,
+    });
+    log.info('webhook_proof_reminder', { result: avisado.ok ? 'sent' : 'failed' });
+    return {
+      ok: avisado.ok,
+      handled: 'proof_reminder',
+      result: avisado.ok ? 'sent' : 'failed',
+    };
+  }
+
+  const sent = await deps.sendMenuCta({
+    toDigits,
+    phoneNumberId: ctx.phoneNumberId,
+    sourceMessageId,
+    // El motivo lo decide el backend leyendo el entrante REAL, con la MISMA
+    // función que usa la tool del agente: el cliente que nombra la carta con
+    // palabras que `isMenuIntent` no reconoce ("mandame la carta") llega hasta
+    // aquí, y en el ledger tiene que constar como lo que fue — una petición.
+    // Cuando dispara la puerta de intención, el motivo ya viene decidido por
+    // ella, que sabe además si fue un saludo pelado.
+    reason:
+      opciones.reason ?? (isExplicitMenuRequest(texto) ? 'explicit_request' : 'agent_suggestion'),
+    // El botón es el único mensaje que sale, así que su texto contesta lo que
+    // el cliente acababa de preguntar. Es lo que convierte un botón en una
+    // respuesta: quien pregunta un precio lee "los precios están todos ahí".
+    ctaContext: classifyMenuCtaContext(texto),
+  });
+
+  if (sent.result === 'failed' || sent.result === 'send_unknown') {
+    // Mismo trato que en la puerta del menú: 500 para que Kapso reintente, y el
+    // reintento es seguro porque encuentra el claim y responde `duplicate`.
+    throw new MenuCtaSendError(sent.error);
+  }
+
+  return { ok: true, handled: 'menu_cta', result: sent.result };
+}
+
+/**
  * Procesa el mensaje recibido. Devuelve el body a responder. Lanza solo ante
  * fallos reales (confirmador, envío de solicitud de ubicación o asociación de
  * ubicación) → el caller marca el evento `failed` (reintentable).
@@ -530,6 +799,25 @@ async function processMessage(
      * el primero. Ausente = entrega individual, que es un lote de uno.
      */
     rafagaDeVarios?: boolean;
+    /**
+     * ¿Es el ÚLTIMO texto entrante de esta entrega?
+     *
+     * Solo lo mira la respuesta POR DEFECTO (`default-reply.ts`), y es lo que
+     * hace que una ráfaga produzca un botón y no tres. Es hermano de
+     * `rafagaDeVarios` pero no lo mismo: aquel pregunta si el mensaje viene
+     * acompañado, este cuál de los acompañantes contesta. Ausente = no es el
+     * ancla, y entonces no sale nada por defecto.
+     */
+    ultimoTextoDelLote?: boolean;
+    /**
+     * ¿Un mensaje ANTERIOR de esta misma entrega ya recibió el botón?
+     *
+     * Un lote puede traer "quiero pedir" y "a cuanto": la primera frase la
+     * atiende la puerta de intención y la segunda es el ancla del default. Sin
+     * esta bandera el cliente recibiría dos botones seguidos por haber escrito
+     * dos veces, que es peor que el silencio que esta política vino a arreglar.
+     */
+    menuYaEnviadoEnElLote?: boolean;
   },
   deps: {
     confirmOrder: ConfirmOrder;
@@ -541,6 +829,9 @@ async function processMessage(
     attachLooseLocation?: AttachLooseLocation;
     expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
+    lookupCustomerState?: LookupCustomerState;
+    sendProofReminder?: SendProofReminder;
+    appendKitchenNote?: AppendKitchenNote;
   },
 ): Promise<Record<string, unknown>> {
   const { message, conversationPhone, from } = ctx;
@@ -567,11 +858,29 @@ async function processMessage(
   const menuIntentBody = isOutboundMessage(message) ? null : extractTextBody(message);
   const soloSaludo =
     menuIntentBody !== null && !ctx.rafagaDeVarios && isGreetingOnly(menuIntentBody);
-  if (
-    isMenuTriggerMessage(message) ||
-    soloSaludo ||
-    (menuIntentBody !== null && isMenuIntent(menuIntentBody))
-  ) {
+  const esTriggerQa = isMenuTriggerMessage(message);
+  const intencionDeMenu =
+    soloSaludo || (menuIntentBody !== null && isMenuIntent(menuIntentBody));
+
+  /**
+   * El estado del cliente, consultado UNA vez por mensaje.
+   *
+   * Las dos puertas del menú lo necesitan y las dos pueden evaluarse en el mismo
+   * mensaje —la de intención declina por pausa, el mensaje sigue su camino y
+   * llega abajo—, así que sin memoizar serían dos consultas idénticas separadas
+   * por unos milisegundos.
+   */
+  let estadoConsultado: CustomerStateSnapshot | null | undefined;
+  const estadoDelCliente = async (): Promise<CustomerStateSnapshot | null> => {
+    if (estadoConsultado === undefined) {
+      estadoConsultado = deps.lookupCustomerState
+        ? await deps.lookupCustomerState(phoneDigits || normalizePhone(from ?? ''))
+        : null;
+    }
+    return estadoConsultado;
+  };
+
+  if (esTriggerQa || intencionDeMenu) {
     // Destinatario = remitente del mensaje (`message.from`); el teléfono de la
     // conversación queda como respaldo si el mensaje no lo trae.
     const toDigits = normalizePhone(from ?? conversationPhone ?? '');
@@ -588,34 +897,43 @@ async function processMessage(
       return { ok: false, handled: 'menu_cta', result: 'invalid', reason: 'missing_message_id' };
     }
 
-    const sent = await deps.sendMenuCta({
-      toDigits,
-      phoneNumberId: ctx.phoneNumberId,
-      sourceMessageId,
-      // El trigger de QA se distingue de la petición real del cliente: misma
-      // acción, distinta procedencia, y en el ledger se ve cuál fue cuál. El
-      // saludo no es ninguna de las dos: nadie pidió nada.
-      reason: isMenuTriggerMessage(message)
-        ? 'qa_trigger'
-        : soloSaludo
-          ? 'agent_suggestion'
-          : 'explicit_request',
-      // El botón contesta lo que acababa de preguntar: es el único mensaje que
-      // sale cuando se manda el menú, así que desaprovecharlo cuesta un turno
-      // entero de conversación.
-      ctaContext: classifyMenuCtaContext(menuIntentBody),
-    });
-
-    if (sent.result === 'failed' || sent.result === 'send_unknown') {
-      // Igual que antes: evento failed + 500 para permitir el reintento de
-      // Kapso. Lo que cambia es que ahora ese reintento es SEGURO — encuentra
-      // el claim y responde `duplicate` en vez de mandar un segundo CTA.
-      throw new MenuCtaSendError(sent.error);
+    if (esTriggerQa) {
+      // El trigger interno NO pasa por las excepciones, y es lo único que no lo
+      // hace: existe para comprobar de punta a punta que el CTA sale, y un
+      // diagnóstico que a veces calla —porque quien prueba tenía un pedido
+      // abierto o la conversación pausada— no diagnostica nada.
+      const sent = await deps.sendMenuCta({
+        toDigits,
+        phoneNumberId: ctx.phoneNumberId,
+        sourceMessageId,
+        reason: 'qa_trigger',
+        ctaContext: classifyMenuCtaContext(menuIntentBody),
+      });
+      if (sent.result === 'failed' || sent.result === 'send_unknown') {
+        throw new MenuCtaSendError(sent.error);
+      }
+      return { ok: true, handled: 'menu_cta', result: sent.result };
     }
 
-    // `duplicate` = este WAMID ya se procesó, así que no es un fallo del
-    // webhook: el evento queda procesado y no sale un segundo CTA.
-    return { ok: true, handled: 'menu_cta', result: sent.result };
+    // La petición del cliente pasa por el MISMO filtro que el botón automático.
+    // Antes no lo hacía, y ese era el agujero: quien escribía "quiero pedir"
+    // mientras una persona del equipo le respondía recibía igualmente un CTA
+    // automático encima. Las excepciones no pueden depender de las palabras que
+    // usó el cliente — ver `responderPorDefecto`.
+    //
+    // El saludo pelado no es una petición y por eso queda como
+    // `agent_suggestion`, pero recorre esta misma puerta: lo que comparten es el
+    // desenlace, no el significado.
+    const atendido = await responderPorDefecto(ctx, deps, menuIntentBody, {
+      explicita: true,
+      reason: soloSaludo ? 'agent_suggestion' : 'explicit_request',
+      estado: await estadoDelCliente(),
+    });
+    if (atendido) return atendido;
+
+    // Declinó (pausa, o su pedido espera un comprobante que ya se le recordó).
+    // El mensaje sigue su camino: puede llevar una ubicación dentro, y de todas
+    // formas terminará en el agente, que tiene su propia barrera de pausa.
   }
 
   // ── Una ubicación entrante, venga como venga ───────────────────────────────
@@ -919,6 +1237,23 @@ async function processMessage(
 
   if (!parsed.ok) {
     if (parsed.reason === 'not_nfm') {
+      // ── LA RESPUESTA POR DEFECTO (03-09-2026) ────────────────────────────
+      //
+      // Aquí abajo es donde tiene que estar, y no arriba con `isMenuIntent`:
+      // esto no es un detector más, es lo que se hace cuando NINGÚN detector
+      // reconoció nada. Todas las puertas específicas —la ubicación en
+      // cualquiera de sus formas, la cotización del envío, el pedido armado—
+      // ya dijeron que no, así que lo que queda es un cliente escribiendo sin
+      // que sepamos exactamente qué quiere.
+      //
+      // Y a ese, hasta hoy, le contestaba el modelo con una pregunta. Ahora le
+      // llega el botón. Ver `default-reply.ts` para las excepciones.
+      const porDefecto = await responderPorDefecto(ctx, deps, menuIntentBody, {
+        explicita: false,
+        estado: await estadoDelCliente(),
+      });
+      if (porDefecto) return porDefecto;
+
       // Tipos de mensaje aún no soportados: procesados e ignorados.
       return { ...DETERMINISTIC_DECLINED };
     }
@@ -1124,9 +1459,38 @@ async function processEnvelopes(
     attachLooseLocation?: AttachLooseLocation;
     expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
+    lookupCustomerState?: LookupCustomerState;
+    sendProofReminder?: SendProofReminder;
+    appendKitchenNote?: AppendKitchenNote;
   },
 ): Promise<EnvelopeResult[]> {
   const results: EnvelopeResult[] = [];
+
+  // ── Cuál de los mensajes del lote contesta ────────────────────────────────
+  //
+  // El ÚLTIMO texto entrante, por posición en `data[]`. Se calcula antes del
+  // bucle porque la respuesta por defecto se decide mensaje a mensaje y sin esto
+  // "buenas" / "noches" / "a cuanto" saldría con tres botones en el mismo
+  // segundo — que es peor que el silencio que vino a arreglar.
+  //
+  // Es el mismo criterio de `pickTurnAnchor` (el que cierra la ráfaga es el que
+  // el cliente espera que se conteste), aplicado antes y sobre menos cosas: aquí
+  // solo cuenta el texto, porque solo el texto puede recibir el botón.
+  const ultimoTextoIndex = ((): number | null => {
+    let encontrado: number | null = null;
+    for (const envelope of envelopes) {
+      const { message } = extractMessageContext(envelope.payload);
+      if (isOutboundMessage(message)) continue;
+      if (extractTextBody(message) === null) continue;
+      encontrado = envelope.index;
+    }
+    return encontrado;
+  })();
+
+  // Un botón por entrega, venga de la puerta que venga. Se acumula dentro del
+  // bucle porque los sobres se procesan EN ORDEN: cuando le toca al ancla, ya
+  // consta si alguno anterior mandó el suyo.
+  let menuYaEnviado = false;
 
   for (const envelope of envelopes) {
     const provenance = params.agentChannel
@@ -1142,11 +1506,20 @@ async function processEnvelopes(
 
     const ctx = extractMessageContext(envelope.payload);
     const body = await processMessage(
-      // Un lote de uno es una entrega individual: solo a partir de dos hay
-      // ráfaga, y solo entonces el saludo se lee como preámbulo.
-      { ...ctx, rafagaDeVarios: envelopes.length > 1 },
+      {
+        ...ctx,
+        // Un lote de uno es una entrega individual: solo a partir de dos hay
+        // ráfaga, y solo entonces el saludo se lee como preámbulo.
+        rafagaDeVarios: envelopes.length > 1,
+        ultimoTextoDelLote: ultimoTextoIndex !== null && envelope.index === ultimoTextoIndex,
+        menuYaEnviadoEnElLote: menuYaEnviado,
+      },
       deps,
     );
+
+    // `duplicate` no cuenta: significa que ESE wamid ya se había atendido en
+    // otra entrega, no que este cliente acabe de recibir un botón ahora.
+    if (body.handled === 'menu_cta' && body.result === 'sent') menuYaEnviado = true;
 
     // La clasificación no es una lista aparte que haya que mantener: sale del
     // resultado REAL del pipeline. Si el determinístico lo atendió, ya está
@@ -1229,9 +1602,44 @@ async function processEnvelopes(
  * los leyéramos y en 5C.5 empezarán a leerse. Un ❤️ no lo es.
  */
 function pickTurnAnchor(results: readonly EnvelopeResult[]): EnvelopeResult | null {
-  const candidatos = results.filter(
-    (r) => r.message !== null && r.kind !== 'deterministic' && !r.channelEvent,
+  const mensajes = results.filter((r) => r.message !== null && !r.channelEvent);
+
+  // ── La entrega ya fue contestada (03-09-2026) ─────────────────────────────
+  //
+  // Si el ÚLTIMO mensaje del cliente lo atendió el pipeline determinístico —su
+  // botón, su cotización, su pedido confirmado—, la ráfaga entera ya tiene
+  // respuesta y el turno sobra. Y no sobra en abstracto: sin esto, "buenas" /
+  // "noches" / "a cuanto" produce el botón por el tercero Y una frase del modelo
+  // por el segundo, porque los dos primeros declinaron y uno de ellos ancla.
+  //
+  // Dos respuestas a la misma ráfaga es justo lo que el cliente lee como que no
+  // le entendimos. Antes casi no pasaba —el determinístico atendía muy poco—;
+  // con el botón por defecto pasaría en cada conversación que empieza.
+  //
+  // Se mira el ÚLTIMO y no "si hubo alguno": en `[ubicación, "y cuánto tarda?"]`
+  // la ubicación tiene su propio camino y la pregunta sigue siendo del modelo.
+  const ultimo = mensajes[mensajes.length - 1];
+  if (ultimo && ultimo.kind === 'deterministic') return null;
+
+  // ── Y el botón del menú cierra la entrega, esté donde esté ────────────────
+  //
+  // Es la misma regla que ya gobierna la tool del agente (`effectCompletesTurn`
+  // en `send_menu`): el CTA lleva imagen, copy y botón, o sea que ES la
+  // respuesta entera, y un turno que hable después solo puede repetirla o
+  // contradecirla. Vale igual cuando el botón salió por el camino determinista.
+  //
+  // El caso llega en cuanto se agrupan dos mensajes: "quiero pedir" abre el
+  // botón por la puerta de intención y "a cuanto está el trancapecho" queda de
+  // ancla — sin esto, el cliente recibe su menú y encima una frase del modelo.
+  //
+  // `duplicate` cuenta como enviado: significa que ese WAMID ya produjo un CTA,
+  // así que el cliente lo tiene igual.
+  const menuEntregado = results.some(
+    (r) => r.body.handled === 'menu_cta' && (r.body.result === 'sent' || r.body.result === 'duplicate'),
   );
+  if (menuEntregado) return null;
+
+  const candidatos = mensajes.filter((r) => r.kind !== 'deterministic');
   if (candidatos.length === 0) return null;
 
   const elegibles = candidatos.filter((r) => r.kind === 'eligible');
@@ -1707,6 +2115,9 @@ async function runBusiness(
       attachLooseLocation: params.attachLooseLocation,
       expandMapsLink: params.expandMapsLink,
       askLocationForQuote: params.askLocationForQuote,
+      lookupCustomerState: params.lookupCustomerState,
+      sendProofReminder: params.sendProofReminder,
+      appendKitchenNote: params.appendKitchenNote,
     });
 
     // ── Comprobantes de pago ─────────────────────────────────────────────────

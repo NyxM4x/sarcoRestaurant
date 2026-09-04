@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { MenuItem } from '@/types';
 import { useCart } from '@/lib/cart/use-cart';
 import { usePromoCart } from '@/lib/cart/use-promo-cart';
@@ -51,6 +51,7 @@ export function MenuStore({
   promotions,
   serverNow,
   sessionToken,
+  replacingOrder = null,
 }: {
   items: MenuItem[];
   /** Combos publicables, ya leídos en el servidor. */
@@ -65,6 +66,18 @@ export function MenuStore({
    */
   serverNow: number;
   sessionToken: string | null;
+  /**
+   * El pedido que este enlace viene a CAMBIAR (0035), ya leído en el servidor.
+   *
+   * Cuando llega, el carrito se siembra con lo que el cliente había pedido para
+   * que solo tenga que tocar lo que quiere cambiar. Ausente = enlace normal, y
+   * entonces esta pantalla se comporta exactamente como siempre.
+   */
+  replacingOrder?: {
+    orderNumber: string;
+    items: Record<string, number>;
+    promotions: Record<string, number>;
+  } | null;
 }) {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [query, setQuery] = useState('');
@@ -76,6 +89,33 @@ export function MenuStore({
 
   const cart = useCart(items);
   const promos = usePromoCart(promotions, ahora);
+
+  /**
+   * El pedido que se está cambiando, de vuelta en el carrito (0035).
+   *
+   * ── Solo una vez, y solo sobre un carrito vacío ───────────────────────────
+   *
+   * Una vez, porque si no cada render devolvería el carrito a su estado
+   * original y el cliente no podría quitar nada. Y solo si está vacío, porque
+   * un carrito con cosas dentro es del cliente: puede haber empezado a armar
+   * algo antes de tocar el botón, y pisarle eso sería borrarle trabajo.
+   *
+   * Se espera a `hydrated`: hasta entonces `cart.cart` está vacío por
+   * construcción —el snapshot del servidor es siempre nulo— y sembrar ahí
+   * pisaría el carrito guardado sin haberlo leído.
+   */
+  const sembrado = useRef(false);
+  useEffect(() => {
+    if (sembrado.current || !replacingOrder || !cart.hydrated) return;
+    sembrado.current = true;
+
+    const vacio =
+      Object.keys(cart.cart).length === 0 && Object.keys(promos.state).length === 0;
+    if (!vacio) return;
+
+    cart.seed(replacingOrder.items);
+    promos.seed(replacingOrder.promotions);
+  }, [replacingOrder, cart, promos]);
   // TODO lo que se pinta —el botón, la cabecera, el resumen— sale de aquí. Dos
   // estados separados que se suman por su cuenta en cada pantalla producen el
   // fallo clásico: "0 productos, Bs 0,00" con un combo dentro.

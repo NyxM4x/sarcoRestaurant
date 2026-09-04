@@ -74,6 +74,8 @@ export interface UsePromoCart {
   remove: (promotionId: string) => void;
   drop: (promotionId: string) => void;
   clear: () => void;
+  /** Deja el carrito de combos con exactamente esto. Ver `useCart.seed`. */
+  seed: (next: CartState) => void;
 }
 
 export function usePromoCart(promotions: Promotion[], now: number): UsePromoCart {
@@ -101,6 +103,12 @@ export function usePromoCart(promotions: Promotion[], now: number): UsePromoCart
   );
   const clear = useCallback(() => update(clearCartState()), [update]);
 
+  /** Gemelo del `seed` de `useCart`, y por el mismo motivo (0035). */
+  const seed = useCallback(
+    (next: CartState) => update(parseStoredCart(serializeCart(next))),
+    [update],
+  );
+
   const quantity = useCallback((id: string) => quantityOf(state, id), [state]);
 
   const summary = useMemo(
@@ -108,5 +116,5 @@ export function usePromoCart(promotions: Promotion[], now: number): UsePromoCart
     [state, promotions, now],
   );
 
-  return { state, summary, quantity, add, remove, drop, clear };
+  return { state, summary, quantity, add, remove, drop, clear, seed };
 }

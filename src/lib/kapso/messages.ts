@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { businessHoursClock } from '@/lib/agent/business/facts';
+import { formatBs } from '@/lib/orders/calculate';
+import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { MenuSendReason } from '@/lib/menu/dispatch';
 import type { MenuCtaContext } from '@/lib/menu/cta-context';
 import { LOCATION_HOW_TO_TEXT } from './outbound-classify';
@@ -273,6 +275,36 @@ export function menuCtaBodyText(
 export const MENU_CTA_BUTTON_TEXT = 'Ver menú';
 
 /**
+ * Etiqueta del botón cuando el enlace viene a CAMBIAR un pedido (0035).
+ *
+ * "Ver menú" sería mentir por omisión: lo que hay detrás no es la carta para
+ * pedir otra cosa, es el mismo pedido para corregirlo. Quien lo toque tiene que
+ * saber qué va a pasar antes de tocarlo. Diecisiete caracteres, dentro del tope
+ * de veinte que impone WhatsApp.
+ */
+export const MENU_CHANGE_BUTTON_TEXT = 'Cambiar mi pedido';
+
+/**
+ * Cuerpo del CTA que abre el pedido para corregirlo.
+ *
+ * ── Las tres cosas que tiene que decir ──────────────────────────────────────
+ *
+ *   1. de QUÉ pedido hablamos —su número y su total, para que no dude—;
+ *   2. que TODAVÍA se puede, que es lo que le quita la urgencia de escribir;
+ *   3. que al confirmar recibe el total nuevo, para que no pague el viejo.
+ *
+ * El punto 3 es el que evita el peor desenlace: que pague el QR anterior por un
+ * pedido que acaba de cambiar. Por eso no se recorta aunque alargue el mensaje.
+ */
+export function orderChangeCtaText(orderNumber: string, totalAmount: number): string {
+  return (
+    `Tu pedido ${shortOrderNumber(orderNumber)} todavía no está pagado, así que ` +
+    `podés cambiarlo 👇 Armálo de nuevo como lo querés y te mandamos el total ` +
+    `actualizado con el QR. Ahora mismo suma ${formatBs(totalAmount)}.`
+  );
+}
+
+/**
  * Imagen de portada del CTA del menú (Fase 6D.2E). Asset local versionado y
  * público (mismo patrón que `PAYMENT_QR_URL`). DEBE ser JPEG/PNG: WhatsApp Cloud
  * NO admite WebP en mensajes tipo imagen (solo stickers). Fuente única: si cambia
@@ -306,6 +338,12 @@ export function buildMenuCtaPayload(
    * no distinga el motivo se comporte exactamente como antes.
    */
   bodyText: string = MENU_CTA_BODY_TEXT,
+  /**
+   * Etiqueta del botón. Por defecto "Ver menú": la única razón para cambiarla
+   * es que el enlace haga otra cosa, como el de 0035, que abre el pedido para
+   * corregirlo.
+   */
+  buttonText: string = MENU_CTA_BUTTON_TEXT,
 ) {
   return {
     messaging_product: 'whatsapp',
@@ -326,13 +364,76 @@ export function buildMenuCtaPayload(
       action: {
         name: 'cta_url',
         parameters: {
-          display_text: MENU_CTA_BUTTON_TEXT,
+          display_text: buttonText,
           url,
         },
       },
     },
   } as const;
 }
+
+// ── Recordatorio del comprobante (03-09-2026) ────────────────────────────────
+
+/**
+ * Lo que recibe quien ya tiene su pedido cotizado y todavía no mandó el pago.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ *
+ * Desde que el botón del menú es la respuesta por defecto (`default-reply.ts`),
+ * hay un cliente al que mandárselo sería contestarle a otra persona: el que ya
+ * armó su pedido, recibió su total y su QR, y escribe mientras busca la foto del
+ * comprobante. A ese no le falta el menú — le falta un paso, y es el único que
+ * queda entre su pedido y la plancha.
+ *
+ * ── Lo que este texto NO puede parecer ──────────────────────────────────────
+ *
+ * No lleva el prefijo `📦 Pedido ` ni las etiquetas `Comida:` / `Delivery:` /
+ * `Total:`. Esas son las MARCAS CANÓNICAS con las que `outbound-classify`
+ * reconoce una confirmación, y un recordatorio que las llevara se emparejaría
+ * con la notificación de otro mensaje al reconciliar. El número va en su forma
+ * corta (`#7`), que además es la que el cliente reconoce.
+ */
+export function proofReminderText(orderNumber: string, totalAmount: number): string {
+  return (
+    `Tu pedido ${shortOrderNumber(orderNumber)} está guardado por ` +
+    `${formatBs(totalAmount)} 🙌 Falta que nos mandes la foto del comprobante ` +
+    'por acá y lo pasamos a la cocina al toque.'
+  );
+}
+
+/**
+ * Lo que recibe quien pide algo para la plancha sobre un pedido ya armado.
+ *
+ * ── Por qué no se le manda a rearmar el pedido ──────────────────────────────
+ *
+ * Porque "sin cebolla" no cambia ni una línea ni un centavo, y hacerle rehacer
+ * todo su pedido por eso es desproporcionado — palabras del dueño el
+ * 03-09-2026. Lo que sí hace falta es que la cocina se entere, y de eso se
+ * encarga la nota; este mensaje solo lo confirma.
+ *
+ * La segunda frase es la que evita que esto se repita cada noche: le enseña
+ * dónde va la próxima vez. Enseñar el sitio vale más que pedir disculpas por no
+ * tenerlo.
+ *
+ * ── Por qué es más largo de lo que parece necesario (04-09-2026) ────────────
+ *
+ * La primera versión decía lo mismo en dos líneas y el dueño la leyó SECA. No
+ * es un capricho de tono: el cliente que escribe "sin cebolla" está pidiendo un
+ * favor, y una respuesta que solo confirma y da una instrucción se lee como un
+ * reproche por haberlo pedido mal. Por eso el texto explica el PORQUÉ —que se
+ * pierde entre los mensajes de otros clientes— y cierra agradeciendo.
+ *
+ * El texto es del dueño, palabra por palabra. No se "corrige" de estilo.
+ *
+ * Se afirma SOLO lo que ya ocurrió: cuando este texto sale, la nota está escrita
+ * en el pedido y la comanda la lleva. Es la misma regla que gobierna el resto de
+ * los salientes — nada de "se lo vamos a pasar".
+ */
+export const KITCHEN_NOTE_ACK_TEXT =
+  '¡Claro que sí! Ya se lo anotamos a la cocina 🙌 La próxima puedes escribirlo ' +
+  'en los comentarios al armar tu pedido por favor, así no se nos perdera entre ' +
+  'los msjs con otros clientes, todo esto es para darte la mejor atencion, ' +
+  'muchas gracias por su preferencia.';
 
 /**
  * Respuesta exitosa del envío: debe contener el id del mensaje saliente en

@@ -8,6 +8,11 @@ import type { MenuSession } from '@/types';
  * Persiste y recupera las sesiones temporales que se envían al cliente en la
  * URL del CTA.
  *
+ * REQUISITO OPERATIVO (0035): la columna `replaces_order_id` debe existir antes
+ * de desplegar este archivo. `findValidByPhone` la filtra en TODA solicitud de
+ * menú —no solo en las de cambio—, así que sin la migración aplicada ningún
+ * cliente recibiría su botón. Primero la base, después el código.
+ *
  * Idempotencia + Integridad:
  * - getOrCreate() intenta INSERT. Si conflicto UNIQUE por source_message_id,
  *   recupera la sesión existente y valida que los datos sean idénticos.
@@ -40,6 +45,8 @@ export function createMenuSessionRepository(supabase: SupabaseClient) {
       token_hash: string;
       customer_phone: string;
       phone_number_id: string;
+      /** Pedido que este enlace viene a sustituir (0035). Ausente = ninguno. */
+      replaces_order_id?: string | null;
     }): Promise<MenuSession> {
       // 1. Intentar INSERT
       const { data: insertData, error: insertError } = await supabase
@@ -49,6 +56,7 @@ export function createMenuSessionRepository(supabase: SupabaseClient) {
           token_hash: input.token_hash,
           customer_phone: input.customer_phone,
           phone_number_id: input.phone_number_id,
+          replaces_order_id: input.replaces_order_id ?? null,
         })
         .select()
         .single();
@@ -81,7 +89,11 @@ export function createMenuSessionRepository(supabase: SupabaseClient) {
       if (
         existingSession.token_hash !== input.token_hash ||
         existingSession.customer_phone !== input.customer_phone ||
-        existingSession.phone_number_id !== input.phone_number_id
+        existingSession.phone_number_id !== input.phone_number_id ||
+        // A qué pedido sustituye forma parte de la identidad de la sesión: el
+        // mismo enlace no puede pasar de reemplazar un pedido a no reemplazar
+        // ninguno, ni cambiar de objetivo, entre dos entregas del webhook.
+        (existingSession.replaces_order_id ?? null) !== (input.replaces_order_id ?? null)
       ) {
         throw new MenuSessionIntegrityError(
           `session integrity violation: source_message_id=${input.source_message_id} ` +
@@ -164,6 +176,10 @@ export function createMenuSessionRepository(supabase: SupabaseClient) {
         .from('menu_sessions')
         .select()
         .eq('customer_phone', customerPhone)
+        // NUNCA se reutiliza un enlace de CAMBIO (0035). Ese enlace lleva dentro
+        // "reemplaza al pedido X", así que devolvérselo a quien solo pidió el
+        // menú cancelaría un pedido que nadie quería cancelar.
+        .is('replaces_order_id', null)
         .gt('expires_at', new Date().toISOString())
         .order('expires_at', { ascending: false })
         .limit(1)

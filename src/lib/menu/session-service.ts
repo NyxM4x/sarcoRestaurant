@@ -24,6 +24,15 @@ export interface CreateMenuSessionParams {
   source_message_id: string;
   customer_phone: string;
   phone_number_id_from_event: string | null;
+  /**
+   * Pedido al que este enlace viene a SUSTITUIR (0035). Ausente = sesión normal.
+   *
+   * Cuando viene, la sesión NO se reutiliza ni se comparte: nace propia, con el
+   * pedido escrito dentro. Un enlace de cambio y un enlace de menú no son la
+   * misma cosa aunque se vean igual, y confundirlos cancelaría pedidos que nadie
+   * quería cancelar.
+   */
+  replaces_order_id?: string | null;
 }
 
 export interface CreateMenuSessionResult {
@@ -44,6 +53,7 @@ export interface MenuSessionServiceDeps {
     token_hash: string;
     customer_phone: string;
     phone_number_id: string;
+    replaces_order_id?: string | null;
   }): Promise<MenuSession>;
 }
 
@@ -90,7 +100,11 @@ export async function createMenuSessionWithUrl(
   //    - la sesión NO fue consumida por un pedido (6D.2E.final): una sesión con
   //      pedido es single-use (UNIQUE + P1003), reutilizarla impediría el segundo
   //      pedido. En ese caso se cae a crear una sesión nueva.
-  const existing = await deps.findValidByPhone(params.customer_phone);
+  //    Un enlace de CAMBIO nunca reutiliza: lo que lo define es el pedido que
+  //    lleva dentro, y ninguna sesión anterior lo lleva.
+  const existing = params.replaces_order_id
+    ? null
+    : await deps.findValidByPhone(params.customer_phone);
   if (existing) {
     const reusedToken = generateMenuSessionToken(existing.source_message_id, deps.secret);
     const tokenCoherent = hashMenuSessionToken(reusedToken) === existing.token_hash;
@@ -110,6 +124,7 @@ export async function createMenuSessionWithUrl(
     token_hash: tokenHash,
     customer_phone: params.customer_phone,
     phone_number_id: effectivePhoneNumberId,
+    replaces_order_id: params.replaces_order_id ?? null,
   });
 
   return {
