@@ -1,6 +1,6 @@
 import 'server-only';
 import { getKapsoClient } from './client';
-import { proofReminderText } from './messages';
+import { proofAckText, proofReminderText } from './messages';
 import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { createAgentStore } from '@/lib/agent/memory/repository';
@@ -43,6 +43,11 @@ export interface SendProofReminderInput {
   /** Número interno (`ORD-260903-007`); el copy lo acorta a `#7`. */
   orderNumber: string;
   totalAmount: number;
+  /**
+   * Qué se le dice del pago. Ausente = `missing`, que es como se comportaba
+   * antes de que existiera la otra mitad. Ver `DefaultReplyDecision`.
+   */
+  variant?: 'missing' | 'received';
 }
 
 /**
@@ -56,7 +61,10 @@ export interface SendProofReminderInput {
 export async function sendProofReminder(
   input: SendProofReminderInput,
 ): Promise<{ ok: boolean }> {
-  const texto = proofReminderText(input.orderNumber, input.totalAmount);
+  const texto =
+    input.variant === 'received'
+      ? proofAckText(input.orderNumber)
+      : proofReminderText(input.orderNumber, input.totalAmount);
 
   let wamid: string;
   try {

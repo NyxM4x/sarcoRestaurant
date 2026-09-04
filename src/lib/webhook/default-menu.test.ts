@@ -480,7 +480,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     // segundo. `proofReceived` sale de `payment_proofs`, que se escribe aunque
     // la descarga se caiga.
     const cta = spyCta();
-    let recordado = 0;
+    const variantes: (string | undefined)[] = [];
 
     const { processed } = await deliver(
       JSON.stringify(envelope({ text: 'Quiero armar de nuevo' })),
@@ -498,16 +498,18 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
             },
           }),
         ),
-        sendProofReminder: async () => {
-          recordado += 1;
+        sendProofReminder: async (input) => {
+          variantes.push(input.variant);
           return { ok: true };
         },
       },
     );
 
     expect(cta.enviados).toHaveLength(0);
-    // Tampoco se le vuelve a pedir la foto que acaba de mandar.
-    expect(recordado).toBe(0);
+    // Y no se le calla: se le contesta que ya la tenemos. Callar dejaba el turno
+    // libre y lo tomaba el modelo, que el 04-09 mandó a ese cliente a hablar con
+    // una persona.
+    expect(variantes).toEqual(['received']);
     expect(processed?.body).not.toMatchObject({ handled: 'order_change' });
   });
 

@@ -236,6 +236,8 @@ export type SendProofReminder = (input: {
   sourceMessageId: string;
   orderNumber: string;
   totalAmount: number;
+  /** `received` = ya mandó su comprobante y se le dice que lo tenemos. */
+  variant?: 'missing' | 'received';
 }) => Promise<{ ok: boolean }>;
 
 /**
@@ -776,6 +778,7 @@ async function responderPorDefecto(
       sourceMessageId,
       orderNumber: decision.order.orderNumber,
       totalAmount: decision.order.totalAmount,
+      variant: decision.variant,
     });
     log.info('webhook_proof_reminder', { result: avisado.ok ? 'sent' : 'failed' });
     return {

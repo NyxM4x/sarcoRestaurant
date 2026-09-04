@@ -197,7 +197,16 @@ export type DefaultReplySkipReason =
 
 export type DefaultReplyDecision =
   | { action: 'menu' }
-  | { action: 'proof_reminder'; order: OpenOrderSnapshot }
+  /**
+   * Hablarle de su pago. `variant` dice QUÉ, y sale del estado, no del texto:
+   *
+   *   `missing`   no consta ninguna foto  → "falta que nos mandes el comprobante"
+   *   `received`  ya mandó una            → "lo tenemos, lo estamos revisando"
+   *
+   * Las dos comparten cooldown y camino a propósito: son la misma conversación
+   * —el pago de este pedido— y el cliente no debería recibir las dos seguidas.
+   */
+  | { action: 'proof_reminder'; order: OpenOrderSnapshot; variant: 'missing' | 'received' }
   /** Anotar una preferencia para la plancha y confirmársela al cliente. */
   | { action: 'kitchen_note'; order: OpenOrderSnapshot; note: string }
   /** Mandarle el enlace que reabre SU pedido para cambiar lo que lleva dentro. */
@@ -345,8 +354,14 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // `payment_attempts`, y esa fila desaparece si la descarga del archivo
     // falla; `proofReceived` sale de `payment_proofs`, que se escribe igual.
     // Ver `OpenOrderSnapshot.proofReceived`.
-    if (order.proofReceived) {
-      return { action: 'none', reason: 'proof_received' };
+    if (order.proofReceived && order.payment !== 'accepted' && order.payment !== 'rejected_grace') {
+      // Y se le CONTESTA, no se calla. Callar dejaba el turno libre y lo tomaba
+      // el modelo, que el 04-09 le dijo a un cliente con el comprobante ya
+      // mandado que hablara con una persona. Una respuesta determinística
+      // cierra el turno: el agente ya no habla encima.
+      return state.proofRemindedRecently
+        ? { action: 'none', reason: 'reminded_recently' }
+        : { action: 'proof_reminder', order, variant: 'received' };
     }
 
     // ── "Mándame 2 sodas más" ──────────────────────────────────────────────
@@ -380,7 +395,7 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     if (order.payment === 'no_proof') {
       return state.proofRemindedRecently
         ? { action: 'none', reason: 'reminded_recently' }
-        : { action: 'proof_reminder', order };
+        : { action: 'proof_reminder', order, variant: 'missing' };
     }
 
     // Cualquier otro pedido vivo —esperando ubicación, con el pago ya en

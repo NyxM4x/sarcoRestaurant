@@ -106,6 +106,7 @@ describe('decideDefaultReply — las excepciones', () => {
     expect(decideDefaultReply({ ...AUTOMATICO, state })).toEqual({
       action: 'proof_reminder',
       order,
+      variant: 'missing',
     });
   });
 
@@ -215,6 +216,7 @@ describe('decideDefaultReply — quien lo pidió con todas las letras', () => {
     expect(decideDefaultReply({ ...EXPLICITO, state })).toEqual({
       action: 'proof_reminder',
       order,
+      variant: 'missing',
     });
   });
 
@@ -235,3 +237,55 @@ describe('decideDefaultReply — un botón por entrega', () => {
     }
   });
 });
+
+describe('decideDefaultReply — cuando la foto YA llegó (04-09-2026)', () => {
+  const conFoto = (over: Partial<OpenOrderSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['hamburguesa', 'gaseosa'],
+    openOrder: {
+      orderId: 'order-uuid',
+      orderNumber: 'ORD-260904-002',
+      status: 'confirmed',
+      totalAmount: 28,
+      payment: 'no_proof',
+      proofReceived: true,
+      ...over,
+    },
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot) =>
+    decideDefaultReply({ text: texto, isBatchAnchor: true, menuAlreadySent: false, explicitIntent: false, state });
+
+  it('se le dice que la tenemos, en vez de pedírsela otra vez', () => {
+    expect(decidir('ya le envie el comprobante', conFoto())).toEqual({
+      action: 'proof_reminder',
+      order: conFoto().openOrder,
+      variant: 'received',
+    });
+  });
+
+  it('no se le ofrece rehacer el pedido: ese pago ya está hecho', () => {
+    // Es el caso exacto del 04-09: comprobante mandado y, un minuto después,
+    // "me olvidé". Antes salía el botón y el cliente acababa con dos pedidos.
+    expect(decidir('me olvide, quiero armar de nuevo', conFoto()).action).toBe('proof_reminder');
+  });
+
+  it('una preferencia se sigue anotando: no toca el total', () => {
+    expect(decidir('sin cebolla porfa', conFoto()).action).toBe('kitchen_note');
+  });
+
+  it('con el pago ya aceptado no se le dice nada de comprobantes', () => {
+    const decision = decidir('gracias', conFoto({ payment: 'accepted', status: 'preparing' }));
+    expect(decision.action).not.toBe('proof_reminder');
+  });
+
+  it('si ya se le contestó hace poco, no se repite', () => {
+    const state = { ...conFoto(), proofRemindedRecently: true };
+    expect(decidir('ya mande el comprobante', state)).toEqual({
+      action: 'none',
+      reason: 'reminded_recently',
+    });
+  });
+});
+

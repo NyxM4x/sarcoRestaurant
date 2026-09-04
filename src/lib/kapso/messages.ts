@@ -409,6 +409,25 @@ export function proofReminderText(orderNumber: string, totalAmount: number): str
 }
 
 /**
+ * Ya tenemos su comprobante y todavía no lo hemos mirado (04-09-2026).
+ *
+ * Es la otra mitad de `proofReminderText`. Al cliente que YA mandó su foto no
+ * se le puede pedir otra —el 04-09 le pasó a uno, y acabó reenviándola tres
+ * veces y hablando con una persona— pero tampoco se le puede dejar sin
+ * respuesta: el que escribe después de pagar está preguntando si llegó.
+ *
+ * Dice las dos cosas que necesita y ninguna más: que la tenemos, y que no tiene
+ * que hacer nada. No promete cuándo, porque eso depende de que alguien la mire.
+ */
+export function proofAckText(orderNumber: string): string {
+  return (
+    `Ya tenemos tu comprobante del pedido ${shortOrderNumber(orderNumber)} 🙌 ` +
+    'Lo estamos revisando y te avisamos apenas lo pasemos a la cocina. ' +
+    'No hace falta que lo mandes de nuevo.'
+  );
+}
+
+/**
  * El pedido pasa a recojo porque el cliente dijo que se lo lleva él.
  *
  * Dice las TRES cosas que cambian para él, en el orden en que le importan: que
