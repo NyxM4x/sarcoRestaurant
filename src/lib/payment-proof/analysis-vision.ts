@@ -29,8 +29,32 @@ import { z } from 'zod';
 import type { AgentModel, AgentModelInput } from '@/lib/agent/core/model';
 import type { ProofFacts } from './analysis';
 
-/** Techo de la respuesta: es un JSON corto, no una redacción. */
-export const PROOF_VISION_MAX_OUTPUT_TOKENS = 500;
+/**
+ * Techo de la respuesta. El JSON es corto; el RAZONAMIENTO no, y sale del mismo
+ * presupuesto.
+ *
+ * ── Los 500 dejaron el análisis a cero durante días (04-09-2026) ────────────
+ *
+ * `gpt-5-mini` —el modelo por defecto desde `a972738`— es un modelo de
+ * razonamiento: gasta tokens pensando ANTES de escribir una letra, y esos
+ * tokens se descuentan de `max_output_tokens`. Medido contra la API real con
+ * esta misma petición: 384–640 tokens solo de razonamiento. Con el techo en
+ * 500 la respuesta volvía `status: "incomplete"` con
+ * `incomplete_details.reason: "max_output_tokens"` y sin una sola letra de
+ * texto, así que TODOS los comprobantes fallaban — y el ticket de cocina salía
+ * con "sin confirmar: no se pudo leer el comprobante" noche tras noche.
+ *
+ * No era la clave, ni la cuota, ni el tamaño de la imagen: las tres se
+ * descartaron midiendo. Era este número.
+ *
+ * 1500 deja el razonamiento observado con holgura y el JSON entero encima. No
+ * encarece las lecturas que ya funcionaban: se paga por token emitido, y un
+ * modelo sin razonamiento (`gpt-4o-mini`) sigue gastando los ~40 de siempre.
+ * Lo que sí sube es la latencia —5–6 s medidos, contra los ~2 s de
+ * `gpt-4o-mini`—, y por eso el timeout de abajo se queda donde está: es lo que
+ * separa "tardó" de "colgó el webhook".
+ */
+export const PROOF_VISION_MAX_OUTPUT_TOKENS = 1500;
 
 /**
  * Timeout de UNA lectura. Corre dentro del webhook, así que no puede alargarse:
