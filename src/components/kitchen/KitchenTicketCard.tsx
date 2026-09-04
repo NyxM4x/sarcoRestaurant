@@ -418,17 +418,24 @@ export function CollectChip({
   orderNumber?: string;
   onDecided?: () => void;
 }) {
+  /**
+   * El título es la instrucción entera. La pista solo existe cuando AÑADE algo.
+   *
+   * "ENVÍO PAGADO" llevaba debajo "No cobrar nada al entregar", y "COBRAR ENVÍO
+   * Bs 27", "la comida ya está pagada: en la puerta solo el envío". Las dos
+   * decían con doce palabras lo que el título ya dice con dos, a gente que hace
+   * esto cada noche. Una línea que no aporta enseña a no leer las que sí, y
+   * justo debajo va la advertencia de que el comprobante no se pudo leer.
+   *
+   * El efectivo la conserva porque ahí el título NO se explica solo: "COBRAR
+   * TODO" no dice que ese total lleva comida Y envío dentro, y esa suma es la
+   * que se cobra en la puerta.
+   */
   const { titulo, pista } =
     collect.kind === 'pagado'
-      ? {
-          titulo: 'ENVÍO PAGADO',
-          pista: 'No cobrar nada al entregar',
-        }
+      ? { titulo: 'ENVÍO PAGADO', pista: null }
       : collect.kind === 'envio'
-        ? {
-            titulo: `COBRAR ENVÍO Bs ${bs(collect.amount)}`,
-            pista: 'La comida ya está pagada: en la puerta solo el envío',
-          }
+        ? { titulo: `COBRAR ENVÍO Bs ${bs(collect.amount)}`, pista: null }
         : {
             titulo: `COBRAR TODO Bs ${bs(collect.amount)}`,
             pista: 'Pedido en efectivo: se cobra comida y envío al entregar',
@@ -468,9 +475,15 @@ export function CollectChip({
       >
         {titulo}
       </p>
-      <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">
-        {sinConfirmar ? 'Sin confirmar: no se pudo leer el comprobante' : pista}
-      </p>
+      {/* La advertencia manda sobre la pista: cuando no se pudo leer el
+          comprobante, eso es lo único que hay que decir debajo del título. Sin
+          ninguna de las dos no se pinta el párrafo — un hueco vacío separa el
+          título de sus botones sin motivo. */}
+      {(sinConfirmar || pista) && (
+        <p className="mt-0.5 text-[12px] font-medium leading-tight opacity-90">
+          {sinConfirmar ? 'Sin confirmar: no se pudo leer el comprobante' : pista}
+        </p>
+      )}
       {collect.basis === 'persona' && (
         <p className="mt-0.5 text-[11px] font-semibold uppercase leading-tight tracking-wide opacity-70">
           Marcado a mano
