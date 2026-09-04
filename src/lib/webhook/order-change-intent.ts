@@ -246,6 +246,15 @@ export function isOrderChangeRequest(
  * esta reconoce la frase que, por construcción, no nombra nada. De paso queda
  * inmune al día en que `menu_items` no se pueda leer.
  *
+ * ── "Quiero armar de nuevo" (04-09-2026) ────────────────────────────────────
+ *
+ * Es lo que escribió el dueño probando el flujo, y no lo reconocía nadie: no
+ * nombra producto —así que la vía del catálogo lo ignora— y "armar" no estaba
+ * entre los verbos. Lo que recibió fue el botón del menú de siempre, que abre un
+ * pedido NUEVO en vez de corregir el suyo. Con "de nuevo", "otra vez" y
+ * "nuevamente" tratados como cola sin contenido, "quiero armar de nuevo" y
+ * "quiero empezar otra vez" caen donde tienen que caer.
+ *
  * ── Dónde está la línea, y por qué ahí ──────────────────────────────────────
  *
  * El verbo tiene que CERRAR la frase: "puedo aumentar" es un anuncio, "puedo
@@ -274,7 +283,7 @@ export const ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH = 80;
  * "cambiarlo").
  */
 const ANUNCIO_DE_CAMBIO =
-  /(^|\s)(aumentar|agregar|anadir|sumar|incrementar|cambiar|corregir|modificar|rehacer|quitar|sacar|eliminar|poner)(me|le|lo|la|los|las|selo|sela)?$/;
+  /(^|\s)(aumentar|agregar|anadir|sumar|incrementar|cambiar|corregir|modificar|rehacer|rearmar|armar|empezar|comenzar|quitar|sacar|eliminar|poner)(me|le|lo|la|los|las|selo|sela)?$/;
 
 /**
  * Colas que no dicen nada del contenido, y por eso se recortan antes de mirar.
@@ -283,7 +292,7 @@ const ANUNCIO_DE_CAMBIO =
  * agregar": ninguna de esas tres palabras nombra lo que el cliente quiere.
  */
 const COLA_SIN_CONTENIDO =
-  /(?:\s+(?:algo|alguna cosa|una cosa|otra cosa|otras cosas|cosas|mas|un poco|la cantidad|cantidad|mi pedido|el pedido|mi orden|la orden|mi compra|porfa|porfis|porfavor|por favor|please|ahora|ahorita))+$/;
+  /(?:\s+(?:algo|alguna cosa|una cosa|otra cosa|otras cosas|cosas|mas|un poco|la cantidad|cantidad|mi pedido|el pedido|mi orden|la orden|pedido|mi compra|de nuevo|denuevo|otra vez|nuevamente|todo|porfa|porfis|porfavor|por favor|please|ahora|ahorita))+$/;
 
 /**
  * Reconocer un olvido ya es pedir el cambio, aunque no haya verbo detrás.

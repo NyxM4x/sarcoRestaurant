@@ -30,8 +30,9 @@ import { log } from '@/lib/log';
  *   MISMO TELÉFONO   el enlace lo emitimos nosotros, pero se comprueba igual:
  *                    es lo único que impide que un enlace filtrado cancele el
  *                    pedido de otra persona.
- *   `confirmed`      un pedido que ya está en la plancha o en camino no se
- *                    cancela por un enlace: eso es comida hecha.
+ *   ESTADO           un pedido que ya está en la plancha o en camino no se
+ *                    cancela por un enlace: eso es comida hecha. Sí se cancela
+ *                    el que espera ubicación, que es solo un carrito con número.
  *   SIN PAGO VIVO    si hay un intento aceptado o esperando revisión, hay
  *                    dinero contra ese total. Se deja como está y lo mira una
  *                    persona; cancelar dejaría un pago huérfano.
@@ -43,6 +44,16 @@ import { log } from '@/lib/log';
 
 /** Motivo que queda escrito en las notas del pedido anulado. */
 const NOTA_DE_REEMPLAZO = 'Reemplazado por un pedido corregido del cliente.';
+
+/**
+ * Estados en los que el pedido anterior todavía se puede anular.
+ *
+ * Los mismos que dejan pedir el cambio (`ORDER_CHANGE_STATUSES`), y por la
+ * misma razón: si el botón se ofrece con el pedido esperando ubicación, el
+ * viejo tiene que poder cancelarse ahí. Cuando solo estaba `confirmed`, el
+ * cliente que rehacía su pedido antes de mandar el GPS acababa con dos.
+ */
+const ESTADOS_ANULABLES = ['awaiting_location', 'confirmed'];
 
 interface FilaPedidoViejo {
   id: string;
@@ -131,7 +142,7 @@ export async function replaceSupersededOrder(
       log.warn('order_replacement_phone_mismatch');
       return { result: 'skipped', reason: 'phone_mismatch' };
     }
-    if (viejo.status !== 'confirmed') {
+    if (!ESTADOS_ANULABLES.includes(viejo.status)) {
       return { result: 'skipped', reason: 'not_confirmed' };
     }
 
@@ -152,7 +163,7 @@ export async function replaceSupersededOrder(
         notes: viejo.notes ? `${viejo.notes}\n${NOTA_DE_REEMPLAZO}` : NOTA_DE_REEMPLAZO,
       })
       .eq('id', viejo.id)
-      .eq('status', 'confirmed')
+      .in('status', ESTADOS_ANULABLES)
       .select('id');
 
     if (errorUpdate) return { result: 'failed' };

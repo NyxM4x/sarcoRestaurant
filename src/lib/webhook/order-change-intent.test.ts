@@ -188,6 +188,20 @@ describe('isOrderChangeAnnouncement — pide cambiar antes de decir qué', () =>
     expect(isOrderChangeAnnouncement('puedo aumentarle')).toBe(true);
   });
 
+  it('las frases de la prueba del 04-09-2026, que no reconocía nadie', () => {
+    // El dueño probó el flujo escribiendo esto y recibió el botón del menú de
+    // siempre, que abre un pedido NUEVO en vez de corregir el suyo.
+    expect(isOrderChangeAnnouncement('Quiero armar de nuevo')).toBe(true);
+    expect(isOrderChangeAnnouncement('Me olvide')).toBe(true);
+    expect(isOrderChangeAnnouncement('quiero empezar de nuevo')).toBe(true);
+    expect(isOrderChangeAnnouncement('rehacer pedido')).toBe(true);
+  });
+
+  it('armar un pedido NUEVO no es rearmar el que ya tiene', () => {
+    expect(isOrderChangeAnnouncement('quiero armar un pedido')).toBe(false);
+    expect(isOrderChangeAnnouncement('hola quiero pedir')).toBe(false);
+  });
+
   it('reconocer el olvido ya es pedir el cambio', () => {
     expect(isOrderChangeAnnouncement('me equivoqué')).toBe(true);
     expect(isOrderChangeAnnouncement('me olvidé de algo')).toBe(true);

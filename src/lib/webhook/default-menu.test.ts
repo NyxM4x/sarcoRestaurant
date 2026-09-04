@@ -468,6 +468,44 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     expect(processed?.body).not.toMatchObject({ handled: 'pickup_switch' });
   });
 
+  it('el pedido que AÚN ESPERA UBICACIÓN también se rearma', async () => {
+    // El 04-09-2026 se probó el flujo con un pedido recién creado —"me aumenta
+    // 2 papas" antes de mandar el GPS— y no pasó nada: la guarda solo miraba
+    // `confirmed`. Es el momento más seguro para rehacerlo: no hay ubicación,
+    // ni total final, ni QR, ni nada en la plancha.
+    const cta = spyCta();
+    let recordado = 0;
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'Quiero armar de nuevo' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(
+          conPedidoPorPagar({
+            openOrder: {
+              orderId: 'order-uuid',
+              orderNumber: 'ORD-260904-001',
+              status: 'awaiting_location',
+              totalAmount: 46,
+              payment: 'no_proof',
+            },
+          }),
+        ),
+        sendProofReminder: async () => {
+          recordado += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    expect(cta.enviados[0]).toMatchObject({
+      replacesOrderId: 'order-uuid',
+      buttonText: 'Cambiar mi pedido',
+    });
+    expect(recordado).toBe(0);
+    expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
+  });
+
   it('"puedo aumentar" reabre el pedido, y el modelo no llega a hablar', async () => {
     const cta = spyCta();
     const agente = spyChannel();

@@ -178,6 +178,24 @@ describe('replaceSupersededOrder', () => {
     expect(registro.updates).toHaveLength(0);
   });
 
+  it('el que todavía espera ubicación SÍ se cancela: es solo un carrito', async () => {
+    // El botón de cambio se ofrece desde que existe el pedido, no desde que se
+    // confirma. Si aquí no se cancelara, el cliente que rehace su pedido antes
+    // de mandar el GPS acabaría con dos — que es lo que 0035 vino a evitar.
+    const { client, registro } = fakeSupabase({
+      sesion: sesionDeCambio,
+      pedido: { ...pedidoVivo, status: 'awaiting_location' },
+    });
+
+    const resultado = await replaceSupersededOrder(
+      { newOrderId: NUEVO, menuSessionId: SESSION_ID },
+      client,
+    );
+
+    expect(resultado).toEqual({ result: 'replaced', replacedOrderId: VIEJO });
+    expect(registro.updates[0]).toMatchObject({ status: 'cancelled' });
+  });
+
   it('un pedido que ya está en la plancha no se cancela', async () => {
     const { client, registro } = fakeSupabase({
       sesion: sesionDeCambio,

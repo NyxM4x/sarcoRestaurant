@@ -44,8 +44,9 @@ import { isPickupSwitchRequest } from './pickup-switch-intent';
  *   3. Pide algo para la COCINA sobre un pedido que aún no se cocina
  *      ("sin cebolla") → se anota y se le contesta que sí.
  *   4. Quiere CAMBIAR lo que lleva su pedido y todavía no lo pagó
- *      ("mándame 2 sodas más", "puedo aumentar") → se le devuelve su pedido
- *      para rearmarlo.
+ *      ("mándame 2 sodas más", "puedo aumentar", "quiero armar de nuevo") → se
+ *      le devuelve su pedido para rearmarlo. Vale también antes de que mande la
+ *      ubicación: ver `ORDER_CHANGE_STATUSES`.
  *   5. Dice que pasa ÉL a recogerlo ("paso a recogerlo", "para llevar") → el
  *      pedido deja de ser delivery y se le confirma con el nuevo total.
  *   6. Tiene un pedido ESPERANDO SU COMPROBANTE → se le recuerda el comprobante.
@@ -102,6 +103,21 @@ export const PROOF_REMINDER_COOLDOWN_MS = 15 * 60 * 1000;
  * Las guardas finas —que el aviso de reparto no haya salido, que el envío no
  * conste cobrado— las pone `pickup-switch-service`, que es quien lee la fila.
  */
+/**
+ * Estados en los que el pedido todavía se puede REARMAR (04-09-2026).
+ *
+ * `awaiting_location` entró tarde y costó una prueba entera: el 04-09 se probó
+ * el flujo del botón con un pedido recién creado —el cliente escribió "me
+ * aumenta 2 papas" antes de mandar la ubicación— y no pasó nada, porque la
+ * guarda solo miraba `confirmed`. Y es justo al revés: ese es el momento MÁS
+ * seguro para rehacerlo. No hay ubicación, no hay total final, no hay QR, no
+ * hay nada en la plancha; lo único que existe es un carrito con su número.
+ *
+ * Lo que sigue fuera es lo que ya salió: `preparing`, `ready` y `on_the_way`.
+ * Ahí la comida está hecha y rehacer el pedido no la des-hace.
+ */
+export const ORDER_CHANGE_STATUSES: readonly OrderStatus[] = ['awaiting_location', 'confirmed'];
+
 export const PICKUP_SWITCHABLE_STATUSES: readonly OrderStatus[] = [
   'confirmed',
   'preparing',
@@ -309,7 +325,7 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // revisión hay dinero de por medio contra un total concreto, y cambiar las
     // líneas por debajo dejaría al cliente pagando una cosa y recibiendo otra.
     // Ese caso sigue el camino de hoy y acaba donde acaban las excepciones.
-    if (order.status === 'confirmed' && order.payment === 'no_proof') {
+    if (ORDER_CHANGE_STATUSES.includes(order.status) && order.payment === 'no_proof') {
       // Las DOS formas de pedirlo, y la segunda es la que llega primero: el
       // cliente pregunta si puede antes de decir qué quiere. Reconocer solo la
       // que nombra productos dejaba ese primer mensaje sin respuesta
