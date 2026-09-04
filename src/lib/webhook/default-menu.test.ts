@@ -286,6 +286,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          proofReceived: false,
         },
       }),
     });
@@ -309,6 +310,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          proofReceived: false,
         },
       }),
     });
@@ -331,6 +333,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'preparing',
           totalAmount: 95,
           payment: 'accepted',
+          proofReceived: false,
         },
       }),
     });
@@ -351,6 +354,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
       status: 'confirmed',
       totalAmount: 95,
       payment: 'no_proof',
+      proofReceived: false,
     },
     ...over,
   });
@@ -468,6 +472,72 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     expect(processed?.body).not.toMatchObject({ handled: 'pickup_switch' });
   });
 
+  it('con la foto ya recibida NO se ofrece rehacer el pedido', async () => {
+    // El 04-09-2026 un cliente mandó su comprobante y un minuto después escribió
+    // "me olvidé de las salsas". La captura del archivo había fallado —sin
+    // bytes, sin intento de pago— así que el sistema lo dio por impago y le
+    // mandó el botón: acabó con dos pedidos, pagando el primero y esperando el
+    // segundo. `proofReceived` sale de `payment_proofs`, que se escribe aunque
+    // la descarga se caiga.
+    const cta = spyCta();
+    let recordado = 0;
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'Quiero armar de nuevo' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(
+          conPedidoPorPagar({
+            openOrder: {
+              orderId: 'order-uuid',
+              orderNumber: 'ORD-260904-002',
+              status: 'confirmed',
+              totalAmount: 28,
+              payment: 'no_proof',
+              proofReceived: true,
+            },
+          }),
+        ),
+        sendProofReminder: async () => {
+          recordado += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    expect(cta.enviados).toHaveLength(0);
+    // Tampoco se le vuelve a pedir la foto que acaba de mandar.
+    expect(recordado).toBe(0);
+    expect(processed?.body).not.toMatchObject({ handled: 'order_change' });
+  });
+
+  it('pero una preferencia SÍ se sigue anotando con la foto recibida', async () => {
+    // "Sin cebolla" no toca el total ni el QR: se anota igual, que es lo que el
+    // cliente pidió. La guarda nueva va después de la nota, a propósito.
+    const notas: string[] = [];
+
+    await deliver(JSON.stringify(envelope({ text: 'porfa sin cebolla' })), {
+      lookupCustomerState: estado(
+        conPedidoPorPagar({
+          openOrder: {
+            orderId: 'order-uuid',
+            orderNumber: 'ORD-260904-002',
+            status: 'confirmed',
+            totalAmount: 28,
+            payment: 'no_proof',
+            proofReceived: true,
+          },
+        }),
+      ),
+      appendKitchenNote: async (input) => {
+        notas.push(input.note);
+        return { ok: true };
+      },
+    });
+
+    expect(notas).toEqual(['porfa sin cebolla']);
+  });
+
   it('el pedido que AÚN ESPERA UBICACIÓN también se rearma', async () => {
     // El 04-09-2026 se probó el flujo con un pedido recién creado —"me aumenta
     // 2 papas" antes de mandar el GPS— y no pasó nada: la guarda solo miraba
@@ -488,6 +558,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               status: 'awaiting_location',
               totalAmount: 46,
               payment: 'no_proof',
+              proofReceived: false,
             },
           }),
         ),
@@ -550,6 +621,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               status: 'confirmed',
               totalAmount: 95,
               payment: 'awaiting_review',
+              proofReceived: false,
             },
           }),
         ),
@@ -572,6 +644,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
             status: 'preparing',
             totalAmount: 95,
             payment: 'accepted',
+            proofReceived: false,
           },
         }),
       ),
@@ -652,6 +725,7 @@ describe('las dos puertas, un solo filtro', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          proofReceived: false,
         },
       }),
     });

@@ -311,7 +311,10 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
           // que falla, así que el motor marca la fila `failed` y el panel la
           // muestra como archivo no disponible. Una sola semántica para
           // "llegó algo y no lo tenemos", en vez de dos.
-          if (input.attachment === null) return null;
+          if (input.attachment === null) {
+            log.warn('payment_proof_capture_failed', { reason: 'no_attachment' });
+            return null;
+          }
 
           // `resolveProofFile`, NO `resolveImage`: un comprobante puede ser un
           // PDF, y el resolutor del agente rechaza cualquier cosa que no sea
@@ -319,7 +322,23 @@ export async function intakePaymentProof(input: ProofIntakeInput): Promise<Proof
           // Comparten toda la política anti-SSRF; solo difieren en qué tipos
           // aceptan.
           const res = await resolveProofFile(input.attachment);
-          if (!res.ok) return null;
+          if (!res.ok) {
+            // EL MOTIVO VIAJA (04-09-2026).
+            //
+            // La noche del 04-09 tres comprobantes seguidos del mismo cliente
+            // quedaron en `capture_status: 'failed'` —sin bytes, sin hash— y la
+            // fila no decía por qué. Sin eso, "no lo tenemos" significa a la vez
+            // que la descarga tardó más de ocho segundos, que el host no está en
+            // la allowlist, que el proveedor devolvió un error o que el archivo
+            // no era del tipo que aceptamos: cuatro problemas con cuatro
+            // respuestas distintas, y ninguna forma de saber cuál fue.
+            //
+            // `resolveProofFile` ya distingue los cuatro; lo único que faltaba
+            // era no tirar el dato. Es un enum corto y no lleva nada del
+            // comprobante ni del cliente. Misma lección que `analysis-vision`.
+            log.warn('payment_proof_capture_failed', { reason: res.error });
+            return null;
+          }
           descargados = bytesFromDataUrl(res.dataUrl);
           return descargados;
         },

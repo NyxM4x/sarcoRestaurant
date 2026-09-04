@@ -43,6 +43,7 @@ function pedido(over: Partial<OpenOrderSnapshot> = {}): OpenOrderSnapshot {
     status: 'confirmed',
     totalAmount: 95,
     payment: 'no_proof',
+    proofReceived: false,
     ...over,
   };
 }

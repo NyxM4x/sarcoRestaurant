@@ -45,9 +45,21 @@ import { normalizeIntentText } from './menu-intent';
  *
  * Todas piden algo SOBRE lo ya pedido: quitar, poner o graduar. Ninguna
  * introduce un producto — eso es justo lo que las separa de un cambio.
+ *
+ * ── La "q" cuesta un pedido (04-09-2026) ────────────────────────────────────
+ *
+ * "Me olvide colocar q tenga toda sus salsas" no entraba por dos letras: el
+ * patrón exigía "que" entero y el cliente escribió "q", que es como se escribe
+ * en WhatsApp. Sin marca de preferencia, la frase cayó al anuncio de cambio
+ * —"olvidé" está ahí— y ese cliente recibió el botón de rehacer su pedido por
+ * pedir salsas. Acabó con dos pedidos.
+ *
+ * Por eso entran también `q` y `ke`, y los verbos con los que se pide que algo
+ * ACOMPAÑE al plato ("colocá", "poné"): son preferencias de cocina, y si además
+ * nombran un producto, el filtro del catálogo las devuelve al camino del cambio.
  */
 const MARCAS_DE_PREFERENCIA =
-  /(^|\s)(sin|con|extra|aparte|bien|poca|poco|poquito|harta|harto|mucha|mucho|nada de|aumenta|aumentame|aumenteme|agrega|agregame|agregue|agregeme|aumente|anade|anadime|ponle|pongale|ponme|pongame|echale|echele|que (no )?(lleve|tenga|venga))(\s|$)/;
+  /(^|\s)(sin|con|extra|aparte|bien|poca|poco|poquito|harta|harto|mucha|mucho|nada de|aumenta|aumentame|aumenteme|agrega|agregame|agregue|agregeme|aumente|anade|anadime|ponle|pongale|ponme|pongame|coloca|colocale|coloque|colocar|echale|echele|(que|q|ke) (no )?(lleve|tenga|venga|sea|vaya))(\s|$)/;
 
 /**
  * Palabras que delatan un CAMBIO de líneas aunque no estén en la carta.

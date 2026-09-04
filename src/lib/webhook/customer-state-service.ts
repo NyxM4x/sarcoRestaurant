@@ -159,6 +159,32 @@ async function terminosDeLaCarta(
 }
 
 /**
+ * ¿Llegó alguna foto para este pedido? `true` ante la duda.
+ *
+ * Mira `payment_proofs` y no `payment_attempts`: la fila del comprobante se
+ * escribe en cuanto el mensaje entra, aunque después falle la descarga del
+ * archivo. Cualquier estado de captura cuenta —`stored`, `capturing` o
+ * `failed`—, porque lo que responde esta pregunta no es si el archivo está
+ * guardado, sino si el cliente ya mandó algo.
+ *
+ * Un fallo de consulta devuelve `true`: callar de más a quien quizá pagó es
+ * molesto; ofrecerle rehacer un pedido pagado le cuesta el pedido.
+ */
+async function llegoComprobante(
+  supabase: SupabaseClient,
+  orderId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('payment_proofs')
+    .select('id')
+    .eq('order_id', orderId)
+    .limit(1);
+
+  if (error) return true;
+  return (data ?? []).length > 0;
+}
+
+/**
  * Estado del cliente para la respuesta por defecto. NUNCA lanza.
  *
  * @param customerPhone Dígitos ya normalizados por el webhook.
@@ -188,6 +214,7 @@ export async function lookupCustomerState(
 
     const pago = await intentosDePago(supabase, pedido.id);
     const gate = paymentGateOf(pedido.payment_method, pago, Date.now());
+    const proofReceived = await llegoComprobante(supabase, pedido.id);
 
     const openOrder: OpenOrderSnapshot = {
       orderId: pedido.id,
@@ -195,6 +222,7 @@ export async function lookupCustomerState(
       status: pedido.status,
       totalAmount: Number(pedido.total_amount),
       payment: gate.state,
+      proofReceived,
     };
 
     // 3. El cooldown solo interesa cuando de verdad se va a recordar algo.

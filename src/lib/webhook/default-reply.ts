@@ -135,6 +135,22 @@ export interface OpenOrderSnapshot {
   totalAmount: number;
   /** Situación del pago, calculada con `paymentGateOf`: una sola regla. */
   payment: PaymentGateState;
+  /**
+   * ¿Llegó ALGUNA foto para este pedido? (04-09-2026)
+   *
+   * No es lo mismo que `payment`. `payment` se calcula desde
+   * `payment_attempts`, y esa fila solo existe si el archivo se pudo descargar
+   * y guardar. La noche del 04-09 la captura falló tres veces seguidas —
+   * `capture_status: 'failed'`, sin bytes, sin hash— y el sistema quedó
+   * creyendo que aquel cliente no había pagado: le ofreció rehacer un pedido ya
+   * pagado y después le pidió el comprobante que acababa de mandar. Acabó con
+   * dos pedidos y hablando con una persona.
+   *
+   * Esto mira la otra tabla, `payment_proofs`, donde la fila SÍ se escribe
+   * aunque la descarga se caiga. Es una segunda fuente a propósito: si una falla,
+   * la otra sigue sabiendo que ese cliente mandó algo.
+   */
+  proofReceived: boolean;
 }
 
 /**
@@ -175,7 +191,9 @@ export type DefaultReplySkipReason =
   /** Tiene un pedido en curso: el menú no es lo que necesita. */
   | 'open_order'
   /** Espera comprobante, pero ya se le recordó hace muy poco. */
-  | 'reminded_recently';
+  | 'reminded_recently'
+  /** Ya mandó una foto para este pedido: ni se le pide otra ni se le ofrece rehacerlo. */
+  | 'proof_received';
 
 export type DefaultReplyDecision =
   | { action: 'menu' }
@@ -313,6 +331,22 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // que no depende de nosotros.
     if (order.status === 'confirmed' && isKitchenNoteRequest(texto, state.catalogTerms ?? [])) {
       return { action: 'kitchen_note', order, note: kitchenNoteFrom(texto) };
+    }
+
+    // ── Ya mandó su comprobante ────────────────────────────────────────────
+    //
+    // Va después de la nota de cocina —"sin cebolla" se sigue anotando, que no
+    // toca el total— y ANTES de todo lo que habla de dinero. Un pedido con foto
+    // recibida no se rehace y no se le vuelve a pedir el comprobante, ni aunque
+    // el intento de pago no conste: la foto llegó, y lo que falte por hacer con
+    // ella es cosa nuestra, no del cliente.
+    //
+    // Esta guarda existe porque la de abajo no basta. `payment` sale de
+    // `payment_attempts`, y esa fila desaparece si la descarga del archivo
+    // falla; `proofReceived` sale de `payment_proofs`, que se escribe igual.
+    // Ver `OpenOrderSnapshot.proofReceived`.
+    if (order.proofReceived) {
+      return { action: 'none', reason: 'proof_received' };
     }
 
     // ── "Mándame 2 sodas más" ──────────────────────────────────────────────
