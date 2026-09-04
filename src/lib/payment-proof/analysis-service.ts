@@ -153,7 +153,13 @@ export async function analyzeProofWith(
   const dataUrl = `data:${mime};base64,${Buffer.from(input.bytes).toString('base64')}`;
   const lectura = await readProofFacts(deps.model, dataUrl);
   if (!lectura.ok) {
-    log.warn('payment_proof_analysis_unreadable', { reason: lectura.error });
+    // `code` es un enum corto del transporte más un número de tres cifras: no
+    // lleva nada del comprobante ni del cliente.
+    log.warn('payment_proof_analysis_unreadable', {
+      reason: lectura.error,
+      code: lectura.code ?? null,
+      model: deps.model.model,
+    });
     await deps.source.markAnalysisFailed(input.proofId);
     return;
   }

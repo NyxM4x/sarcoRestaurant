@@ -135,7 +135,18 @@ describe('lectura completa', () => {
       modeloQueResponde({ ok: false, error: 'timeout' }),
       DATA_URL,
     );
-    expect(res).toEqual({ ok: false, error: 'model_error' });
+    // El código del transporte VIAJA. Sin él, el log dice `model_error` y eso
+    // significa a la vez clave inválida, modelo inexistente, cuota agotada y red
+    // caída — la noche del 03→04-09-2026 distinguirlos costó una investigación.
+    expect(res).toEqual({ ok: false, error: 'model_error', code: 'timeout' });
+  });
+
+  it('el STATUS HTTP viaja pegado al código: un 404 no es un 429', async () => {
+    const res = await readProofFacts(
+      modeloQueResponde({ ok: false, error: 'http_error', status: 404 }),
+      DATA_URL,
+    );
+    expect(res).toEqual({ ok: false, error: 'model_error', code: 'http_error.404' });
   });
 
   it('una excepción del transporte tampoco escapa', async () => {
@@ -148,6 +159,7 @@ describe('lectura completa', () => {
     await expect(readProofFacts(explota, DATA_URL)).resolves.toEqual({
       ok: false,
       error: 'model_error',
+      code: 'threw',
     });
   });
 

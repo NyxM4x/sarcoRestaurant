@@ -168,8 +168,22 @@ export function parseProofFacts(text: string): ProofFacts | null {
 
 export type ProofReadResult =
   | { ok: true; facts: ProofFacts; model: string }
-  /** No se pudo leer. El código es corto y sin datos: acaba en un log. */
-  | { ok: false; error: 'model_error' | 'invalid_response' };
+  /**
+   * No se pudo leer. El código es corto y sin datos: acaba en un log.
+   *
+   * `code` lleva lo que dijo el proveedor —`http_error.404`, `timeout`,
+   * `not_configured`— y NO es un adorno: sin él, `model_error` significa a la
+   * vez "la clave no vale", "ese modelo no existe para esta cuenta", "nos
+   * pasamos de cuota" y "se cayó la red", que son cuatro problemas con cuatro
+   * respuestas distintas.
+   *
+   * La noche del 03→04-09-2026 el análisis dejó de leer TODOS los comprobantes
+   * y el log solo decía `model_error`: averiguar cuál de los cuatro era costó
+   * una investigación entera contra la base y la API. Es la misma lección que
+   * ya había aprendido el despacho del menú —"el STATUS HTTP viaja en el
+   * código, no se tira"— sin aplicar aquí.
+   */
+  | { ok: false; error: 'model_error' | 'invalid_response'; code?: string };
 
 /**
  * Lee un comprobante. Nunca lanza: un fallo del modelo no puede propagarse al
@@ -186,9 +200,16 @@ export async function readProofFacts(
       timeoutMs: PROOF_VISION_TIMEOUT_MS,
     });
   } catch {
-    return { ok: false, error: 'model_error' };
+    // El adaptador no lanza; llegar aquí es un fallo del entorno, no del modelo.
+    return { ok: false, error: 'model_error', code: 'threw' };
   }
-  if (!res.ok) return { ok: false, error: 'model_error' };
+  if (!res.ok) {
+    // El status viaja PEGADO al código, como en el ledger del menú: un 404 (ese
+    // modelo no existe para esta cuenta) y un 429 (cuota o límite por minuto) se
+    // arreglan en sitios distintos, y `model_error` a secas no los separa.
+    const code = res.status === undefined ? res.error : `${res.error}.${res.status}`;
+    return { ok: false, error: 'model_error', code };
+  }
   const facts = parseProofFacts(res.text);
   if (facts === null) return { ok: false, error: 'invalid_response' };
   return { ok: true, facts, model: res.model };
