@@ -420,7 +420,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     // un segundo pedido en vez de una corrección del primero.
     expect(cta.enviados[0]).toMatchObject({
       replacesOrderId: 'order-uuid',
-      buttonText: 'Cambiar mi pedido',
+      buttonText: 'MODIFICAR MI PEDIDO',
     });
     expect(cta.enviados[0].bodyText).toContain('#7');
     expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
@@ -500,7 +500,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
 
     expect(cta.enviados[0]).toMatchObject({
       replacesOrderId: 'order-uuid',
-      buttonText: 'Cambiar mi pedido',
+      buttonText: 'MODIFICAR MI PEDIDO',
     });
     expect(recordado).toBe(0);
     expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
@@ -526,7 +526,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
 
     expect(cta.enviados[0]).toMatchObject({
       replacesOrderId: 'order-uuid',
-      buttonText: 'Cambiar mi pedido',
+      buttonText: 'MODIFICAR MI PEDIDO',
     });
     expect(recordado).toBe(0);
     expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });

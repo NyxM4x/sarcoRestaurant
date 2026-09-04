@@ -279,10 +279,17 @@ export const MENU_CTA_BUTTON_TEXT = 'Ver menú';
  *
  * "Ver menú" sería mentir por omisión: lo que hay detrás no es la carta para
  * pedir otra cosa, es el mismo pedido para corregirlo. Quien lo toque tiene que
- * saber qué va a pasar antes de tocarlo. Diecisiete caracteres, dentro del tope
- * de veinte que impone WhatsApp.
+ * saber qué va a pasar antes de tocarlo.
+ *
+ * En MAYÚSCULAS desde el 04-09-2026, por decisión del negocio: el botón llega a
+ * un cliente que acaba de pedir un cambio y tiene que distinguirse de un vistazo
+ * del "Ver menú" de siempre. WhatsApp no admite formato dentro de un botón, así
+ * que las mayúsculas son lo único que queda para diferenciarlos.
+ *
+ * Diecinueve caracteres, dentro del tope de veinte que impone WhatsApp: no cabe
+ * ni una letra más.
  */
-export const MENU_CHANGE_BUTTON_TEXT = 'Cambiar mi pedido';
+export const MENU_CHANGE_BUTTON_TEXT = 'MODIFICAR MI PEDIDO';
 
 /**
  * Cuerpo del CTA que abre el pedido para corregirlo.
