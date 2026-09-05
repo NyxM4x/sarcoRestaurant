@@ -209,9 +209,17 @@ export function KitchenReadyPanel({
 
                       Va en los dos métodos de pago, no solo en efectivo: en un
                       pedido por QR la comida ya entró por el banco y el envío
-                      se cobra en la puerta, y esa cuenta también se cuadra. */}
+                      se cobra en la puerta, y esa cuenta también se cuadra.
+
+                      Y se pinta MÁS GRANDE que el total del chip de arriba, no
+                      más pequeño. Nació como una nota al pie del chip y se leía
+                      como tal —12 px grises debajo de una barra de color—, pero
+                      al cuadrar la caja la cifra que se busca es el envío, no la
+                      suma: el total ya se cobró entero en la puerta y no hay que
+                      repartirlo. Lo que se lee primero tiene que ser el
+                      desglose. */}
                   {desgloseDe(ticket) && (
-                    <p className="mt-1 px-0.5 text-[12px] font-semibold leading-tight text-zinc-600">
+                    <p className="mt-1.5 px-0.5 text-[17px] font-extrabold leading-tight tabular-nums text-zinc-900">
                       {desgloseDe(ticket)}
                     </p>
                   )}
