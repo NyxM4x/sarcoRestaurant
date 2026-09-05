@@ -9,6 +9,7 @@ import { createAgentStore } from '@/lib/agent/memory/repository';
 import {
   OPEN_ORDER_STATUSES,
   OPEN_ORDER_WINDOW_MS,
+  ORDER_CHANGE_STATUSES,
   PROOF_REMINDER_COOLDOWN_MS,
   type CustomerStateSnapshot,
   type OpenOrderSnapshot,
@@ -232,11 +233,19 @@ export async function lookupCustomerState(
         ? await recordadoHacePoco(supabase, pausa?.conversationId ?? null)
         : false;
 
-    // 4. La carta, solo mientras el pedido admita notas. Sin ella ninguna frase
-    //    se anota: no poder descartar que el cliente nombró un producto es
-    //    razón suficiente para no tocar el pedido.
-    const catalogTerms =
-      pedido.status === 'confirmed' ? await terminosDeLaCarta(supabase) : undefined;
+    // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
+    //    Sin ella ninguna frase se anota: no poder descartar que el cliente
+    //    nombró un producto es razón suficiente para no tocar el pedido.
+    //
+    //    `awaiting_location` entró el 05-09-2026. Solo se cargaba en
+    //    `confirmed`, y eso dejaba ciegos a los detectores del cambio justo en
+    //    el estado MÁS seguro para rehacer un pedido —sin ubicación, sin total,
+    //    sin nada en la plancha—: quien escribía "me aumentas 2 papas" antes de
+    //    mandar su pin no recibía nada, porque la lista llegaba vacía y las dos
+    //    puertas devuelven `false` de entrada sin catálogo.
+    const necesitaCarta =
+      pedido.status === 'confirmed' || ORDER_CHANGE_STATUSES.includes(pedido.status);
+    const catalogTerms = necesitaCarta ? await terminosDeLaCarta(supabase) : undefined;
 
     return { paused: false, openOrder, proofRemindedRecently, catalogTerms };
   } catch {

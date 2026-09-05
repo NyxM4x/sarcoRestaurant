@@ -244,6 +244,24 @@ export interface DefaultReplyInput {
    */
   isBatchAnchor: boolean;
   /**
+   * TODOS los textos entrantes de esta entrega, en orden (05-09-2026).
+   *
+   * El ancla decide CUÁNDO se contesta —uno por ráfaga, ver `isBatchAnchor`—
+   * pero no puede decidir QUÉ, porque la gente escribe la petición en el primer
+   * mensaje y la cortesía en el último:
+   *
+   *   "Un vaso de lims" · "Grande" · "También" · "Xfa"
+   *
+   * Ese lote es del pedido #26. La primera frase la reconoce
+   * `isOrderChangeRequest` —`vaso` está en la carta— pero el ancla era "Xfa",
+   * que no dice nada, así que el cliente no recibió nada y acabó armando un
+   * segundo pedido con su segundo envío.
+   *
+   * Se leen todos y se contesta una sola vez. Ausente o vacío = solo el texto
+   * del ancla, que es el comportamiento anterior.
+   */
+  batchTexts?: readonly string[];
+  /**
    * ¿Ya salió un botón por otro mensaje de ESTA misma entrega?
    *
    * Un lote puede traer una frase que la puerta de intención reconoce ("quiero
@@ -356,6 +374,31 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
 
   const order = state.openOrder;
   if (order !== null) {
+    /**
+     * Lo que hay que LEER, que no es lo mismo que quién contesta (05-09-2026).
+     *
+     * El ancla sigue decidiendo cuándo se responde —una vez por ráfaga— pero
+     * las puertas miran la entrega entera. Sin esto, "Un vaso de lims" /
+     * "Grande" / "También" / "Xfa" no recibía nada: la petición iba en el
+     * primero y el ancla era el último.
+     */
+    const candidatos =
+      input.batchTexts && input.batchTexts.length > 0 ? input.batchTexts : [texto];
+    const terminos = state.catalogTerms ?? [];
+
+    /**
+     * ¿ALGUNO de los mensajes pide cambiar lo que lleva el pedido?
+     *
+     * Se calcula antes que nada porque manda sobre la preferencia de cocina:
+     * un lote con "sin cebolla" y "un vaso más" no puede acabar solo anotado.
+     * Es la asimetría de siempre —una preferencia mal tratada molesta, un
+     * cambio anotado como preferencia cuesta dinero— aplicada al lote.
+     */
+    const textoDeCambio = candidatos.find(
+      (t) =>
+        isOrderChangeRequest(t, terminos) || isOrderChangeAnnouncement(t) || isQuantityFixRequest(t),
+    );
+
     // ── "Paso yo a recogerlo" ──────────────────────────────────────────────
     //
     // Va ANTES que todo lo demás porque es lo más específico que puede traer un
@@ -367,8 +410,9 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // No mira el pago, y no es un descuido: pasar a recojo no cambia un centavo
     // de lo que se paga por QR, porque el envío nunca viajó en él —se cobra en
     // la puerta—. Lo único que desaparece es esa puerta.
-    if (PICKUP_SWITCHABLE_STATUSES.includes(order.status) && isPickupSwitchRequest(texto)) {
-      return { action: 'pickup_switch', order };
+    if (PICKUP_SWITCHABLE_STATUSES.includes(order.status)) {
+      const pideRecojo = candidatos.some((t) => isPickupSwitchRequest(t));
+      if (pideRecojo) return { action: 'pickup_switch', order };
     }
 
     // ── "Sin cebolla" ──────────────────────────────────────────────────────
@@ -382,8 +426,15 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // todavía no ha entrado a la plancha (la cocina arranca cuando se acepta el
     // pago). Con la comida ya haciéndose, un "claro que sí" sería una promesa
     // que no depende de nosotros.
-    if (order.status === 'confirmed' && isKitchenNoteRequest(texto, state.catalogTerms ?? [])) {
-      return { action: 'kitchen_note', order, note: kitchenNoteFrom(texto) };
+    //
+    // Y solo si NADIE en el lote pidió un cambio: "sin cebolla" junto a "un
+    // vaso más" no es una preferencia, es un cambio con una preferencia dentro.
+    // Anotarlo y callar lo segundo es la mitad más cara del mensaje.
+    if (order.status === 'confirmed' && textoDeCambio === undefined) {
+      const nota = candidatos.find((t) => isKitchenNoteRequest(t, terminos));
+      if (nota !== undefined) {
+        return { action: 'kitchen_note', order, note: kitchenNoteFrom(nota) };
+      }
     }
 
     // ── Ya mandó su comprobante ────────────────────────────────────────────
@@ -430,11 +481,10 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       // la cantidad dando por hecho el producto. "Que sean 3" no nombra nada
       // —el producto acaba de decirse— así que ni la vía del catálogo ni la del
       // anuncio lo veían. Ver `isQuantityFixRequest`.
-      if (
-        isOrderChangeRequest(texto, state.catalogTerms ?? []) ||
-        isOrderChangeAnnouncement(texto) ||
-        isQuantityFixRequest(texto)
-      ) {
+      //
+      // Las tres se evalúan sobre la ENTREGA entera, no solo sobre el ancla:
+      // ver `batchTexts` y `textoDeCambio`.
+      if (textoDeCambio !== undefined) {
         return { action: 'order_change', order };
       }
     }

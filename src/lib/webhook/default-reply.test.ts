@@ -433,3 +433,95 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
     }
   });
 });
+
+/**
+ * LA RÁFAGA DEL #26: EL MENSAJE BUENO NO ERA EL ÚLTIMO (05-09-2026).
+ *
+ * "Un vaso de lims" / "Grande" / "También" / "Xfa". La petición va en el primer
+ * mensaje y la cortesía en el último, y solo se leía el último: "Xfa" no
+ * dispara nada, así que aquel cliente no recibió respuesta y acabó armando un
+ * segundo pedido con su segundo envío.
+ */
+describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
+  const conPedido = (over: Partial<OpenOrderSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['trancapecho', 'vaso', 'limonada', 'gaseosa', 'papas'],
+    openOrder: pedido({ orderNumber: 'ORD-260904-026', paymentMethod: 'cash', ...over }),
+  });
+
+  const decidirLote = (textos: string[], state: CustomerStateSnapshot) =>
+    decideDefaultReply({
+      // El ancla es el ÚLTIMO, como en producción.
+      text: textos[textos.length - 1],
+      batchTexts: textos,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state,
+    });
+
+  it('la ráfaga literal del #26 recibe el botón de cambiar', () => {
+    const decision = decidirLote(
+      ['Un vaso de lims', 'Grande', 'También', 'Xfa'],
+      conPedido(),
+    );
+    expect(decision.action).toBe('order_change');
+  });
+
+  it('sin los otros textos del lote, el ancla sola sigue sin decir nada', () => {
+    // La prueba de que el arreglo es el lote y no otra cosa.
+    const decision = decideDefaultReply({
+      text: 'Xfa',
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state: conPedido(),
+    });
+    expect(decision.action).not.toBe('order_change');
+  });
+
+  it('un cambio en el lote gana a una preferencia de cocina', () => {
+    // "sin cebolla" junto a "un vaso más" no es una preferencia: es un cambio
+    // con una preferencia dentro. Anotarlo y callar lo segundo deja el total
+    // viejo con comida nueva, que es la mitad cara del error.
+    const decision = decidirLote(['sin cebolla', 'y un vaso de limonada'], conPedido());
+    expect(decision.action).toBe('order_change');
+  });
+
+  it('una preferencia sola se sigue anotando, venga en el lote donde venga', () => {
+    const decision = decidirLote(['hola', 'sin cebolla porfa', 'gracias'], conPedido());
+    expect(decision).toMatchObject({ action: 'kitchen_note', note: 'sin cebolla porfa' });
+  });
+
+  it('el lote no multiplica las respuestas: sale UNA', () => {
+    // Dos frases de cambio en la misma ráfaga siguen siendo un solo botón.
+    const decision = decidirLote(['me olvidé algo', 'que sean 3'], conPedido());
+    expect(decision.action).toBe('order_change');
+  });
+
+  it('un lote sin nada reconocible sigue su camino de hoy', () => {
+    const decision = decidirLote(['hola', 'gracias', 'ok'], conPedido());
+    expect(decision.action).not.toBe('order_change');
+    expect(decision.action).not.toBe('kitchen_note');
+  });
+
+  it('quien no es el ancla sigue sin contestar por su cuenta', () => {
+    // El lote se lee entero, pero responde uno solo: si no, "Un vaso de lims" y
+    // "Xfa" mandarían cada uno el suyo.
+    const decision = decideDefaultReply({
+      text: 'Un vaso de lims',
+      batchTexts: ['Un vaso de lims', 'Grande', 'También', 'Xfa'],
+      isBatchAnchor: false,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state: conPedido(),
+    });
+    expect(decision).toEqual({ action: 'none', reason: 'not_anchor' });
+  });
+
+  it('también atiende "paso a recogerlo" cuando no es el último', () => {
+    const decision = decidirLote(['mejor paso a recogerlo', 'gracias'], conPedido());
+    expect(decision.action).toBe('pickup_switch');
+  });
+});

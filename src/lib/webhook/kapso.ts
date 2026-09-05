@@ -635,6 +635,8 @@ async function responderPorDefecto(
     from: string | null;
     phoneNumberId: string | null;
     ultimoTextoDelLote?: boolean;
+    /** TODOS los textos entrantes de la entrega. Ver `batchTexts`. */
+    textosDelLote?: readonly string[];
     menuYaEnviadoEnElLote?: boolean;
   },
   deps: {
@@ -686,6 +688,7 @@ async function responderPorDefecto(
   const decision = decideDefaultReply({
     text: texto,
     isBatchAnchor: ctx.ultimoTextoDelLote === true,
+    batchTexts: ctx.textosDelLote,
     menuAlreadySent: ctx.menuYaEnviadoEnElLote === true,
     explicitIntent: opciones.explicita,
     state,
@@ -853,6 +856,8 @@ async function processMessage(
      * ancla, y entonces no sale nada por defecto.
      */
     ultimoTextoDelLote?: boolean;
+    /** TODOS los textos entrantes de la entrega. Ver `batchTexts`. */
+    textosDelLote?: readonly string[];
     /**
      * ¿Un mensaje ANTERIOR de esta misma entrega ya recibió el botón?
      *
@@ -1533,6 +1538,21 @@ async function processEnvelopes(
     return encontrado;
   })();
 
+  // ── Y QUÉ se contesta, que no es lo mismo (05-09-2026) ────────────────────
+  //
+  // El ancla dice CUÁNDO responder —una vez por ráfaga— pero no puede decidir
+  // qué, porque la petición va en el primer mensaje y la cortesía en el último:
+  // "Un vaso de lims" / "Grande" / "También" / "Xfa". La primera frase sí se
+  // reconoce; el ancla, "Xfa", no dice nada. Aquel cliente no recibió respuesta
+  // y acabó armando un segundo pedido. Ver `batchTexts` en `default-reply`.
+  const textosDelLote = envelopes.reduce<string[]>((acc, envelope) => {
+    const { message } = extractMessageContext(envelope.payload);
+    if (isOutboundMessage(message)) return acc;
+    const texto = extractTextBody(message);
+    if (texto !== null) acc.push(texto);
+    return acc;
+  }, []);
+
   // Un botón por entrega, venga de la puerta que venga. Se acumula dentro del
   // bucle porque los sobres se procesan EN ORDEN: cuando le toca al ancla, ya
   // consta si alguno anterior mandó el suyo.
@@ -1558,6 +1578,7 @@ async function processEnvelopes(
         // ráfaga, y solo entonces el saludo se lee como preámbulo.
         rafagaDeVarios: envelopes.length > 1,
         ultimoTextoDelLote: ultimoTextoIndex !== null && envelope.index === ultimoTextoIndex,
+        textosDelLote,
         menuYaEnviadoEnElLote: menuYaEnviado,
       },
       deps,
