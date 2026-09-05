@@ -94,6 +94,27 @@ pueden haber cambiado, y el que vale es el de ahora.
 
 ## Pendientes conocidos
 
+- **El envío se cobra dos veces si acaban existiendo dos pedidos** (05-09-2026).
+  El pedido #26 y el #27 de la misma noche, del mismo teléfono y a la misma
+  ubicación, cobraron Bs 10 de envío cada uno. El cliente lo reclamó.
+
+  Lo que evita el caso está desplegado —ese cliente ahora corrige su pedido en
+  vez de armar otro— pero si aun así se crean los dos, el segundo sigue
+  cobrando su envío.
+
+  **No se puede arreglar sin migración**, y conviene saber por qué antes de
+  intentarlo: `apply_delivery_quote` (migración 0009) tiene un *money guard* que
+  exige que el importe del envío coincida EXACTAMENTE con el tarifario de la
+  distancia — a ≤3 km, Bs 10. Pasar `0` no rebaja el envío: lanza excepción y
+  **deja el pedido sin cotizar**. Ese guard es la defensa final contra un envío
+  manipulado, así que rebajarlo pide un permiso explícito (un parámetro del tipo
+  "ya se cobra en otro pedido") y no un hueco general para el cero.
+
+  Ya existe la mitad del trabajo: `findReusedDistanceMeters`
+  (`delivery/quote-order.ts`) es exactamente la consulta "mismo cliente, mismo
+  punto" que haría falta, hoy usada para no pagar dos veces a Mapbox.
+
+
 - **La ubicación se vuelve a pedir.** El pedido corregido nace
   `awaiting_location` como cualquier otro, así que el cliente manda su pin otra
   vez. No se paga Mapbox de nuevo (`findReusedDistanceMeters` reutiliza la
