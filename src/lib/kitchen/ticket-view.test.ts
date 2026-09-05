@@ -74,8 +74,8 @@ describe('ticket — orden y contenido', () => {
 
   it('las fechas ilegibles se van al final sin romper el orden', () => {
     const tickets = sortByAge([
-      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
-      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
+      { orderNumber: 'roto', enteredAt: 'no-fecha', stage: 'new', deliveryType: 'pickup', lines: [], notes: null, paysCash: false, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
+      { orderNumber: 'ok', enteredAt: iso(1), stage: 'new', deliveryType: 'pickup', lines: [], notes: null, paysCash: false, completedAt: null, amountDueByQr: 0, awaitingPaymentConfirmation: false, payment: null, gate: ABIERTA, amountLabel: null, deliveryCollect: null },
     ]);
     expect(tickets.map((t) => t.orderNumber)).toEqual(['ok', 'roto']);
   });
@@ -451,6 +451,28 @@ describe('ticket — qué se cobra en la puerta', () => {
       });
       expect(c?.canOverride, String(marca)).toBe(true);
     }
+  });
+
+  it('el ticket señala el efectivo sin llegar a decir cómo se paga', () => {
+    // La pantalla necesita saber que este pedido no espera comprobante —si no,
+    // le escribe "A cobrar por QR" y "Sin comprobante" encima—, pero la palabra
+    // sigue sin viajar: lo que cruza es un booleano.
+    const cash = toKitchenTickets(
+      [row('x', 'confirmed', { delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 44, total_amount: 54 })],
+      [],
+    )[0];
+    expect(cash.paysCash).toBe(true);
+    expect(JSON.stringify(cash)).not.toContain('cash');
+
+    const qr = toKitchenTickets(
+      [row('y', 'confirmed', { delivery_type: 'delivery', payment_method: 'qr', subtotal_amount: 44, total_amount: 54 })],
+      [],
+    )[0];
+    expect(qr.paysCash).toBe(false);
+
+    // Un pedido histórico sin método registrado no es un pedido en efectivo.
+    const viejo = toKitchenTickets([row('z', 'confirmed', { delivery_type: 'delivery' })], [])[0];
+    expect(viejo.paysCash).toBe(false);
   });
 
   it('la instrucción no filtra el método de pago', () => {

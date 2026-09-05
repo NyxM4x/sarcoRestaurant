@@ -145,6 +145,11 @@ describe('seguridad — el ticket no transporta datos que la cocina no necesita'
       'notes',
       'orderNumber',
       'payment',
+      // 05-09-2026: un BOOLEANO, no el método de pago. El ticket sigue sin
+      // transportar la palabra —el test de arriba lo vigila— pero la pantalla
+      // necesita saber que este pedido no espera comprobante, para no pintarle
+      // "A cobrar por QR" y "Sin comprobante" a quien paga en la puerta.
+      'paysCash',
       'stage',
     ]);
   });

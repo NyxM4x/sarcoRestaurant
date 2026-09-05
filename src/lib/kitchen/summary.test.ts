@@ -17,6 +17,7 @@ function ticket(
     enteredAt: iso(minutes),
     stage,
     deliveryType: 'delivery',
+    paysCash: false,
     // Categoría por defecto para los fixtures que no la declaran: casi todos
     // estos tests miden CUÁNTO se suma, no en qué bloque cae.
     lines: lines.map(([name, quantity]) => ({
