@@ -134,3 +134,49 @@ describe('menuCtaBodyText — el botón contesta lo que preguntaron', () => {
     }
   });
 });
+
+/**
+ * "¿PUEDO PAGAR EN EFECTIVO?" (05-09-2026).
+ *
+ * Hay gente que no toca el botón hasta saber si va a poder pagar como quiere.
+ * La respuesta es que sí —el método se elige dentro, al confirmar— y hasta hoy
+ * recibía el copy genérico, que no contestaba nada de lo que preguntó.
+ */
+describe('el que pregunta por el efectivo antes de entrar', () => {
+  it('reconoce las formas de preguntarlo', () => {
+    for (const texto of [
+      'puedo pagar en efectivo?',
+      'aceptan efectivo',
+      'se puede en efectivo',
+      'hay efectivo?',
+      'es contra entrega?',
+      'solo qr?',
+      'puedo pagar al recibir',
+      'puedo cancelar cuando llegue',
+    ]) {
+      expect(classifyMenuCtaContext(texto), texto).toBe('cash');
+    }
+  });
+
+  it('gana al envío cuando la frase habla de los dos', () => {
+    // Lo que le impide tocar el botón es cómo va a pagar, no cuánto es el envío.
+    expect(classifyMenuCtaContext('se puede pagar el delivery en efectivo')).toBe('cash');
+  });
+
+  it('no se lo quita a quien pregunta otra cosa', () => {
+    expect(classifyMenuCtaContext('cuanto sale el trancapecho')).toBe('price');
+    expect(classifyMenuCtaContext('cuanto sale el envio a mi casa')).toBe('delivery');
+    expect(classifyMenuCtaContext('buenas noches')).toBe('greeting');
+  });
+
+  it('el copy contesta que SÍ y dice dónde se elige', () => {
+    const texto = menuCtaBodyText('agent_suggestion', 'cash');
+    expect(texto).toMatch(/^¡Sí!/);
+    expect(texto).toContain('EFECTIVO');
+    // Y dice cuándo se paga, que es la otra mitad de la duda.
+    expect(texto).toMatch(/delivery cuando llegue/);
+    // Sin afirmar que el pedido exista ya: todavía no ha entrado al menú.
+    expect(texto).not.toMatch(/tu pedido (ya|est[áa]|qued[óo])|anotad|confirmad/i);
+  });
+});
+

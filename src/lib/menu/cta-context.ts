@@ -42,7 +42,25 @@ import {
  * De qué venía la conversación. `null` = nada reconocible, y entonces manda el
  * texto del `reason`, que es el comportamiento de siempre.
  */
-export type MenuCtaContext = 'price' | 'delivery' | 'dictated' | 'greeting';
+export type MenuCtaContext = 'cash' | 'price' | 'delivery' | 'dictated' | 'greeting';
+
+/**
+ * "¿Puedo pagar en efectivo?" — la pregunta que se hace ANTES de entrar
+ * (05-09-2026).
+ *
+ * Hay gente que no toca el botón hasta saber si va a poder pagar como quiere, y
+ * la respuesta es que sí: el método de pago se elige dentro, al confirmar. Sin
+ * este contexto recibía el copy genérico —"todo lo que tenemos está acá"— que no
+ * contesta lo que preguntó, y se quedaba esperando una respuesta que ya tenía
+ * delante.
+ *
+ * `efectivo` a secas basta: nadie escribe esa palabra en un chat de comida salvo
+ * para preguntar por el método. Las otras formas son las de quien lo dice sin
+ * nombrarlo —"contra entrega", "pago al recibir"— y la contraria, la de quien
+ * cree que solo hay QR.
+ */
+const EFECTIVO =
+  /(^|\s)(efectivo|contra entrega|contraentrega|solo qr|solamente qr|unicamente qr|puro qr)(\s|$)|(pagar|pago|pagarle|cancelar|cancelo|abonar)\s+(al recibir|cuando llegue|cuando me llegue|en la puerta|al final|despues)/;
 
 /** Preguntar por un importe. Mismo vocabulario que el detector de cotización. */
 const COSTE = /\b(cuanto|cuantos|precio|precios|costo|coste|vale|valen|sale|salen|cuesta|cuestan)\b/;
@@ -81,6 +99,11 @@ export function classifyMenuCtaContext(
 
   const norm = normalizeIntentText(text);
   if (norm === '') return null;
+
+  // El efectivo va PRIMERO, por delante incluso del envío: "se puede pagar el
+  // delivery en efectivo" habla de las dos cosas, y lo que de verdad pregunta
+  // —lo que le impide tocar el botón— es cómo va a pagar.
+  if (EFECTIVO.test(norm)) return 'cash';
 
   if (COSTE.test(norm) && ENVIO.test(norm)) return 'delivery';
   // Las dos formas de dictar: con dígito ("2 lomitos") y con la cantidad en

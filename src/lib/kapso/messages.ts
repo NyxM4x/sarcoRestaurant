@@ -222,6 +222,15 @@ export function menuCtaBodyText(
   // tratarlo de torpe por muy bien clasificada que esté su frase anterior.
   if (context !== null && reason !== 'explicit_resend') {
     switch (context) {
+      // Preguntó si puede pagar en efectivo, y todavía no entró al menú
+      // (05-09-2026). Se le contesta que SÍ antes que nada: es lo que le está
+      // impidiendo tocar el botón. Y se le dice dónde se elige, porque la
+      // respuesta completa es "sí, y se hace ahí dentro".
+      case 'cash':
+        return (
+          '¡Sí! 👇 Armá tu pedido en el botón y al confirmarlo elegí EFECTIVO ' +
+          'como método de pago: le pagás al delivery cuando llegue con tu pedido.'
+        );
       // Preguntó un precio. El menú los tiene todos, y esa es la respuesta.
       case 'price':
         return (
