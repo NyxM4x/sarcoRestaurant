@@ -7,6 +7,9 @@ import {
 import { isExplicitMenuRequest } from '@/lib/agent/business/menu-request';
 import type { DispatchMenuResult, MenuSendReason } from '@/lib/menu/dispatch';
 import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
+// El MISMO botón y el MISMO copy que manda la vía determinística: si el enlace
+// hace lo mismo, no puede leerse distinto según por dónde salió.
+import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/messages';
 
 /**
  * Las dos primeras herramientas de negocio — módulo PURO (Fase 6D.2F.5B).
@@ -101,7 +104,42 @@ export interface MenuDispatchPort {
     reason: MenuSendReason;
     /** De qué venía hablando el cliente; solo elige el copy del botón. */
     ctaContext?: MenuCtaContext | null;
+    /** Pedido al que el enlace viene a sustituir (0035). Ver `OpenOrderPort`. */
+    replacesOrderId?: string | null;
+    /** Etiqueta del botón. Ausente = "Ver menú". */
+    buttonText?: string;
+    /** Cuerpo ya redactado, cuando el enlace no es el menú de siempre. */
+    bodyText?: string;
   }): Promise<DispatchMenuResult>;
+}
+
+/**
+ * El pedido vivo del cliente, para no mandarle a armar OTRO (05-09-2026).
+ *
+ * ── El pedido #27 ───────────────────────────────────────────────────────────
+ *
+ * Esta tool mandaba el menú sin mirar nada. La madrugada del 05-09 un cliente
+ * con un pedido ya cotizado escribió "un vaso de limonada también": el enlace
+ * que recibió abría un pedido NUEVO, y acabó con dos comandas, dos avisos al
+ * grupo de reparto y el envío cobrado dos veces. Reclamó, y entró una persona
+ * al chat a deshacerlo.
+ *
+ * Con este puerto, a quien ya tiene un pedido que todavía se puede rearmar se
+ * le manda el enlace que lo REABRE —con lo que eligió dentro— en vez de uno en
+ * blanco. El pedido viejo no se toca hasta que confirme el corregido.
+ *
+ * Opcional: sin él la tool se comporta como antes. Quien decide si un pedido es
+ * rearmable NO es este archivo, es `isReplaceableOrder` en `default-reply`, la
+ * misma regla que aplica la vía determinística.
+ */
+export interface OpenOrderPort {
+  findReplaceable(customerPhone: string): Promise<{
+    orderId: string;
+    orderNumber: string;
+    totalAmount: number;
+    /** Sin QR que mandar: el copy no puede prometerle uno que no existe. */
+    isCash: boolean;
+  } | null>;
 }
 
 /** Lo que el modelo recibe tras pedir el envío. Sin URL, sin token, sin WAMID. */
@@ -138,7 +176,11 @@ export interface SendMenuToolResult {
  * WAMID nunca produce dos CTAs. La garantiza el UNIQUE de 0015, no esta
  * función.
  */
-export function createSendMenuTool(dispatcher: MenuDispatchPort): AgentTool {
+export function createSendMenuTool(
+  dispatcher: MenuDispatchPort,
+  /** Ausente = la tool manda siempre el menú en blanco, como antes del 05-09. */
+  openOrders?: OpenOrderPort,
+): AgentTool {
   return {
     definition: {
       name: SEND_MENU,
@@ -167,15 +209,47 @@ export function createSendMenuTool(dispatcher: MenuDispatchPort): AgentTool {
         ? 'explicit_request'
         : 'agent_suggestion';
 
+      /**
+       * ¿Ya tiene un pedido que se puede rearmar? Entonces el enlace es OTRO.
+       *
+       * Nunca lanza: si la consulta falla, se manda el menú de siempre. Quedarse
+       * sin contestar por no poder mirar un pedido sería peor que el problema
+       * que esto viene a evitar.
+       */
+      const rearmable = await (async () => {
+        if (!openOrders) return null;
+        try {
+          return await openOrders.findReplaceable(context.customerPhone);
+        } catch {
+          return null;
+        }
+      })();
+
       const result = await dispatcher.dispatch({
         customerPhone: context.customerPhone,
         sourceMessageId: context.sourceMessageId,
         phoneNumberId: context.phoneNumberId,
-        reason,
+        // Quien ya tiene un pedido y pide más NO está pidiendo la carta: está
+        // corrigiendo lo suyo. Eso es explícito aunque no nombre el menú.
+        reason: rearmable === null ? reason : 'explicit_request',
         // El botón es el ÚNICO mensaje que sale cuando el menú se manda —el
         // turno cierra en silencio—, así que su texto es la única oportunidad
         // de contestar lo que el cliente acababa de preguntar.
-        ctaContext: classifyMenuCtaContext(context.inboundText),
+        ctaContext: rearmable === null ? classifyMenuCtaContext(context.inboundText) : null,
+        ...(rearmable === null
+          ? {}
+          : {
+              replacesOrderId: rearmable.orderId,
+              buttonText: MENU_CHANGE_BUTTON_TEXT,
+              // El copy lo construye el canal con datos del backend —su número
+              // y su total—, nunca el modelo. Es el MISMO que manda la vía
+              // determinística.
+              bodyText: orderChangeCtaText(
+                rearmable.orderNumber,
+                rearmable.totalAmount,
+                rearmable.isCash,
+              ),
+            }),
       });
 
       // `duplicate` significa que ESTE mismo mensaje del cliente ya provocó un

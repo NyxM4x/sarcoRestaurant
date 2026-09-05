@@ -9,6 +9,10 @@ import { createMenuRepository } from '@/lib/menu/repository';
 import { categoryLabel, productDescription } from '@/lib/menu/catalog';
 import { dispatchMenu, type MenuAutomationMemoryPort } from '@/lib/menu/dispatch';
 import { createGetMenuItemsTool, createSendMenuTool } from './tools/menu-tools';
+// El pedido vivo del cliente y la regla que dice si todavía se puede rearmar:
+// las MISMAS que usa la vía determinística, no una segunda copia.
+import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
+import { isReplaceableOrder } from '@/lib/webhook/default-reply';
 import { createAnswerDirectlyAction } from './tools/answer-directly';
 import { createRequestHumanAction } from './tools/request-human';
 import { createHandoffPort } from './handoff/service';
@@ -139,14 +143,41 @@ function createAgentActions(): AgentTool[] {
   const menu = createMenuRepository(getSupabaseAdmin());
 
   return [
-    createSendMenuTool({
-      // La detección del atasco YA NO cuelga de aquí. Colgaba, y por eso solo
-      // veía al cliente que pedía el menú una y otra vez: el que se traba
-      // preguntando por el envío no aparecía nunca. Ahora corre una vez por
-      // entrega en el webhook y cuenta mensajes, no menús. Ver
-      // `handoff/stuck-customer.ts`.
-      dispatch: (input) => dispatchMenu(input, createMenuDispatchDeps()),
-    }),
+    createSendMenuTool(
+      {
+        // La detección del atasco YA NO cuelga de aquí. Colgaba, y por eso solo
+        // veía al cliente que pedía el menú una y otra vez: el que se traba
+        // preguntando por el envío no aparecía nunca. Ahora corre una vez por
+        // entrega en el webhook y cuenta mensajes, no menús. Ver
+        // `handoff/stuck-customer.ts`.
+        dispatch: (input) => dispatchMenu(input, createMenuDispatchDeps()),
+      },
+      {
+        /**
+         * El pedido vivo del cliente (05-09-2026).
+         *
+         * Se lee con `lookupCustomerState`, el MISMO puerto que usa la vía
+         * determinística, y se decide con `isReplaceableOrder`, la MISMA regla.
+         * Esta tool no vuelve a preguntarse qué pedido se puede rearmar: solo
+         * pregunta si el que hay lo es.
+         *
+         * Sin esto, el enlace que salía por aquí abría un pedido en blanco
+         * aunque el cliente ya tuviera el suyo — y así nació el #27, con su
+         * segunda comanda y su segundo envío.
+         */
+        async findReplaceable(customerPhone: string) {
+          const estado = await lookupCustomerState(customerPhone);
+          const pedido = estado?.openOrder ?? null;
+          if (pedido === null || !isReplaceableOrder(pedido)) return null;
+          return {
+            orderId: pedido.orderId,
+            orderNumber: pedido.orderNumber,
+            totalAmount: pedido.totalAmount,
+            isCash: pedido.paymentMethod === 'cash',
+          };
+        },
+      },
+    ),
     createGetMenuItemsTool({
       async listForModel() {
         const items = await menu.listActive();

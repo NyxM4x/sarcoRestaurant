@@ -337,6 +337,22 @@ function sinDineroComprometido(order: OpenOrderSnapshot): boolean {
 }
 
 /**
+ * ¿Este pedido todavía se puede rearmar?
+ *
+ * La MISMA pregunta que se hace la puerta del cambio aquí abajo, exportada para
+ * que la vía del agente (`agent/tools/menu-tools.ts`) no tenga que repetirla.
+ *
+ * Repetirla es exactamente lo que produjo el pedido #27: esa vía no miraba nada
+ * y mandaba el menú normal —el que abre un pedido NUEVO— a un cliente que ya
+ * tenía uno vivo. Dos listas de condiciones sobre el mismo hecho se separan el
+ * día que una se retoca, y la que se quedó vieja manda a alguien a armar un
+ * segundo pedido.
+ */
+export function isReplaceableOrder(order: OpenOrderSnapshot): boolean {
+  return ORDER_CHANGE_STATUSES.includes(order.status) && sinDineroComprometido(order);
+}
+
+/**
  * ¿Qué le sale a este cliente por defecto?
  *
  * El orden de las guardas es el argumento entero, y va de lo que más daño hace
@@ -469,7 +485,7 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // revisión hay dinero de por medio contra un total concreto, y cambiar las
     // líneas por debajo dejaría al cliente pagando una cosa y recibiendo otra.
     // Ese caso sigue el camino de hoy y acaba donde acaban las excepciones.
-    if (ORDER_CHANGE_STATUSES.includes(order.status) && sinDineroComprometido(order)) {
+    if (isReplaceableOrder(order)) {
       // Las DOS formas de pedirlo, y la segunda es la que llega primero: el
       // cliente pregunta si puede antes de decir qué quiere. Reconocer solo la
       // que nombra productos dejaba ese primer mensaje sin respuesta

@@ -613,3 +613,103 @@ describe('registry — fail-safe', () => {
     expect(executed.callId).toBe('call_abc123');
   });
 });
+
+/**
+ * EL PEDIDO #27: EL AGENTE MANDABA A ARMAR OTRO PEDIDO (05-09-2026).
+ *
+ * Esta tool mandaba el menú sin mirar nada. Un cliente con el pedido #26 ya
+ * cotizado escribió "un vaso de limonada también" y el enlace que recibió abría
+ * un pedido EN BLANCO: acabó con dos comandas, dos avisos al grupo de reparto y
+ * el envío cobrado dos veces.
+ */
+describe('send_menu — al que ya tiene pedido se le reabre el suyo', () => {
+  function capturingDispatcher(result: DispatchMenuResult) {
+    const calls: Record<string, unknown>[] = [];
+    return {
+      calls,
+      port: {
+        async dispatch(input: Record<string, unknown>) {
+          calls.push(input);
+          return result;
+        },
+      } as Parameters<typeof createSendMenuTool>[0],
+    };
+  }
+
+  const PEDIDO_VIVO = {
+    orderId: 'order-uuid-26',
+    orderNumber: 'ORD-260904-026',
+    totalAmount: 28,
+    isCash: true,
+  };
+
+  const conPedido = { findReplaceable: async () => PEDIDO_VIVO };
+  const sinPedido = { findReplaceable: async () => null };
+
+  it('el enlace viene a SUSTITUIR su pedido, no a abrir otro', async () => {
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port, conPedido).execute!(ctx('un vaso de limonada también'));
+
+    expect(dispatcher.calls[0]).toMatchObject({ replacesOrderId: 'order-uuid-26' });
+  });
+
+  it('el botón lo dice, y el copy lleva su número y su total', async () => {
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port, conPedido).execute!(ctx('quiero agregar algo'));
+
+    const enviado = dispatcher.calls[0];
+    expect(enviado.buttonText).toBe('MODIFICAR MI PEDIDO');
+    // El cliente ve el número CORTO, que es el que oye y el que dice.
+    expect(String(enviado.bodyText)).toContain('#26');
+    expect(String(enviado.bodyText)).toContain('28');
+  });
+
+  it('en efectivo no le promete un QR que nunca recibió', async () => {
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port, conPedido).execute!(ctx('quiero agregar algo'));
+
+    expect(String(dispatcher.calls[0].bodyText)).not.toContain('QR');
+  });
+
+  it('sin pedido vivo, el menú de siempre y el copy de siempre', async () => {
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port, sinPedido).execute!(ctx('q tienen?'));
+
+    const enviado = dispatcher.calls[0];
+    expect(enviado.replacesOrderId).toBeUndefined();
+    expect(enviado.buttonText).toBeUndefined();
+    expect(enviado.reason).toBe('agent_suggestion');
+  });
+
+  it('sin el puerto cableado se comporta exactamente como antes', async () => {
+    // Es el interruptor de apagado de esta pieza.
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port).execute!(ctx('un vaso de limonada también'));
+
+    expect(dispatcher.calls[0].replacesOrderId).toBeUndefined();
+  });
+
+  it('si la consulta del pedido falla, se manda el menú igual', async () => {
+    // Quedarse sin contestar por no poder mirar un pedido sería peor que el
+    // problema que esto viene a evitar.
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    const rota = {
+      findReplaceable: async () => {
+        throw new Error('supabase caída');
+      },
+    };
+    const outcome = await createSendMenuTool(dispatcher.port, rota).execute!(ctx('q tienen?'));
+
+    expect(dispatcher.calls).toHaveLength(1);
+    expect(dispatcher.calls[0].replacesOrderId).toBeUndefined();
+    expect((outcome.result as SendMenuToolResult).sent).toBe(true);
+  });
+
+  it('pedir más sobre un pedido vivo cuenta como petición explícita', async () => {
+    // No está pidiendo la carta: está corrigiendo lo suyo.
+    const dispatcher = capturingDispatcher({ result: 'sent', deliveryId: 'd-1', wamid: 'w-1' });
+    await createSendMenuTool(dispatcher.port, conPedido).execute!(ctx('un vaso más'));
+
+    expect(dispatcher.calls[0].reason).toBe('explicit_request');
+  });
+});
