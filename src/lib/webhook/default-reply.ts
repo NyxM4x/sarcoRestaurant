@@ -5,6 +5,7 @@ import {
   isKitchenNoteRequest,
   isOrderChangeAnnouncement,
   isOrderChangeRequest,
+  isQuantityFixRequest,
   kitchenNoteFrom,
 } from './order-change-intent';
 import { isPickupSwitchRequest } from './pickup-switch-intent';
@@ -389,9 +390,15 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       // determinística, y con él el turno se lo quedaba el modelo — que el
       // 04-09-2026 derivó la conversación a una persona y la calló dos horas.
       // Ver `isOrderChangeAnnouncement`.
+      //
+      // Y la TERCERA, que se pagó con un pedido entero (05-09-2026): corregir
+      // la cantidad dando por hecho el producto. "Que sean 3" no nombra nada
+      // —el producto acaba de decirse— así que ni la vía del catálogo ni la del
+      // anuncio lo veían. Ver `isQuantityFixRequest`.
       if (
         isOrderChangeRequest(texto, state.catalogTerms ?? []) ||
-        isOrderChangeAnnouncement(texto)
+        isOrderChangeAnnouncement(texto) ||
+        isQuantityFixRequest(texto)
       ) {
         return { action: 'order_change', order };
       }

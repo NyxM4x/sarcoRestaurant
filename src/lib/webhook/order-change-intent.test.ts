@@ -4,6 +4,7 @@ import {
   isKitchenNoteRequest,
   isOrderChangeAnnouncement,
   isOrderChangeRequest,
+  isQuantityFixRequest,
   kitchenNoteFrom,
   KITCHEN_NOTE_MAX_LENGTH,
   ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH,
@@ -242,5 +243,128 @@ describe('isOrderChangeAnnouncement — pide cambiar antes de decir qué', () =>
     expect(isOrderChangeAnnouncement('puedo aumentar')).toBe(true);
     expect(isOrderChangeAnnouncement(null)).toBe(false);
     expect(isOrderChangeAnnouncement('   ')).toBe(false);
+  });
+});
+
+/**
+ * EL PEDIDO #20 (05-09-2026).
+ *
+ * El cliente armó 2 trancapechos en el menú, pagó el importe de 3 y lo avisó
+ * por chat. Ninguno de los tres detectores se activó, la cocina recibió una
+ * comanda de 2 con un pago de 3, y tuvo que entrar una persona a resolverlo.
+ *
+ * Estos tests son esa conversación, frase por frase.
+ */
+describe('el pedido #20: lo que se escribió y nadie leyó', () => {
+  it('reconoce el producto PARTIDO en dos palabras', () => {
+    // La carta dice "Trancapecho"; el cliente escribió "tranca pecho". Entre
+    // atenderlo y no atenderlo había exactamente un espacio.
+    expect(isOrderChangeRequest('Que sean 3 tranca pecho', CARTA)).toBe(true);
+    expect(isOrderChangeRequest('quiero 2 tranca burguer mas', CARTA)).toBe(true);
+    // Y lo de siempre sigue igual de bien.
+    expect(isOrderChangeRequest('que sean 3 trancapechos', CARTA)).toBe(true);
+  });
+
+  it('juntar dos palabras no inventa productos que nadie nombró', () => {
+    // El par se pega SOLO para compararlo con la carta: si de ahí no sale nada
+    // que se venda, la frase sigue sin nombrar producto.
+    expect(isOrderChangeRequest('quiero saber cuanto falta', CARTA)).toBe(false);
+    expect(isOrderChangeRequest('mandame la ubicacion', CARTA)).toBe(false);
+  });
+
+  it('el diminutivo es un producto, no una preferencia', () => {
+    // "aumentame papitas" se ANOTABA en la comanda: una porción más de papas
+    // que nadie cobraba. `papitas` no era `papas` para una comparación exacta.
+    expect(isKitchenNoteRequest('aumentame papitas', CARTA)).toBe(false);
+    expect(isOrderChangeRequest('aumentame papitas', CARTA)).toBe(true);
+    expect(isOrderChangeRequest('agregame una gaseosita', CARTA)).toBe(true);
+  });
+
+  it('un olvido NUNCA se anota en la comanda, aunque traiga un verbo de poner', () => {
+    // "Me olvide, agregame esto" activaba las dos puertas y ganaba la de la
+    // nota, que va antes: la frase acababa impresa en la comanda y el cliente
+    // recibía un "listo, ya lo anotamos" con el total sin cambiar.
+    expect(isKitchenNoteRequest('me olvide agregame esto', CARTA)).toBe(false);
+    expect(isOrderChangeAnnouncement('me olvide agregame esto')).toBe(true);
+
+    // Y la preferencia de verdad se sigue anotando igual que ayer.
+    expect(isKitchenNoteRequest('agregame harta mayonesa', CARTA)).toBe(true);
+    expect(isKitchenNoteRequest('ponle bien poquito aji', CARTA)).toBe(true);
+  });
+
+  it('las formas de reconocer un olvido que faltaban', () => {
+    expect(isOrderChangeAnnouncement('se me paso')).toBe(true);
+    expect(isOrderChangeAnnouncement('m olvide de algo')).toBe(true);
+    expect(isOrderChangeAnnouncement('esta mal la orden')).toBe(true);
+    expect(isOrderChangeAnnouncement('pedi mal')).toBe(true);
+  });
+});
+
+/**
+ * CORREGIR LA CANTIDAD SIN NOMBRAR EL PRODUCTO (05-09-2026).
+ *
+ * Es la forma más natural de rectificar delante del total —el producto acaba de
+ * decirse, así que nadie lo repite— y era la familia entera que se caía por el
+ * hueco entre las tres puertas.
+ */
+describe('la cantidad corregida a secas', () => {
+  it('reconoce la corrección aunque no nombre nada', () => {
+    for (const frase of [
+      'que sean 3',
+      'son 3 no 2',
+      'mejor 2',
+      'en realidad quiero 3',
+      'agregame 1 mas',
+      'aumentame uno',
+      'puse 1 pero quiero 2',
+      'perdon son 3',
+      'mejor q sean 4',
+      'en vez de 2 que sean 3',
+    ]) {
+      expect(isQuantityFixRequest(frase), frase).toBe(true);
+    }
+  });
+
+  it('una cifra que no cuenta comida no es una corrección', () => {
+    // Son las respuestas normales en este mismo punto de la conversación.
+    for (const frase of [
+      'llego en 20 minutos',
+      'estoy a 3 cuadras',
+      'son 50 bs',
+      'somos 4 personas',
+      'en 2 horas',
+    ]) {
+      expect(isQuantityFixRequest(frase), frase).toBe(false);
+    }
+  });
+
+  it('los litros SÍ cuentan: aquí se vende una gaseosa de 2 L', () => {
+    expect(isQuantityFixRequest('mejor una de 2 litros')).toBe(true);
+  });
+
+  it('hablar del pago no es corregir el pedido', () => {
+    expect(isQuantityFixRequest('me falta pagar 20 bs')).toBe(false);
+    expect(isQuantityFixRequest('ya pague los 49')).toBe(false);
+  });
+
+  it('sin cifra no hay corrección que leer', () => {
+    expect(isQuantityFixRequest('que sean grandes')).toBe(false);
+    expect(isQuantityFixRequest('gracias')).toBe(false);
+    expect(isQuantityFixRequest(null)).toBe(false);
+    expect(isQuantityFixRequest('')).toBe(false);
+  });
+
+  it('una parrafada no es una corrección: ahí el detalle ya va dentro', () => {
+    const largo =
+      'hola buenas noches disculpe una consulta por favor seria posible que sean 3 en vez de 2';
+    expect(largo.length).toBeGreaterThan(ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH);
+    expect(isQuantityFixRequest(largo)).toBe(false);
+  });
+
+  it('la ráfaga con el número pegado al texto se separa antes de leerla', () => {
+    // "2com todo" es como se teclea con el pulgar. Sin separarlo no hay ni
+    // cantidad ni producto que reconocer.
+    expect(isOrderChangeRequest('quiero 2trancapechos', CARTA)).toBe(true);
+    expect(isKitchenNoteRequest('1sin locoto', CARTA)).toBe(false);
   });
 });

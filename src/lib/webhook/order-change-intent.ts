@@ -59,7 +59,7 @@ import { normalizeIntentText } from './menu-intent';
  * nombran un producto, el filtro del catálogo las devuelve al camino del cambio.
  */
 const MARCAS_DE_PREFERENCIA =
-  /(^|\s)(sin|con|extra|aparte|bien|poca|poco|poquito|harta|harto|mucha|mucho|nada de|aumenta|aumentame|aumenteme|agrega|agregame|agregue|agregeme|aumente|anade|anadime|ponle|pongale|ponme|pongame|coloca|colocale|coloque|colocar|echale|echele|(que|q|ke) (no )?(lleve|tenga|venga|sea|vaya))(\s|$)/;
+  /(^|\s)(sin|con|extra|aparte|bien|poca|poco|poquito|harta|harto|mucha|mucho|nada de|aumenta|aumentame|aumenteme|agrega|agregame|agregue|agregeme|aumente|anade|anadime|ponle|pongale|ponme|pongame|coloca|colocale|coloque|colocar|echale|echele|(que|q|ke) (no )?(lleve|tenga|venga|sea|vaya|pique|piquen|este|salga))(\s|$)/;
 
 /**
  * Palabras que delatan un CAMBIO de líneas aunque no estén en la carta.
@@ -127,6 +127,88 @@ export function catalogTermsFromNames(names: readonly string[]): string[] {
 }
 
 /**
+ * El texto del cliente, normalizado y con los pegotes de WhatsApp separados.
+ *
+ * Un número pegado a una palabra es como se escribe una ráfaga con el pulgar:
+ * "2com todo", "1sin locoto", "3trancapechos". Sin separarlo, ese mensaje no
+ * tiene ni cantidad ni producto que reconocer — la ráfaga entera del pedido #20
+ * pasó por delante de los tres detectores sin activar ninguno.
+ *
+ * Se separa aquí y no en `normalizeIntentText` a propósito: esa la comparten el
+ * menú, la cotización y el recojo, y cambiarla movería a la vez puertas que hoy
+ * funcionan. Este módulo es el que lee cantidades, así que es el que paga por
+ * leerlas bien.
+ */
+function normalizeOrderText(text: string): string {
+  return normalizeIntentText(text)
+    .replace(/(\d)([a-z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/g, '$1 $2');
+}
+
+/**
+ * Las palabras del mensaje, más las formas en que la gente escribe lo que se
+ * vende. Es el set contra el que se compara el catálogo.
+ *
+ * ── El producto PARTIDO (05-09-2026) ────────────────────────────────────────
+ *
+ * "Que sean 3 tranca pecho" no activó nada la noche del pedido #20: la carta
+ * dice `Trancapecho` —una palabra— y el cliente escribió dos. Como la
+ * comparación es por palabra completa, el mensaje no nombraba ningún producto y
+ * la puerta del cambio, que exige nombrarlo, lo dejó pasar de largo. Escrito
+ * junto sí funcionaba: entre atender a ese cliente y no atenderlo había un
+ * espacio.
+ *
+ * Se arregla por el lado del MENSAJE y no por el del catálogo: se añaden los
+ * pares de palabras consecutivas ya pegados —"tranca pecho" aporta
+ * `trancapecho`—. Partir en cambio los nombres de la carta obligaría a inventar
+ * por dónde se cortan ("tranca|pecho", "hambur|guesa"), que es una decisión que
+ * nadie puede tomar bien para un nombre que todavía no existe.
+ *
+ * ── El diminutivo ───────────────────────────────────────────────────────────
+ *
+ * Aquí se pide en diminutivo: "papitas", "gaseosita", "coquita". `papitas` no
+ * es `papas` para una comparación exacta, así que "aumentame papitas" se
+ * anotaba como preferencia de cocina —una porción más de papas que nadie
+ * cobraba—. Se compara también la forma sin el infijo, que es una regla del
+ * castellano y no una lista de productos.
+ */
+function wordsForCatalogMatch(norm: string): Set<string> {
+  const palabras = norm.split(/[^a-z0-9]+/).filter((p) => p !== '');
+  const set = new Set(palabras);
+
+  for (let i = 0; i < palabras.length - 1; i += 1) {
+    set.add(palabras[i] + palabras[i + 1]);
+  }
+
+  for (const palabra of palabras) {
+    const sinDiminutivo = palabra.replace(/(?:it|ecit|cit)([oa]s?)$/, '$1');
+    if (sinDiminutivo !== palabra) set.add(sinDiminutivo);
+  }
+
+  return set;
+}
+
+/**
+ * ¿El mensaje nombra algo que se venda?
+ *
+ * La MISMA pregunta para las dos puertas: en la de la preferencia nombrar un
+ * producto la descarta, y en la del cambio es requisito. Que sea una sola
+ * función es lo que impide que se separen — el día que una reconozca "tranca
+ * pecho" y la otra no, una frase caería en las dos o en ninguna.
+ */
+function namesAProduct(norm: string, catalogTerms: readonly string[]): boolean {
+  const palabras = wordsForCatalogMatch(norm);
+  for (const termino of [...catalogTerms, ...GENERICOS_DE_PRODUCTO]) {
+    // El plural del castellano, que el catálogo guarda en singular: `papas`
+    // tiene que reconocerse desde `papa`.
+    if (palabras.has(termino) || palabras.has(`${termino}s`) || palabras.has(`${termino}es`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * ¿Es una preferencia para la cocina y NADA más?
  *
  * @param text          Mensaje del cliente, tal como llegó.
@@ -143,7 +225,7 @@ export function isKitchenNoteRequest(
   // pidiendo un producto — que es el error caro. La duda no anota.
   if (catalogTerms.length === 0) return false;
 
-  const norm = normalizeIntentText(text);
+  const norm = normalizeOrderText(text);
   if (norm === '' || norm.length > KITCHEN_NOTE_MAX_LENGTH) return false;
 
   // 1. Tiene que pedir algo sobre lo ya pedido.
@@ -155,17 +237,24 @@ export function isKitchenNoteRequest(
   // 3. Ni una cantidad escrita con letra.
   if (CANTIDADES_EN_LETRA.test(norm)) return false;
 
-  // 4. Ni el nombre de nada que se venda. Se compara por PALABRA COMPLETA: si
-  //    se buscara como subcadena, "sin papas" bloquearía por `papa` dentro de
-  //    `papas` —que está bien— pero "solomillo" bloquearía por `lomito` sin
-  //    tener nada que ver.
-  const palabras = new Set(norm.split(/[^a-z0-9]+/).filter((p) => p !== ''));
-  for (const termino of [...catalogTerms, ...GENERICOS_DE_PRODUCTO]) {
-    if (palabras.has(termino)) return false;
-    // El plural del castellano, que el catálogo guarda en singular: `papas`
-    // tiene que reconocerse desde `papa`.
-    if (palabras.has(`${termino}s`) || palabras.has(`${termino}es`)) return false;
-  }
+  // 4. Y quien reconoce un OLVIDO no está pidiendo una preferencia, por mucho
+  //    que la frase traiga un verbo de los de poner (05-09-2026).
+  //
+  //    "Me olvide, agregame esto" activaba las dos puertas —`agregame` es marca
+  //    de preferencia y `me olvide` es anuncio de cambio— y esta se evalúa
+  //    ANTES, así que ganaba: la frase se escribía tal cual en la comanda y al
+  //    cliente se le contestaba "listo, ya lo anotamos". El total no cambiaba y
+  //    él se quedaba creyendo que su cambio estaba hecho. Es peor que no
+  //    entenderlo: es afirmar algo falso.
+  //
+  //    El olvido gana siempre, y con eso la frase sigue hasta la puerta del
+  //    cambio, que le devuelve su pedido para que lo rearme él.
+  if (ANUNCIO_DE_ERROR.test(norm)) return false;
+
+  // 5. Ni el nombre de nada que se venda. Ver `namesAProduct`: se compara por
+  //    PALABRA COMPLETA, porque como subcadena "solomillo" bloquearía por
+  //    `lomito` sin tener nada que ver.
+  if (namesAProduct(norm, catalogTerms)) return false;
 
   return true;
 }
@@ -218,14 +307,10 @@ export function isOrderChangeRequest(
   if (typeof text !== 'string') return false;
   if (catalogTerms.length === 0) return false;
 
-  const norm = normalizeIntentText(text);
+  const norm = normalizeOrderText(text);
   if (norm === '') return false;
 
-  const palabras = new Set(norm.split(/[^a-z0-9]+/).filter((p) => p !== ''));
-  const nombraProducto = [...catalogTerms, ...GENERICOS_DE_PRODUCTO].some(
-    (t) => palabras.has(t) || palabras.has(`${t}s`) || palabras.has(`${t}es`),
-  );
-  if (!nombraProducto) return false;
+  if (!namesAProduct(norm, catalogTerms)) return false;
 
   return MARCAS_DE_CAMBIO.test(norm) || CANTIDAD_CON_COSA.test(norm);
 }
@@ -304,7 +389,7 @@ const ANUNCIO_DE_CAMBIO =
  * agregar": ninguna de esas tres palabras nombra lo que el cliente quiere.
  */
 const COLA_SIN_CONTENIDO =
-  /(?:\s+(?:algo|alguna cosa|una cosa|otra cosa|otras cosas|cosas|mas|un poco|la cantidad|cantidad|mi pedido|el pedido|mi orden|la orden|pedido|mi compra|de nuevo|denuevo|otra vez|nuevamente|todo|porfa|porfis|porfavor|por favor|please|ahora|ahorita))+$/;
+  /(?:\s+(?:algo|alguna cosa|una cosa|una cosita|otra cosa|otra cosita|cosita|otras cosas|cosas|un detalle|mas|un poco|la cantidad|cantidad|mi pedido|el pedido|mi orden|la orden|pedido|mi compra|de nuevo|denuevo|otra vez|nuevamente|todo|porfa|porfis|porfavor|por favor|please|ahora|ahorita))+$/;
 
 /**
  * Reconocer un olvido ya es pedir el cambio, aunque no haya verbo detrás.
@@ -313,7 +398,7 @@ const COLA_SIN_CONTENIDO =
  * equivoqué". No hace falta que diga qué falta para devolverle su pedido.
  */
 const ANUNCIO_DE_ERROR =
-  /(^|\s)(me equivoque|me equivoco|equivoque|equivocado|me falto|me falta|me olvide|se me olvido|olvide|no puse|puse mal|esta mal mi pedido|mi pedido esta mal)(\s|$)/;
+  /(^|\s)(me equivoque|me equivoco|equivoque|equivocado|me falto|me falta|me olvide|m olvide|se me olvido|se me paso|se me pasa|olvide|no puse|puse mal|anadi mal|agregue mal|pedi mal|esta mal mi pedido|mi pedido esta mal|esta mal la orden|esta mal el pedido)(\s|$)/;
 
 /**
  * Lo que también se "cambia" y no es el contenido del pedido.
@@ -335,7 +420,7 @@ const FUERA_DEL_PEDIDO =
 export function isOrderChangeAnnouncement(text: string | null | undefined): boolean {
   if (typeof text !== 'string') return false;
 
-  const norm = normalizeIntentText(text);
+  const norm = normalizeOrderText(text);
   if (norm === '' || norm.length > ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH) return false;
 
   // Habla de algo que se cambia y no es lo que lleva dentro el pedido.
@@ -344,4 +429,66 @@ export function isOrderChangeAnnouncement(text: string | null | undefined): bool
   if (ANUNCIO_DE_ERROR.test(norm)) return true;
 
   return ANUNCIO_DE_CAMBIO.test(norm.replace(COLA_SIN_CONTENIDO, ''));
+}
+
+// ── "Que sean 3": corregir la cantidad sin volver a nombrar nada ────────────
+
+/**
+ * Corregir CUÁNTO, dando por hecho el QUÉ (05-09-2026).
+ *
+ * Es la forma más natural de rectificar delante del total —el producto acaba de
+ * decirse, así que nadie lo repite— y no la reconocía ninguna de las tres
+ * puertas: `isOrderChangeRequest` exige nombrar algo que se venda,
+ * `isOrderChangeAnnouncement` exige que el verbo cierre la frase, y la de la
+ * preferencia rechaza cualquier cifra. Estas frases se quedaban sin nadie:
+ *
+ *   "que sean 3" · "son 3 no 2" · "mejor 2" · "en realidad quiero 3"
+ *
+ * Solo tiene sentido para quien YA tiene un pedido armado y sin pagar, que es
+ * la guarda que pone `default-reply.ts`. Fuera de ese estado "mejor 2" no se
+ * refiere a nada.
+ *
+ * ── Por qué NO exige producto, y qué lo sujeta en su lugar ──────────────────
+ *
+ * Exigirlo sería pedirle al cliente que repita lo que acaba de decir. Lo que
+ * sujeta el patrón es el otro lado: un verbo de ajuste pegado a la cifra —"que
+ * sean", "mejor", "en vez de"— y una lista de unidades que descarta las cifras
+ * que no cuentan comida ("en 20 minutos", "a 3 cuadras", "son 50 bs").
+ *
+ * Los litros y los kilos NO están en esa lista a propósito: aquí se vende
+ * "Gaseosa 2 L", y "mejor una de 2 litros" es un cambio de pedido de verdad.
+ *
+ * Se queda del lado barato del error. Un falso positivo le manda a alguien el
+ * botón de cambiar su pedido cuando hablaba de otra cosa: lo ignora y sigue. Un
+ * falso negativo es la noche del pedido #20 — la comanda con 2 y el pago de 3.
+ */
+const CORRECCION_DE_CANTIDAD =
+  /(^|\s)((que|q|ke) (sean|serian|sea)|serian|mejor|son|eran|era|en vez de|en lugar de|cambialo a|cambiala a|puse|pedi|quiero|queria|aumentame|agregame|ponme|pongame|hazme|haceme|mandame|dejalo en|deja en|sube a|subelo a|bajalo a)\s+(\d{1,2}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)(\s|$)/;
+
+/**
+ * Cifras que no cuentan comida. Si aparece una, la frase habla de otra cosa.
+ *
+ * Son las unidades con las que se contesta en este mismo punto de la
+ * conversación: cuánto falta, a qué distancia vive, cuánto costó.
+ */
+const UNIDAD_QUE_NO_ES_PEDIDO =
+  /(^|\s)(\d{1,2}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(minutos?|min|horas?|hrs?|cuadras?|metros?|kilometros?|km|pesos?|bs|bolivianos?|personas?|dias?|semanas?|meses|veces)(\s|$)/;
+
+/**
+ * ¿Corrige la cantidad de lo que ya pidió?
+ *
+ * No mira el catálogo: por definición estas frases no nombran producto. Ver el
+ * comentario de `CORRECCION_DE_CANTIDAD` para saber qué las sujeta en su sitio.
+ */
+export function isQuantityFixRequest(text: string | null | undefined): boolean {
+  if (typeof text !== 'string') return false;
+
+  const norm = normalizeOrderText(text);
+  if (norm === '' || norm.length > ORDER_CHANGE_ANNOUNCEMENT_MAX_LENGTH) return false;
+
+  // "Me falta pagar 20 bs" no pide cambiar el pedido: habla del pago.
+  if (FUERA_DEL_PEDIDO.test(norm)) return false;
+  if (UNIDAD_QUE_NO_ES_PEDIDO.test(norm)) return false;
+
+  return CORRECCION_DE_CANTIDAD.test(norm);
 }

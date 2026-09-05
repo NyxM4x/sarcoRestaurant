@@ -291,3 +291,63 @@ describe('decideDefaultReply — cuando la foto YA llegó (04-09-2026)', () => {
   });
 });
 
+/**
+ * EL PEDIDO #20: "QUE SEAN 3" (05-09-2026).
+ *
+ * El cliente armó 2 en el menú, pagó el importe de 3 y lo avisó por chat. Su
+ * mensaje pasó por esta función y salió por la puerta del comprobante, que era
+ * la única que quedaba: la cocina recibió una comanda de 2 con un pago de 3.
+ */
+describe('decideDefaultReply — corregir la cantidad', () => {
+  const conPedido = (over: Partial<OpenOrderSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['trancapecho', 'hamburguesa', 'gaseosa'],
+    openOrder: pedido({ orderNumber: 'ORD-260904-020', ...over }),
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot) =>
+    decideDefaultReply({
+      text: texto,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state,
+    });
+
+  it('"que sean 3" devuelve el pedido para rearmarlo', () => {
+    // No nombra el producto —acaba de decirlo— y ninguna de las tres puertas
+    // anteriores lo veía. Terminaba en el recordatorio del comprobante.
+    for (const frase of ['que sean 3', 'son 3 no 2', 'mejor 2', 'en realidad quiero 3']) {
+      expect(decidir(frase, conPedido()).action, frase).toBe('order_change');
+    }
+  });
+
+  it('el producto partido en dos también', () => {
+    expect(decidir('Que sean 3 tranca pecho', conPedido()).action).toBe('order_change');
+  });
+
+  it('un olvido no acaba anotado en la comanda', () => {
+    // Antes ganaba la puerta de la preferencia —va primero— y la frase se
+    // imprimía en la comanda con el total sin tocar.
+    expect(decidir('me olvide agregame esto', conPedido()).action).toBe('order_change');
+  });
+
+  it('la preferencia se sigue anotando igual que ayer', () => {
+    expect(decidir('sin cebolla', conPedido()).action).toBe('kitchen_note');
+    expect(decidir('con harta mayonesa', conPedido()).action).toBe('kitchen_note');
+  });
+
+  it('con el comprobante ya mandado NO se rehace nada', () => {
+    // Hay dinero contra un total concreto: esa guarda va antes y sigue mandando.
+    const state = conPedido({ proofReceived: true });
+    expect(decidir('que sean 3', state).action).toBe('proof_reminder');
+  });
+
+  it('contestar una hora o una distancia no reabre el pedido', () => {
+    for (const frase of ['llego en 20 minutos', 'estoy a 3 cuadras', 'son 50 bs']) {
+      expect(decidir(frase, conPedido()).action, frase).not.toBe('order_change');
+    }
+  });
+});
+
