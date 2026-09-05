@@ -46,10 +46,14 @@ import { trySendNow } from './outbox-runner';
  * 03-09-2026: son lo que `deliveryCollectOf` necesita para decidir qué se cobra
  * en la puerta. `total_amount` sigue pidiéndose porque esa misma función lo usa
  * para calcular el envío restando — lo que ya NO hace es salir en el mensaje.
+ *
+ * `notes` entró el 04-09-2026: es la nota del cliente, y hasta ahora solo la
+ * veía cocina. Quien reparte es el que tiene la bolsa delante y el que recibe
+ * el reclamo en la puerta, así que también tiene que poder leerla.
  */
 const NOTICE_SELECT =
   'id, order_number, customer_name, customer_phone, delivery_type, status, ' +
-  'delivery_quote_status, delivery_amount, subtotal_amount, total_amount, ' +
+  'notes, delivery_quote_status, delivery_amount, subtotal_amount, total_amount, ' +
   'payment_method, delivery_fee_paid, delivery_latitude, ' +
   'delivery_longitude, delivery_distance_meters, ' +
   'order_items ( product_name_snapshot, quantity )';
@@ -223,6 +227,11 @@ export async function notifyDeliveryGroup(
           : collect.kind === 'todo'
             ? { kind: 'todo', amount: collect.amount }
             : { kind: collect.kind },
+      // La nota va TAL CUAL sale de la base: es la misma que imprime la comanda.
+      // Si el cliente añade una por chat después de que este aviso ya salió, el
+      // grupo no la verá —el outbox no reescribe lo enviado—, y esa es
+      // exactamente la razón por la que también se le contesta a él.
+      customerNote: typeof order.notes === 'string' ? order.notes : null,
       latitude,
       longitude,
       distanceMeters: num(order.delivery_distance_meters),

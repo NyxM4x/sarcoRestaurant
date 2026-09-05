@@ -26,6 +26,7 @@ const BASE: DeliveryNoticeInput = {
   subtotalAmount: 78,
   isCash: false,
   collect: { kind: 'envio' },
+  customerNote: null,
   latitude: -17.842950820923,
   longitude: -63.179233551025,
   distanceMeters: 5762,
@@ -267,5 +268,66 @@ describe('escape de HTML — el aviso viaja con parse_mode', () => {
 
   it('el & del enlace de Maps se escapa: sin eso se come media URL', () => {
     expect(buildDeliveryNotice(BASE)).toContain('&amp;query=');
+  });
+});
+
+/**
+ * LA NOTA DEL CLIENTE (04-09-2026).
+ *
+ * "Sin cebolla" se anotaba en la comanda y ahí se quedaba. Quien reparte es el
+ * que tiene la bolsa delante y el que se come el reclamo en la puerta: si la
+ * nota no le llega, no puede avisar a cocina antes de salir.
+ */
+describe('la nota del cliente', () => {
+  it('se escribe con rótulo, en su propio bloque', () => {
+    const text = buildDeliveryNotice({ ...BASE, customerNote: 'sin cebolla' });
+    expect(text).toContain('NOTA DEL CLIENTE:');
+    expect(text).toContain('sin cebolla');
+  });
+
+  it('va después del cobro y antes de la ubicación', () => {
+    // Es lo último que se lee del pedido antes de arrancar la moto.
+    const lineas = buildDeliveryNotice({ ...BASE, customerNote: 'sin cebolla' }).split('\n');
+    const iCobro = lineas.findIndex((l) => l === 'COBRAR ENVÍO');
+    const iRotulo = lineas.findIndex((l) => l === 'NOTA DEL CLIENTE:');
+    const iMapa = lineas.findIndex((l) => l.startsWith('Ubicación:'));
+    expect(iRotulo).toBeGreaterThan(iCobro);
+    expect(iMapa).toBeGreaterThan(iRotulo);
+  });
+
+  it('también sale en el aviso de EFECTIVO', () => {
+    // El método de pago no cambia lo que el cliente encargó.
+    const text = buildDeliveryNotice({ ...BASE, isCash: true, customerNote: 'bien cocida' });
+    expect(text).toContain('<b>QUIERE EFECTIVO</b>');
+    expect(text).toContain('NOTA DEL CLIENTE:');
+    expect(text).toContain('bien cocida');
+  });
+
+  it('cada nota apilada por chat conserva su renglón', () => {
+    // `appendKitchenNote` apila una por línea; juntarlas las volvería una sola
+    // instrucción a los ojos de quien lee esto en la calle.
+    const lineas = buildDeliveryNotice({
+      ...BASE,
+      customerNote: 'sin cebolla\ntocar el timbre',
+    }).split('\n');
+    const iRotulo = lineas.indexOf('NOTA DEL CLIENTE:');
+    expect(lineas[iRotulo + 1]).toBe('sin cebolla');
+    expect(lineas[iRotulo + 2]).toBe('tocar el timbre');
+  });
+
+  it('sin nota, el aviso no cambia en nada', () => {
+    // Ni rótulo huérfano ni renglón en blanco de más.
+    for (const vacia of [null, '', '   ', '\n\n']) {
+      const text = buildDeliveryNotice({ ...BASE, customerNote: vacia });
+      expect(text).not.toContain('NOTA DEL CLIENTE');
+      expect(text).toBe(buildDeliveryNotice({ ...BASE, customerNote: null }));
+    }
+  });
+
+  it('una nota con < > & no rompe el mensaje', () => {
+    // Texto libre del cliente: es lo más probable que traiga un carácter así.
+    const text = buildDeliveryNotice({ ...BASE, customerNote: 'salsa <picante> & papas' });
+    expect(text).toContain('salsa &lt;picante&gt; &amp; papas');
+    expect(text).not.toContain('<picante>');
   });
 });

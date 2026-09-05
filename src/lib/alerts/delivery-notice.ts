@@ -77,6 +77,17 @@ export interface DeliveryNoticeInput {
    * 03-09-2026: ver `buildDeliveryNotice`.
    */
   collect: DeliveryNoticeCollect | null;
+  /**
+   * Lo que el cliente pidió por escrito: `orders.notes` tal cual (04-09-2026).
+   *
+   * Es el MISMO texto que imprime la comanda —el del checkout y el que anota
+   * `appendKitchenNote` cuando alguien manda "sin cebolla" por chat—, no un
+   * resumen ni una versión para reparto: dos redacciones del mismo encargo se
+   * contradicen el día que una se queda vieja.
+   *
+   * `null` o vacío = no se escribe ninguna línea. Ver `customerNoteBlock`.
+   */
+  customerNote: string | null;
   latitude: number;
   longitude: number;
   /** Distancia de ruta en metros, si se conoce. */
@@ -227,9 +238,50 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
     }
   }
 
+  // Lo que el cliente encargó por escrito, en su propio bloque y con rótulo.
+  // Va DESPUÉS del pago y antes de la ubicación a propósito: quien lee esto en
+  // la moto tiene que quedarse con la nota justo antes de arrancar, y así es lo
+  // último que ve del pedido en sí.
+  const nota = customerNoteBlock(input.customerNote);
+  if (nota !== null) {
+    lines.push(...nota);
+    lines.push('');
+  }
+
   lines.push(`Ubicación: ${escapeTelegramHtml(mapsLink(input.latitude, input.longitude))}`);
 
   return lines.join('\n');
+}
+
+/**
+ * El bloque de la nota del cliente, o `null` si no hay nada que escribir.
+ *
+ * ── Por qué línea a línea ──────────────────────────────────────────────────
+ *
+ * Porque `orders.notes` no es siempre una frase: `appendKitchenNote` va
+ * APILANDO lo que el cliente manda por chat, una nota por renglón. Pegarlas
+ * todas seguidas juntaría "sin cebolla" con "tocar el timbre" en una sola
+ * línea, y en la moto eso se lee como una sola instrucción.
+ *
+ * Las líneas en blanco se caen: un `\n` de más del textarea del checkout no
+ * tiene por qué abrir un hueco dentro del aviso.
+ *
+ * ── Por qué mayúsculas y no negrita ────────────────────────────────────────
+ *
+ * En este mensaje la negrita ya significa una cosa —"este pedido NO está
+ * pagado"— y solo la usa `QUIERE EFECTIVO`. Un segundo bloque en negrita le
+ * quitaría a ese aviso justamente lo que lo hace visible. El rótulo en
+ * mayúsculas es el mismo recurso que usan `COBRAR ENVÍO` y `ENVÍO PAGADO`:
+ * esto hay que hacerlo, no solo leerlo.
+ */
+function customerNoteBlock(note: string | null): string[] | null {
+  const lineas = (note ?? '')
+    .split('\n')
+    .map((linea) => linea.trim())
+    .filter((linea) => linea !== '');
+
+  if (lineas.length === 0) return null;
+  return ['NOTA DEL CLIENTE:', ...lineas.map((linea) => escapeTelegramHtml(linea))];
 }
 
 /**
