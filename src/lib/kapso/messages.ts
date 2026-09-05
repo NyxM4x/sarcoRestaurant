@@ -328,6 +328,94 @@ export function orderChangeCtaText(
   );
 }
 
+/** Una línea del pedido, tal como se le enseña al cliente. */
+export interface OrderReviewLine {
+  name: string;
+  quantity: number;
+  subtotal: number;
+}
+
+/**
+ * "Tu pedido quedó así: ¿te falta algo?" (05-09-2026).
+ *
+ * ── Por qué se le ENSEÑA el pedido antes de ofrecerle cambiarlo ─────────────
+ *
+ * Porque el desglose es el dato que no tenía. El cliente conoce su total —se lo
+ * dijimos— pero no lo que lo compone, y desde el chat no hay forma de mirarlo:
+ * el menú ya se cerró. Pedirle que decida si le falta algo sin enseñarle lo que
+ * lleva es pedirle que lo recuerde.
+ *
+ * ── Y por qué se le pregunta en vez de mandarle el botón directo ────────────
+ *
+ * Es una decisión del negocio, tomada con su coste sobre la mesa: cuesta un
+ * turno más. A cambio, el cliente ve su pedido y elige, en vez de recibir un
+ * botón que no pidió.
+ *
+ * ── La forma de la pregunta no es libre ─────────────────────────────────────
+ *
+ * "¿Querés agregar algo más?" y no "¿está bien tu pedido?": es lo que hace que
+ * un "no" suelto signifique una sola cosa. Ver `order-review-reply.ts`, que la
+ * lee. Cambiar esta frase sin cambiar aquel módulo rompe las respuestas.
+ *
+ * Los números son la parte fea y la que no se puede quitar: el sistema no lee
+ * las respuestas de botón de WhatsApp, así que la única respuesta que no hay que
+ * adivinar es un dígito. Los sinónimos los cubre el detector, porque casi nadie
+ * va a contestar con el número.
+ */
+export function orderReviewText(input: {
+  orderNumber: string;
+  lines: readonly OrderReviewLine[];
+  deliveryAmount: number;
+  totalAmount: number;
+  isCash: boolean;
+}): string {
+  const lineas = input.lines.map(
+    (l) => `• ${l.quantity}x ${l.name} — ${formatBs(l.subtotal)}`,
+  );
+
+  // El envío solo si está cotizado: en `awaiting_location` todavía no existe, y
+  // escribir "Envío: Bs. 0" diría que es gratis.
+  const envio = input.deliveryAmount > 0 ? [`Envío: ${formatBs(input.deliveryAmount)}`] : [];
+
+  // Cómo paga, en la misma línea del total: es lo que cierra la cuenta. Sin
+  // total cotizado no se afirma ninguno.
+  const comoPaga = input.isCash ? ' (pagás en efectivo al recibir)' : '';
+  const total =
+    input.totalAmount > 0 ? [`Total: ${formatBs(input.totalAmount)}${comoPaga}`] : [];
+
+  return [
+    `Tu pedido ${shortOrderNumber(input.orderNumber)} quedó así 👇`,
+    '',
+    ...lineas,
+    ...envio,
+    ...total,
+    '',
+    '¿Querés agregar algo más?',
+    '  Respondé *1* para agregar algo',
+    '  Respondé *2* si está bien así',
+  ].join('\n');
+}
+
+/**
+ * "Listo, queda así." La respuesta a quien contestó que no le falta nada.
+ *
+ * Cierra el turno y no propone nada más: quien acaba de decir que su pedido
+ * está bien no necesita otra pregunta. Lo único que se le recuerda es lo que
+ * todavía tiene que hacer —mandar el comprobante—, y solo cuando es cierto: en
+ * efectivo no hay nada que mandar, se paga en la puerta.
+ */
+export function orderReviewKeptText(
+  orderNumber: string,
+  totalAmount: number,
+  isCash = false,
+): string {
+  const cierre = isCash
+    ? `Pagás ${formatBs(totalAmount)} en efectivo al recibirlo.`
+    : 'Cuando puedas, mandanos la foto del comprobante por acá y lo pasamos a la cocina.';
+
+  return `Listo, tu pedido ${shortOrderNumber(orderNumber)} queda así 🙌 ${cierre}`;
+}
+
 /**
  * Imagen de portada del CTA del menú (Fase 6D.2E). Asset local versionado y
  * público (mismo patrón que `PAYMENT_QR_URL`). DEBE ser JPEG/PNG: WhatsApp Cloud

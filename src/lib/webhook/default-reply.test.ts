@@ -315,22 +315,46 @@ describe('decideDefaultReply — corregir la cantidad', () => {
       state,
     });
 
-  it('"que sean 3" devuelve el pedido para rearmarlo', () => {
+  it('"que sean 3" abre la pregunta con su pedido delante', () => {
     // No nombra el producto —acaba de decirlo— y ninguna de las tres puertas
-    // anteriores lo veía. Terminaba en el recordatorio del comprobante.
+    // anteriores lo veía: terminaba en el recordatorio del comprobante. Ahora
+    // recibe su desglose y la pregunta; el botón llega si contesta que sí.
     for (const frase of ['que sean 3', 'son 3 no 2', 'mejor 2', 'en realidad quiero 3']) {
-      expect(decidir(frase, conPedido()).action, frase).toBe('order_change');
+      expect(decidir(frase, conPedido()).action, frase).toBe('order_review');
+    }
+  });
+
+  it('y contestando que le falta algo, llega el botón', () => {
+    const yaPreguntado = { ...conPedido(), awaitingReviewReply: true };
+    for (const frase of ['1', 'si', 'quiero agregar', 'que sean 3']) {
+      expect(decidir(frase, yaPreguntado).action, frase).toBe('order_change');
+    }
+  });
+
+  it('y contestando que está bien, se le confirma y no se toca nada', () => {
+    const yaPreguntado = { ...conPedido(), awaitingReviewReply: true };
+    for (const frase of ['2', 'no', 'asi esta bien', 'listo']) {
+      expect(decidir(frase, yaPreguntado).action, frase).toBe('order_review_kept');
+    }
+  });
+
+  it('una respuesta que no contesta a la pregunta NO se repregunta', () => {
+    // Insistir con la misma pregunta es lo que acaba llevando a una persona al
+    // chat: aquel cliente escribió "??" tras el tercer mensaje idéntico.
+    const yaPreguntado = { ...conPedido(), awaitingReviewReply: true };
+    for (const frase of ['??', 'cuanto tarda', 'ya pague']) {
+      expect(decidir(frase, yaPreguntado).action, frase).not.toBe('order_review');
     }
   });
 
   it('el producto partido en dos también', () => {
-    expect(decidir('Que sean 3 tranca pecho', conPedido()).action).toBe('order_change');
+    expect(decidir('Que sean 3 tranca pecho', conPedido()).action).toBe('order_review');
   });
 
   it('un olvido no acaba anotado en la comanda', () => {
     // Antes ganaba la puerta de la preferencia —va primero— y la frase se
     // imprimía en la comanda con el total sin tocar.
-    expect(decidir('me olvide agregame esto', conPedido()).action).toBe('order_change');
+    expect(decidir('me olvide agregame esto', conPedido()).action).toBe('order_review');
   });
 
   it('la preferencia se sigue anotando igual que ayer', () => {
@@ -387,13 +411,18 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
       state,
     });
 
-  it('le devuelve su pedido para rearmarlo, en vez de callarse', () => {
-    expect(decidir('un vaso de limonada también', enEfectivo()).action).toBe('order_change');
+  it('le contesta con su pedido delante, en vez de callarse', () => {
+    expect(decidir('un vaso de limonada también', enEfectivo()).action).toBe('order_review');
+  });
+
+  it('y el botón llega cuando contesta que sí', () => {
+    const yaPreguntado = { ...enEfectivo(), awaitingReviewReply: true };
+    expect(decidir('1', yaPreguntado).action).toBe('order_change');
   });
 
   it('vale para las tres formas de pedirlo', () => {
     for (const frase of ['quiero modificar', 'me olvidé algo', 'que sean 3']) {
-      expect(decidir(frase, enEfectivo()).action, frase).toBe('order_change');
+      expect(decidir(frase, enEfectivo()).action, frase).toBe('order_review');
     }
   });
 
@@ -401,7 +430,7 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
     // `awaiting_location` es el momento MÁS seguro para rehacerlo: no hay total
     // final, ni QR, ni nada en la plancha.
     const state = enEfectivo({ status: 'awaiting_location' });
-    expect(decidir('quiero modificar', state).action).toBe('order_change');
+    expect(decidir('quiero modificar', state).action).toBe('order_review');
   });
 
   it('el QR sigue comportándose exactamente igual que antes', () => {
@@ -409,13 +438,15 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
       ...enEfectivo(),
       openOrder: pedido({ payment: 'no_proof', paymentMethod: 'qr' }),
     });
-    expect(decidir('quiero modificar', porQr()).action).toBe('order_change');
+    expect(decidir('quiero modificar', porQr()).action).toBe('order_review');
   });
 
   it('con el pago ya aceptado no se rehace nada, sea como sea que pague', () => {
     for (const metodo of ['cash', 'qr'] as const) {
       const state = enEfectivo({ payment: 'accepted', paymentMethod: metodo, status: 'preparing' });
-      expect(decidir('quiero modificar', state).action, metodo).not.toBe('order_change');
+      const accion = decidir('quiero modificar', state).action;
+      expect(accion, metodo).not.toBe('order_change');
+      expect(accion, metodo).not.toBe('order_review');
     }
   });
 
@@ -429,7 +460,9 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
   it('con la comida ya hecha no se rehace: solo estados rearmables', () => {
     for (const estado of ['preparing', 'ready', 'on_the_way'] as const) {
       const state = enEfectivo({ status: estado });
-      expect(decidir('quiero modificar', state).action, estado).not.toBe('order_change');
+      const accion = decidir('quiero modificar', state).action;
+      expect(accion, estado).not.toBe('order_change');
+      expect(accion, estado).not.toBe('order_review');
     }
   });
 });
@@ -466,7 +499,7 @@ describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
       ['Un vaso de lims', 'Grande', 'También', 'Xfa'],
       conPedido(),
     );
-    expect(decision.action).toBe('order_change');
+    expect(decision.action).toBe('order_review');
   });
 
   it('sin los otros textos del lote, el ancla sola sigue sin decir nada', () => {
@@ -478,7 +511,7 @@ describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
       explicitIntent: false,
       state: conPedido(),
     });
-    expect(decision.action).not.toBe('order_change');
+    expect(decision.action).not.toBe('order_review');
   });
 
   it('un cambio en el lote gana a una preferencia de cocina', () => {
@@ -486,7 +519,7 @@ describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
     // con una preferencia dentro. Anotarlo y callar lo segundo deja el total
     // viejo con comida nueva, que es la mitad cara del error.
     const decision = decidirLote(['sin cebolla', 'y un vaso de limonada'], conPedido());
-    expect(decision.action).toBe('order_change');
+    expect(decision.action).toBe('order_review');
   });
 
   it('una preferencia sola se sigue anotando, venga en el lote donde venga', () => {
@@ -497,12 +530,13 @@ describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
   it('el lote no multiplica las respuestas: sale UNA', () => {
     // Dos frases de cambio en la misma ráfaga siguen siendo un solo botón.
     const decision = decidirLote(['me olvidé algo', 'que sean 3'], conPedido());
-    expect(decision.action).toBe('order_change');
+    expect(decision.action).toBe('order_review');
   });
 
   it('un lote sin nada reconocible sigue su camino de hoy', () => {
     const decision = decidirLote(['hola', 'gracias', 'ok'], conPedido());
     expect(decision.action).not.toBe('order_change');
+    expect(decision.action).not.toBe('order_review');
     expect(decision.action).not.toBe('kitchen_note');
   });
 

@@ -1,3 +1,4 @@
+import { orderReviewKeptText, orderReviewText } from './messages';
 import { describe, it, expect } from 'vitest';
 import {
   buildImagePayload,
@@ -220,5 +221,104 @@ describe('el cuerpo del botón según POR QUÉ se manda el menú', () => {
     expect(payload.interactive.body.text).toBe('texto elegido');
     // Y sin él, el de siempre: un llamador antiguo se comporta igual que antes.
     expect(buildMenuCtaPayload('59170000001').interactive.body.text).toBe(MENU_CTA_BODY_TEXT);
+  });
+});
+
+/**
+ * "TU PEDIDO QUEDÓ ASÍ" (05-09-2026).
+ *
+ * El desglose es el dato que el cliente no tenía: sabía su total, no qué lo
+ * compone, y desde el chat no hay forma de mirarlo porque el menú ya se cerró.
+ */
+describe('la pregunta con el pedido delante', () => {
+  const LINEAS = [
+    { name: 'Trancapecho', quantity: 1, subtotal: 18 },
+    { name: 'Gaseosa 2 L', quantity: 2, subtotal: 20 },
+  ];
+
+  it('enseña cada línea con su cantidad y su importe', () => {
+    const text = orderReviewText({
+      orderNumber: 'ORD-260904-026',
+      lines: LINEAS,
+      deliveryAmount: 10,
+      totalAmount: 48,
+      isCash: true,
+    });
+    expect(text).toContain('1x Trancapecho');
+    expect(text).toContain('2x Gaseosa 2 L');
+    expect(text).toContain('Bs. 18');
+  });
+
+  it('lleva el envío y el total, y cómo se paga', () => {
+    const text = orderReviewText({
+      orderNumber: 'ORD-260904-026',
+      lines: LINEAS,
+      deliveryAmount: 10,
+      totalAmount: 48,
+      isCash: true,
+    });
+    expect(text).toContain('Envío: Bs. 10');
+    expect(text).toContain('Total: Bs. 48');
+    expect(text).toContain('efectivo al recibir');
+  });
+
+  it('sin envío cotizado no escribe "Envío: Bs. 0"', () => {
+    // En `awaiting_location` todavía no existe, y un cero se lee como gratis.
+    const text = orderReviewText({
+      orderNumber: 'ORD-260904-026',
+      lines: LINEAS,
+      deliveryAmount: 0,
+      totalAmount: 38,
+      isCash: false,
+    });
+    expect(text).not.toContain('Envío');
+  });
+
+  it('pregunta en el sentido que hace legible un "no"', () => {
+    // "¿Querés agregar algo más?" y no "¿está bien tu pedido?": es lo que hace
+    // que un "no" suelto signifique una sola cosa. Ver `order-review-reply`.
+    const text = orderReviewText({
+      orderNumber: 'ORD-260904-026',
+      lines: LINEAS,
+      deliveryAmount: 10,
+      totalAmount: 48,
+      isCash: true,
+    });
+    expect(text).toContain('¿Querés agregar algo más?');
+    expect(text).toContain('1');
+    expect(text).toContain('2');
+  });
+
+  it('el cliente ve su número corto, no el interno', () => {
+    const text = orderReviewText({
+      orderNumber: 'ORD-260904-026',
+      lines: LINEAS,
+      deliveryAmount: 10,
+      totalAmount: 48,
+      isCash: true,
+    });
+    expect(text).toContain('#26');
+    expect(text).not.toContain('260904');
+  });
+});
+
+describe('el cierre: "queda así"', () => {
+  it('en efectivo le recuerda lo que va a pagar en la puerta', () => {
+    const text = orderReviewKeptText('ORD-260904-026', 48, true);
+    expect(text).toContain('#26');
+    expect(text).toContain('Bs. 48');
+    expect(text).toContain('efectivo');
+  });
+
+  it('por QR le recuerda el comprobante, que es lo que falta', () => {
+    const text = orderReviewKeptText('ORD-260904-026', 48, false);
+    expect(text).toContain('comprobante');
+    expect(text).not.toContain('efectivo');
+  });
+
+  it('no vuelve a preguntar nada: el cliente ya contestó', () => {
+    const text = orderReviewKeptText('ORD-260904-026', 48, true);
+    expect(text).not.toContain('¿Querés agregar');
+    expect(text).not.toContain('Respondé');
   });
 });

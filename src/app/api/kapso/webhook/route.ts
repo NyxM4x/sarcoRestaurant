@@ -23,6 +23,7 @@ import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
+import { sendOrderReview, sendOrderReviewKept } from '@/lib/kapso/send-order-review';
 import { switchOrderToPickup } from '@/lib/orders/pickup-switch-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
@@ -104,6 +105,10 @@ export async function POST(request: Request): Promise<Response> {
       // que es el comportamiento anterior. Ver `webhook/default-reply.ts`.
       lookupCustomerState: (phone) => lookupCustomerState(phone),
       sendProofReminder: (input) => sendProofReminder(input),
+      // 05-09-2026: antes del botón de modificar se le enseña lo que armó y se
+      // le pregunta si le falta algo. Ver `kapso/send-order-review.ts`.
+      sendOrderReview: ({ kept, ...input }) =>
+        kept ? sendOrderReviewKept(input) : sendOrderReview(input),
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),

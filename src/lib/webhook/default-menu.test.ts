@@ -404,6 +404,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
   it('pedir MÁS de algo no se anota: se le devuelve su pedido para rearmarlo', async () => {
     const cta = spyCta();
     const notas: string[] = [];
+    const preguntas: string[] = [];
     let recordado = 0;
 
     const { processed } = await deliver(
@@ -411,6 +412,10 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
       {
         sendMenuCta: cta.sendMenuCta,
         lookupCustomerState: estado(conPedidoPorPagar()),
+        sendOrderReview: async (input) => {
+          preguntas.push(input.orderNumber);
+          return { ok: true };
+        },
         sendProofReminder: async () => {
           recordado += 1;
           return { ok: true };
@@ -424,14 +429,11 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
 
     expect(notas).toHaveLength(0);
     expect(recordado).toBe(0);
-    // El enlace lleva dentro a qué pedido sustituye: es lo que impide que salga
-    // un segundo pedido en vez de una corrección del primero.
-    expect(cta.enviados[0]).toMatchObject({
-      replacesOrderId: 'order-uuid',
-      buttonText: 'MODIFICAR MI PEDIDO',
-    });
-    expect(cta.enviados[0].bodyText).toContain('#7');
-    expect(processed?.body).toMatchObject({ handled: 'order_change', result: 'sent' });
+    // 05-09-2026: antes del botón va la pregunta con su pedido desglosado. El
+    // enlace llega después, si contesta que le falta algo.
+    expect(cta.enviados).toHaveLength(0);
+    expect(preguntas).toHaveLength(1);
+    expect(processed?.body).toMatchObject({ handled: 'order_review', result: 'sent' });
   });
 
   it('"paso yo a recogerlo" convierte el pedido, no le recuerda el pago', async () => {
@@ -560,6 +562,9 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
         sendMenuCta: cta.sendMenuCta,
         lookupCustomerState: estado(
           conPedidoPorPagar({
+            // Ya se le preguntó si le faltaba algo: este mensaje es su
+            // respuesta, así que el enlace sale directo.
+            awaitingReviewReply: true,
             openOrder: {
               orderId: 'order-uuid',
               orderNumber: 'ORD-260904-001',
@@ -571,6 +576,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
             },
           }),
         ),
+        sendOrderReview: async () => ({ ok: true }),
         sendProofReminder: async () => {
           recordado += 1;
           return { ok: true };
@@ -596,8 +602,11 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     // derivó la conversación a una persona y la dejó callada dos horas.
     const { processed } = await deliver(JSON.stringify(envelope({ text: 'Puedo aumentar' })), {
       sendMenuCta: cta.sendMenuCta,
-      lookupCustomerState: estado(conPedidoPorPagar({ proofRemindedRecently: true })),
+      lookupCustomerState: estado(
+        conPedidoPorPagar({ proofRemindedRecently: true, awaitingReviewReply: true }),
+      ),
       agentChannel: agente.channel,
+      sendOrderReview: async () => ({ ok: true }),
       sendProofReminder: async () => {
         recordado += 1;
         return { ok: true };

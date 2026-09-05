@@ -17,6 +17,7 @@ import {
 import { catalogTermsFromNames } from './order-change-intent';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { PROOF_REMINDER_ACTION } from '@/lib/kapso/send-proof-reminder';
+import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
 
 /**
  * En qué situación está el cliente que acaba de escribir — wiring server-only.
@@ -142,6 +143,41 @@ async function recordadoHacePoco(
 }
 
 /**
+ * ¿Hay una pregunta "¿querés agregar algo más?" sin contestar? (05-09-2026)
+ *
+ * Misma técnica que el cooldown del comprobante y por la misma razón: el
+ * saliente ya se anota en `agent_messages`, así que la fila que prueba que se
+ * preguntó es también el reloj que dice hasta cuándo vale la respuesta. Una
+ * columna nueva sería un segundo sitio donde guardar lo mismo — y una migración
+ * a mano en la parte más caliente del flujo.
+ *
+ * Ante un error se responde `false`: sin poder confirmar que se preguntó, un
+ * "no" del cliente vuelve a ser un texto cualquiera y sigue su camino de hoy.
+ * Tratarlo como respuesta a una pregunta que quizá no se hizo es lo único que
+ * podría tocarle el pedido por error.
+ */
+async function preguntadoHacePoco(
+  supabase: SupabaseClient,
+  conversationId: string | null,
+): Promise<boolean> {
+  if (conversationId === null) return false;
+
+  const desde = new Date(Date.now() - PROOF_REMINDER_COOLDOWN_MS).toISOString();
+
+  const { data, error } = await supabase
+    .from('agent_messages')
+    .select('id')
+    .eq('agent_conversation_id', conversationId)
+    .eq('actor', 'automation')
+    .eq('metadata->>action', ORDER_REVIEW_ACTION)
+    .gte('message_timestamp', desde)
+    .limit(1);
+
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+/**
  * Palabras de los productos ACTIVOS. `undefined` si no se pudo leer la carta.
  *
  * Se lee de `menu_items` por el mismo repositorio que usa el resto del sistema:
@@ -247,7 +283,20 @@ export async function lookupCustomerState(
       pedido.status === 'confirmed' || ORDER_CHANGE_STATUSES.includes(pedido.status);
     const catalogTerms = necesitaCarta ? await terminosDeLaCarta(supabase) : undefined;
 
-    return { paused: false, openOrder, proofRemindedRecently, catalogTerms };
+    // 5. ¿Se le preguntó si le falta algo y todavía no ha contestado? Solo se
+    //    consulta para el pedido que aún se puede rearmar: fuera de ahí la
+    //    pregunta no se hizo y su respuesta no cambiaría nada.
+    const awaitingReviewReply = ORDER_CHANGE_STATUSES.includes(pedido.status)
+      ? await preguntadoHacePoco(supabase, pausa?.conversationId ?? null)
+      : false;
+
+    return {
+      paused: false,
+      openOrder,
+      proofRemindedRecently,
+      catalogTerms,
+      awaitingReviewReply,
+    };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.
     log.warn('webhook_customer_state_lookup_failed');

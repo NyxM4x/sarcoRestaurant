@@ -241,6 +241,32 @@ export type SendProofReminder = (input: {
 }) => Promise<{ ok: boolean }>;
 
 /**
+ * "¿Querés agregar algo más?" y su cierre (05-09-2026).
+ *
+ * DOS envios que son el mismo diálogo: la pregunta con el desglose del pedido,
+ * y la confirmación para quien contesta que está bien así. El texto lo
+ * construye el canal con datos de la base; aquí solo viaja el pedido.
+ *
+ * `kept` distingue cuál de los dos, y no es cosmético: solo la PREGUNTA abre la
+ * espera de una respuesta. Ver `send-order-review.ts`.
+ *
+ * NUNCA lanza. Opcional: sin él no se pregunta nada y el botón sale directo,
+ * que es como se comportaba antes de esta pieza.
+ */
+export type SendOrderReview = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
+  sourceMessageId: string;
+  orderId: string;
+  orderNumber: string;
+  totalAmount: number;
+  isCash: boolean;
+  /** `true` = el cierre ("queda así"); ausente = la pregunta. */
+  kept?: boolean;
+}) => Promise<{ ok: boolean }>;
+
+/**
  * "Sin cebolla" anotado en el pedido y confirmado al cliente (04-09-2026).
  *
  * DOS efectos que no se pueden separar: se escribe la nota en `orders.notes`
@@ -453,6 +479,7 @@ export interface HandleKapsoWebhookParams {
    * este puerto ese cliente no recibe nada, que es lo que pasaba antes.
    */
   sendProofReminder?: SendProofReminder;
+  sendOrderReview?: SendOrderReview;
   /**
    * Preferencias de cocina sobre un pedido ya armado (04-09-2026). Sin este
    * puerto, "sin cebolla" cae en el recordatorio del comprobante.
@@ -643,6 +670,7 @@ async function responderPorDefecto(
     sendMenuCta: SendMenuCta;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+  sendOrderReview?: SendOrderReview;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -744,6 +772,32 @@ async function responderPorDefecto(
     // buena una preferencia que la cocina nunca verá.
     if (!anotada.ok) return null;
     return { ok: true, handled: 'kitchen_note', result: 'saved' };
+  }
+
+  if (decision.action === 'order_review' || decision.action === 'order_review_kept') {
+    // Sin puerto no se pregunta nada: el mensaje sigue su camino. Preguntar y
+    // no poder leer la respuesta sería peor que no preguntar.
+    if (!deps.sendOrderReview) return null;
+
+    const esCierre = decision.action === 'order_review_kept';
+    const hecho = await deps.sendOrderReview({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderId: decision.order.orderId,
+      orderNumber: decision.order.orderNumber,
+      totalAmount: decision.order.totalAmount,
+      isCash: decision.order.paymentMethod === 'cash',
+      kept: esCierre,
+    });
+
+    // Si no salió —o no quedó anotada— el turno NO se da por atendido: la
+    // respuesta del cliente no se leería como tal, así que es mejor que el
+    // mensaje siga su camino.
+    if (!hecho.ok) return null;
+
+    log.info('webhook_order_review', { variant: esCierre ? 'kept' : 'asked' });
+    return { ok: true, handled: esCierre ? 'order_review_kept' : 'order_review', result: 'sent' };
   }
 
   if (decision.action === 'order_change') {
@@ -880,6 +934,7 @@ async function processMessage(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+  sendOrderReview?: SendOrderReview;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -1511,6 +1566,7 @@ async function processEnvelopes(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+  sendOrderReview?: SendOrderReview;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -2184,6 +2240,7 @@ async function runBusiness(
       askLocationForQuote: params.askLocationForQuote,
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
+      sendOrderReview: params.sendOrderReview,
       appendKitchenNote: params.appendKitchenNote,
       switchToPickup: params.switchToPickup,
     });

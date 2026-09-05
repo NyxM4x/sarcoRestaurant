@@ -9,6 +9,7 @@ import {
   kitchenNoteFrom,
 } from './order-change-intent';
 import { isPickupSwitchRequest } from './pickup-switch-intent';
+import { readOrderReviewReply } from './order-review-reply';
 
 /**
  * QUÉ RECIBE EL CLIENTE CUANDO NO PIDIÓ NADA CONCRETO — módulo PURO (03-09-2026).
@@ -174,6 +175,18 @@ export interface CustomerStateSnapshot {
   /** ¿Ya se le recordó el comprobante hace poco? Ver `PROOF_REMINDER_COOLDOWN_MS`. */
   proofRemindedRecently: boolean;
   /**
+   * ¿Hay una pregunta suya sin contestar? (05-09-2026)
+   *
+   * `true` mientras la pregunta "¿querés agregar algo más?" siga fresca. Cambia
+   * lo que significa el siguiente mensaje del cliente: un "no" suelto pasa a ser
+   * una respuesta en vez de un texto cualquiera.
+   *
+   * Caduca sola con `PROOF_REMINDER_COOLDOWN_MS`, el mismo reloj que el
+   * recordatorio del comprobante. Un segundo reloj para lo mismo son dos relojes
+   * que alguien tendrá que mantener a la vez.
+   */
+  awaitingReviewReply?: boolean;
+  /**
    * Palabras de los productos que se venden, para distinguir una preferencia de
    * cocina de un cambio de pedido. Ver `order-change-intent.ts`.
    *
@@ -220,6 +233,16 @@ export type DefaultReplyDecision =
   | { action: 'kitchen_note'; order: OpenOrderSnapshot; note: string }
   /** Mandarle el enlace que reabre SU pedido para cambiar lo que lleva dentro. */
   | { action: 'order_change'; order: OpenOrderSnapshot }
+  /**
+   * Enseñarle lo que armó y preguntarle si le falta algo (05-09-2026).
+   *
+   * Va ANTES del botón, no en su lugar: según lo que conteste sale el enlace de
+   * modificar o la confirmación de que queda así. Lo que el cliente ve primero
+   * es su pedido desglosado, que es el dato que no tenía.
+   */
+  | { action: 'order_review'; order: OpenOrderSnapshot }
+  /** Contestó que está bien así: se le confirma y no se toca nada. */
+  | { action: 'order_review_kept'; order: OpenOrderSnapshot }
   /** Pasar su pedido a recojo: se lo lleva él y ya no hay envío que cobrar. */
   | { action: 'pickup_switch'; order: OpenOrderSnapshot }
   | { action: 'none'; reason: DefaultReplySkipReason };
@@ -431,6 +454,30 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       if (pideRecojo) return { action: 'pickup_switch', order };
     }
 
+    // ── Su respuesta a "¿querés agregar algo más?" ─────────────────────────
+    //
+    // Va antes que la nota de cocina, y no por gusto: "así está bien" lleva
+    // dentro la palabra `bien`, que es marca de preferencia. Leído por la otra
+    // puerta, el cliente que contesta que su pedido está bien acaba con "así
+    // está bien" impreso en la comanda y sin respuesta a lo que contestó.
+    //
+    // Si le hicimos una pregunta, su siguiente mensaje se lee primero como la
+    // respuesta. Y si en vez de contestar vuelve a pedir un cambio, eso vale
+    // por un "sí": pedirle que conteste una pregunta que ya superó sería no
+    // haberlo leído.
+    if (state.awaitingReviewReply === true && isReplaceableOrder(order)) {
+      const respuesta = candidatos.map((t) => readOrderReviewReply(t)).find((r) => r !== null);
+
+      if (textoDeCambio !== undefined || respuesta === 'add') {
+        return { action: 'order_change', order };
+      }
+      if (respuesta === 'keep') {
+        return { action: 'order_review_kept', order };
+      }
+      // Ni una cosa ni la otra: sigue su camino y NO se le repregunta. Insistir
+      // con la misma pregunta es lo que acaba llevando a una persona al chat.
+    }
+
     // ── "Sin cebolla" ──────────────────────────────────────────────────────
     //
     // Va ANTES que el recordatorio del pago, y también antes de su cooldown:
@@ -500,8 +547,11 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       //
       // Las tres se evalúan sobre la ENTREGA entera, no solo sobre el ancla:
       // ver `batchTexts` y `textoDeCambio`.
+      //
+      // Antes del botón va una pregunta, y su respuesta se lee más arriba: ver
+      // el bloque de `awaitingReviewReply`.
       if (textoDeCambio !== undefined) {
-        return { action: 'order_change', order };
+        return { action: 'order_review', order };
       }
     }
 
