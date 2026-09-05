@@ -1,5 +1,8 @@
 import type { DeliveryType } from '@/types';
 import { formatBs } from '@/lib/orders/calculate';
+// La MISMA promesa que recibe quien paga por QR al aceptarse su comprobante,
+// importada y no recopiada. Ver `cashOrderConfirmedText`.
+import { PAYMENT_ACCEPTED_NEXT } from '@/lib/payment-proof/notify-text';
 import {
   CONFIRMATION_DELIVERY_LABEL,
   CONFIRMATION_FOOD_LABEL,
@@ -169,9 +172,12 @@ export function buildDynamicDeliveryConfirmationText(
 export function buildCashPaymentText(
   confirmationText: string,
   amounts?: { subtotal: number; deliveryAmount: number },
+  deliveryType: DeliveryType | null = null,
 ): string {
+  const confirmado = cashOrderConfirmedText(deliveryType);
+
   if (!amounts || amounts.deliveryAmount <= 0) {
-    return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.`;
+    return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.\n\n${confirmado}`;
   }
 
   const total = amounts.subtotal + amounts.deliveryAmount;
@@ -181,7 +187,45 @@ export function buildCashPaymentText(
     `💵 Pagas en EFECTIVO al recibir: ${formatBs(total)}`,
     `   (comida ${formatBs(amounts.subtotal)} + delivery ${formatBs(amounts.deliveryAmount)})`,
     'Ten el monto listo, por favor 🙌',
+    '',
+    confirmado,
   ].join('\n');
+}
+
+/**
+ * "Tu pedido ya está confirmado" — lo que el de EFECTIVO no oía (05-09-2026).
+ *
+ * ── El agujero que tapa ─────────────────────────────────────────────────────
+ *
+ * Quien paga por QR recibe, en cuanto alguien acepta su comprobante: "Pago
+ * confirmado ✅. Tu pedido está siendo preparado. El delivery tiene tu número y
+ * te llamará cuando llegue". Ese aviso lo dispara la REVISIÓN DEL COMPROBANTE, y
+ * un pedido en efectivo no tiene ninguno que revisar — así que no salía nunca.
+ *
+ * El cliente leía su total y se quedaba ahí, sin saber si su pedido había
+ * quedado anotado. Y el que duda vuelve a escribir, o arma otro pedido: es
+ * exactamente lo que pasó la madrugada del 05-09 con el #26, que terminó en dos
+ * pedidos y dos envíos cobrados.
+ *
+ * ── Por qué NO dice "pago confirmado" ───────────────────────────────────────
+ *
+ * Porque no ha pagado nada. Lo que está confirmado es el PEDIDO, y decirle que
+ * su pago está confirmado a alguien que va a pagar en la puerta es prometerle
+ * algo que no ha ocurrido — y, peor, sembrar la duda de si tendrá que pagar.
+ *
+ * Lo que afirma sí es cierto: en efectivo la puerta del pago vale
+ * `not_required`, así que la cocina puede arrancarlo ya, y el aviso al grupo de
+ * reparto sale en ese mismo instante (`quote-service`, `cash_confirmed`).
+ *
+ * Sin saber cómo lo recibe (`null`) se calla la segunda frase, con el mismo
+ * criterio que `paymentDecisionText`: antes eso que decirle que espere en la
+ * puerta a quien iba a pasar a buscarlo.
+ */
+function cashOrderConfirmedText(deliveryType: DeliveryType | null): string {
+  const confirmado = '✅ Tu pedido ya está confirmado y pasa a cocina.';
+  return deliveryType === null
+    ? confirmado
+    : `${confirmado}\n${PAYMENT_ACCEPTED_NEXT[deliveryType]}`;
 }
 
 /**

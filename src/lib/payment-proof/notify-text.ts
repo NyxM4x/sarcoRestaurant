@@ -32,8 +32,20 @@ export const PAYMENT_ACCEPTED_TEXT =
  *
  * `pickup` no promete una hora: la cocina acaba de empezar y darle un plazo
  * sería inventarlo.
+ *
+ * ── Por qué está exportado (05-09-2026) ─────────────────────────────────────
+ *
+ * Lo reutiliza el aviso del pedido en EFECTIVO
+ * (`orders/notifications/notify-text.ts`), que hasta hoy no decía nada de esto.
+ * Ese cliente no tiene comprobante que aceptar, así que por este camino no
+ * recibía el aviso NUNCA: leía su total y se quedaba sin saber si su pedido
+ * había quedado anotado.
+ *
+ * Se importa en vez de copiarse porque es la misma promesa al cliente por dos
+ * caminos distintos, y dos copias de una promesa se desincronizan el día que
+ * una se retoca.
  */
-const PAYMENT_ACCEPTED_NEXT: Record<DeliveryType, string> = {
+export const PAYMENT_ACCEPTED_NEXT: Record<DeliveryType, string> = {
   delivery: 'El delivery tiene tu número y te llamará cuando llegue con tu pedido.',
   pickup: 'Te esperamos con el chat en mano cuando vengas a recogerlo.',
 };
