@@ -219,12 +219,23 @@ export function buildCashPaymentText(
  * Ni "pago confirmado" —no ha pagado— ni "está siendo preparado", que era lo
  * que decía hasta hace unas horas y ahora sería falso: nadie lo cocina todavía.
  * Eso llega cuando confirme, y lo manda `orderConfirmedByCashText`.
+ *
+ * ── Lo que cuesta decir que sí y después no recibir (05-09-2026) ────────────
+ *
+ * En efectivo el negocio pone la comida y el viaje ANTES de cobrar nada: si el
+ * cliente no abre la puerta se pierden las dos cosas, y no hay comprobante ni
+ * pago que reclamar. Por eso la advertencia va PEGADA a la pregunta y no en un
+ * mensaje aparte: es la letra pequeña de la palabra que se le está pidiendo, y
+ * quien escribe CONFIRMO tiene que haberla leído ANTES de escribirla.
  */
 function cashOrderPendingText(): string {
   return [
     '¿Confirmás tu pedido?',
     '  Escribí *CONFIRMO* y lo mandamos a cocina',
     '  Escribí *CANCELAR* si ya no lo querés',
+    '',
+    '⚠️ *ADVERTENCIA:* si el delivery llega con tu pedido y no lo recibís, tu ' +
+      'número queda BLOQUEADO y no vas a poder volver a pedir en Don Zarco.',
   ].join('\n');
 }
 

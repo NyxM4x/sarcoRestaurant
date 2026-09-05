@@ -281,6 +281,28 @@ Total: Bs. 28`;
     expect(text).toContain('💵 Pagas en efectivo al recibir tu pedido.');
     expect(text).toContain('CONFIRMO');
   });
+
+  /**
+   * LA ADVERTENCIA VIAJA CON LA PREGUNTA (05-09-2026).
+   *
+   * En efectivo la comida y el viaje se ponen antes de cobrar: el pedido que
+   * nadie recibe se pierde entero. Quien escribe CONFIRMO tiene que haber
+   * leído qué pasa si después no abre la puerta, así que la advertencia va en
+   * ESTE mensaje —el de la pregunta— y no en otro que quizá no llegue a leer.
+   */
+  it('advierte que no recibir el pedido bloquea al cliente', () => {
+    const text = buildCashPaymentText(CONFIRMACION, MONTOS);
+    expect(text).toContain('ADVERTENCIA');
+    expect(text).toContain('BLOQUEADO');
+    // Y va DESPUÉS de la pregunta: primero lo que se le pide, luego la letra
+    // pequeña de esa misma palabra.
+    expect(text.indexOf('ADVERTENCIA')).toBeGreaterThan(text.indexOf('¿Confirmás'));
+  });
+
+  it('también advierte cuando todavía no hay envío cotizado', () => {
+    // Ahí el pedido igual sale de la cocina y viaja: el riesgo es el mismo.
+    expect(buildCashPaymentText(CONFIRMACION, undefined)).toContain('ADVERTENCIA');
+  });
 });
 
 /**
