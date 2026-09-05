@@ -588,8 +588,21 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       //
       // Antes del botón va una pregunta, y su respuesta se lee más arriba: ver
       // el bloque de `awaitingReviewReply`.
+      //
+      // ── Salvo que ya tenga una pregunta abierta (05-09-2026) ──────────
+      //
+      // Al pedido en efectivo sin confirmar acabamos de preguntarle CONFIRMO o
+      // CANCELAR. Si además le mandáramos "¿querés agregar algo? 1 / 2", ese
+      // cliente tendría DOS preguntas distintas sin contestar en el mismo chat,
+      // cada una con sus palabras, y un "1" suyo ya no sabríamos a cuál iba.
+      //
+      // Así que ahí el botón sale directo. No se pierde nada: el enlace reabre
+      // su pedido con lo que eligió dentro —que es justo lo que la pregunta iba
+      // a enseñarle— y el pedido corregido traerá su propia confirmación.
       if (textoDeCambio !== undefined) {
-        return { action: 'order_review', order };
+        return order.awaitingCashConfirm === true
+          ? { action: 'order_change', order }
+          : { action: 'order_review', order };
       }
     }
 

@@ -627,6 +627,21 @@ describe('decideDefaultReply — CONFIRMO / CANCELAR en efectivo', () => {
     expect(decision.action).not.toBe('cash_cancel');
   });
 
+  it('nunca hay DOS preguntas abiertas a la vez', () => {
+    // A ese cliente acabamos de preguntarle CONFIRMO o CANCELAR. Si además le
+    // mandáramos "¿querés agregar algo? 1 / 2", un "1" suyo ya no sabríamos a
+    // cuál de las dos iba. El botón sale directo: reabre su pedido con lo que
+    // eligió dentro, que es justo lo que la otra pregunta iba a enseñarle.
+    const decision = decidir('una gaseosa también', esperandoConfirmacion());
+    expect(decision.action).toBe('order_change');
+    expect(decision.action).not.toBe('order_review');
+  });
+
+  it('con el pedido ya confirmado, la pregunta del cambio vuelve', () => {
+    const yaConfirmado = esperandoConfirmacion({ awaitingCashConfirm: false });
+    expect(decidir('una gaseosa también', yaConfirmado).action).toBe('order_review');
+  });
+
   it('un pedido por QR no pasa por aquí', () => {
     // Ahí lo que confirma el pedido es el comprobante.
     const porQr: CustomerStateSnapshot = {
