@@ -24,6 +24,7 @@ import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { sendOrderReview, sendOrderReviewKept } from '@/lib/kapso/send-order-review';
+import { cancelCashOrder, confirmCashOrder } from '@/lib/orders/cash-confirm-service';
 import { switchOrderToPickup } from '@/lib/orders/pickup-switch-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
 import {
@@ -109,6 +110,11 @@ export async function POST(request: Request): Promise<Response> {
       // le pregunta si le falta algo. Ver `kapso/send-order-review.ts`.
       sendOrderReview: ({ kept, ...input }) =>
         kept ? sendOrderReviewKept(input) : sendOrderReview(input),
+      // 05-09-2026: el pedido en efectivo no entra a cocina ni sale al grupo de
+      // reparto hasta que el cliente escribe CONFIRMO. Ver 0036 y
+      // `orders/cash-confirm-service.ts`.
+      decideCashOrder: ({ decision, ...input }) =>
+        decision === 'confirm' ? confirmCashOrder(input) : cancelCashOrder(input),
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),

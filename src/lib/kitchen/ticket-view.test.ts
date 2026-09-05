@@ -781,3 +781,58 @@ describe('ticket — un pago rechazado saca la comanda del tablero (03-09-2026)'
     expect(conReenvio).toHaveLength(1);
   });
 });
+
+/**
+ * EL PEDIDO EN EFECTIVO SIN CONFIRMAR NO SE PINTA (05-09-2026).
+ *
+ * En efectivo el cliente ve el precio del envío DESPUÉS de armar su pedido, y a
+ * veces dice que no. Hasta que escribe CONFIRMO, ese pedido no ocupa una celda
+ * del tablero: alguien podría empezarlo sin saber que nadie lo va a pagar.
+ */
+describe('ticket — el efectivo espera su confirmación', () => {
+  const filaEfectivo = (over: Partial<RawKitchenOrderRow> = {}): RawKitchenOrderRow =>
+    row('x', 'confirmed', {
+      delivery_type: 'delivery',
+      payment_method: 'cash',
+      subtotal_amount: 36,
+      total_amount: 63,
+      ...over,
+    });
+
+  it('sin confirmar, no entra al tablero', () => {
+    const tickets = toKitchenTickets([filaEfectivo({ cash_confirmed_at: null })], []);
+    expect(tickets).toHaveLength(0);
+  });
+
+  it('en cuanto confirma, aparece', () => {
+    const tickets = toKitchenTickets(
+      [filaEfectivo({ cash_confirmed_at: '2026-09-05T02:00:00.000Z' })],
+      [],
+    );
+    expect(tickets).toHaveLength(1);
+  });
+
+  it('una fila anterior a 0036 se sigue viendo', () => {
+    // Sin la columna, el pedido nunca tuvo ese paso: tratarlo como pendiente
+    // borraría del historial los pedidos en efectivo de las noches anteriores.
+    const tickets = toKitchenTickets([filaEfectivo()], []);
+    expect(tickets).toHaveLength(1);
+  });
+
+  it('el de QR no espera nada: se pinta igual que siempre', () => {
+    const tickets = toKitchenTickets(
+      [filaEfectivo({ payment_method: 'qr', cash_confirmed_at: null })],
+      [],
+    );
+    expect(tickets).toHaveLength(1);
+  });
+
+  it('con la comida ya en la plancha no desaparece', () => {
+    // Si ya está en marcha, hacerlo desaparecer no devuelve nada al refrigerador.
+    const tickets = toKitchenTickets(
+      [filaEfectivo({ status: 'preparing', cash_confirmed_at: null })],
+      [],
+    );
+    expect(tickets).toHaveLength(1);
+  });
+});

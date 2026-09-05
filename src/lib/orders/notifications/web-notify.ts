@@ -405,17 +405,10 @@ async function processConfirmation(
           // instrucción, igual que el QR lleva las suyas. Un método de pago
           // NULL —históricos, WhatsApp Flow— conserva el texto pelado.
           order.payment_method === 'cash'
-            ? buildCashPaymentText(
-                text,
-                {
-                  subtotal: order.subtotal_amount,
-                  deliveryAmount: order.delivery_amount,
-                },
-                // 05-09-2026: decide si se le dice que el delivery lo llamará o
-                // que lo esperamos aquí. Sin él, ese cliente se quedaba sin
-                // saber siquiera si su pedido había quedado anotado.
-                order.delivery_type,
-              )
+            ? buildCashPaymentText(text, {
+                subtotal: order.subtotal_amount,
+                deliveryAmount: order.delivery_amount,
+              })
             : text,
           order.phone_number_id,
         ),

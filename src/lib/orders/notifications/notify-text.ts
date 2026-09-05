@@ -1,7 +1,7 @@
 import type { DeliveryType } from '@/types';
 import { formatBs } from '@/lib/orders/calculate';
 // La MISMA promesa que recibe quien paga por QR al aceptarse su comprobante,
-// importada y no recopiada. Ver `cashOrderConfirmedText`.
+// importada y no recopiada. Ver `orderConfirmedByCashText`.
 import { PAYMENT_ACCEPTED_NEXT } from '@/lib/payment-proof/notify-text';
 import {
   CONFIRMATION_DELIVERY_LABEL,
@@ -172,12 +172,11 @@ export function buildDynamicDeliveryConfirmationText(
 export function buildCashPaymentText(
   confirmationText: string,
   amounts?: { subtotal: number; deliveryAmount: number },
-  deliveryType: DeliveryType | null = null,
 ): string {
-  const confirmado = cashOrderConfirmedText(deliveryType);
+  const pregunta = cashOrderPendingText();
 
   if (!amounts || amounts.deliveryAmount <= 0) {
-    return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.\n\n${confirmado}`;
+    return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.\n\n${pregunta}`;
   }
 
   const total = amounts.subtotal + amounts.deliveryAmount;
@@ -188,44 +187,89 @@ export function buildCashPaymentText(
     `   (comida ${formatBs(amounts.subtotal)} + delivery ${formatBs(amounts.deliveryAmount)})`,
     'Ten el monto listo, por favor 🙌',
     '',
-    confirmado,
+    pregunta,
   ].join('\n');
 }
 
 /**
- * "Tu pedido ya está confirmado" — lo que el de EFECTIVO no oía (05-09-2026).
+ * "Escribí CONFIRMO o CANCELAR" — el pedido en efectivo espera (05-09-2026).
  *
- * ── El agujero que tapa ─────────────────────────────────────────────────────
+ * ── Los dos clientes que lo motivan ─────────────────────────────────────────
  *
- * Quien paga por QR recibe, en cuanto alguien acepta su comprobante: "Pago
- * confirmado ✅. Tu pedido está siendo preparado. El delivery tiene tu número y
- * te llamará cuando llegue". Ese aviso lo dispara la REVISIÓN DEL COMPROBANTE, y
- * un pedido en efectivo no tiene ninguno que revisar — así que no salía nunca.
+ * En efectivo el aviso al grupo de reparto salía al COTIZAR, porque no hay pago
+ * que esperar y ese era el único momento disponible. Pero el cliente ve el
+ * precio del envío en ese mismo mensaje, y a veces no le gusta:
  *
- * El cliente leía su total y se quedaba ahí, sin saber si su pedido había
- * quedado anotado. Y el que duda vuelve a escribir, o arma otro pedido: es
- * exactamente lo que pasó la madrugada del 05-09 con el #26, que terminó en dos
- * pedidos y dos envíos cobrados.
+ *   #40  "Delivery: Bs. 27"  →  "Muy caro su moto"  →  no volvió a escribir
+ *   #39  "Delivery: Bs. 30"  →  "Cancelar pedido"   →  acabó pidiendo una persona
  *
- * ── Por qué NO dice "pago confirmado" ───────────────────────────────────────
+ * Los dos pedidos ya estaban en el teléfono de quien reparte, y nadie sabía si
+ * el cliente los quería. Por eso este mensaje ya no anuncia que el pedido está
+ * confirmado: PREGUNTA. Hasta que conteste, el pedido no entra a cocina ni sale
+ * al grupo.
  *
- * Porque no ha pagado nada. Lo que está confirmado es el PEDIDO, y decirle que
- * su pago está confirmado a alguien que va a pagar en la puerta es prometerle
- * algo que no ha ocurrido — y, peor, sembrar la duda de si tendrá que pagar.
+ * ── Por qué se le pide una palabra entera ───────────────────────────────────
  *
- * Lo que afirma sí es cierto: en efectivo la puerta del pago vale
- * `not_required`, así que la cocina puede arrancarlo ya, y el aviso al grupo de
- * reparto sale en ese mismo instante (`quote-service`, `cash_confirmed`).
+ * "CONFIRMO" y "CANCELAR" no se teclean por accidente, y aquí el error no manda
+ * un mensaje de más: agenda —o tira— un pedido. La otra pregunta del flujo, la
+ * de agregar algo, sí usa 1 y 2 porque ahí lo que está en juego es un botón.
  *
- * Sin saber cómo lo recibe (`null`) se calla la segunda frase, con el mismo
- * criterio que `paymentDecisionText`: antes eso que decirle que espere en la
- * puerta a quien iba a pasar a buscarlo.
+ * ── Lo que NO se le dice ────────────────────────────────────────────────────
+ *
+ * Ni "pago confirmado" —no ha pagado— ni "está siendo preparado", que era lo
+ * que decía hasta hace unas horas y ahora sería falso: nadie lo cocina todavía.
+ * Eso llega cuando confirme, y lo manda `orderConfirmedByCashText`.
  */
-function cashOrderConfirmedText(deliveryType: DeliveryType | null): string {
-  const confirmado = '✅ Tu pedido ya está confirmado y pasa a cocina.';
-  return deliveryType === null
-    ? confirmado
-    : `${confirmado}\n${PAYMENT_ACCEPTED_NEXT[deliveryType]}`;
+function cashOrderPendingText(): string {
+  return [
+    '¿Confirmás tu pedido?',
+    '  Escribí *CONFIRMO* y lo mandamos a cocina',
+    '  Escribí *CANCELAR* si ya no lo querés',
+  ].join('\n');
+}
+
+/**
+ * "Listo, tu pedido está en cocina" — la respuesta al que escribió CONFIRMO.
+ *
+ * Es el mensaje que el cliente en efectivo no recibía nunca, movido al momento
+ * en que por fin es verdad. Antes se mandaba junto a la cotización, y desde el
+ * 05-09 eso sería mentira: hasta que no confirma, nadie cocina nada.
+ *
+ * La frase de qué pasa ahora se importa de `PAYMENT_ACCEPTED_NEXT`, la misma
+ * que recibe quien paga por QR al aceptarse su comprobante: es la misma promesa
+ * por dos caminos, y dos copias se desincronizan.
+ */
+export function orderConfirmedByCashText(
+  orderNumber: string,
+  totalAmount: number,
+  deliveryType: DeliveryType | null = null,
+): string {
+  const cabeza =
+    `✅ Listo, tu pedido ${shortOrderNumber(orderNumber)} ya está en cocina. ` +
+    `Pagás ${formatBs(totalAmount)} en efectivo al recibirlo.`;
+
+  return deliveryType === null ? cabeza : `${cabeza}\n${PAYMENT_ACCEPTED_NEXT[deliveryType]}`;
+}
+
+/**
+ * El aviso de que un pedido caducó sin confirmarse.
+ *
+ * Dice POR QUÉ se canceló —para que no parezca que se perdió— y deja abierta la
+ * puerta en la misma frase. Quien no contestó suele estar ocupado, no molesto.
+ */
+export function orderExpiredWithoutConfirmText(orderNumber: string): string {
+  return (
+    `Cancelamos tu pedido ${shortOrderNumber(orderNumber)} porque no recibimos tu ` +
+    'confirmación 🙌 Si todavía lo querés, escribinos y lo armamos de nuevo en un minuto.'
+  );
+}
+
+/** El acuse de quien decidió no seguir. Sin reproche y sin puerta cerrada. */
+export function orderCancelledByCustomerText(orderNumber: string): string {
+  return (
+    `Listo, cancelamos tu pedido ${shortOrderNumber(orderNumber)}. ` +
+    'Cuando quieras pedir de nuevo, escribinos y te mandamos el menú 🙌'
+  );
 }
 
 /**

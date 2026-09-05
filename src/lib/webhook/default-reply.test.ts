@@ -559,3 +559,80 @@ describe('decideDefaultReply — la entrega entera, no solo el ancla', () => {
     expect(decision.action).toBe('pickup_switch');
   });
 });
+
+/**
+ * EL PEDIDO EN EFECTIVO ESPERA UN "CONFIRMO" (05-09-2026).
+ *
+ * Dos clientes de la misma madrugada vieron el precio del envío en el mensaje
+ * de la cotización y dijeron que no —"muy caro su moto", "cancelar pedido"— con
+ * el pedido ya en el grupo de reparto. Ahora ese pedido no sale ni entra a
+ * cocina hasta que el cliente lo confirme.
+ */
+describe('decideDefaultReply — CONFIRMO / CANCELAR en efectivo', () => {
+  const esperandoConfirmacion = (
+    over: Partial<OpenOrderSnapshot> = {},
+  ): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['trancapecho', 'lomito', 'gaseosa'],
+    openOrder: pedido({
+      orderNumber: 'ORD-260904-040',
+      payment: 'not_required',
+      paymentMethod: 'cash',
+      totalAmount: 63,
+      awaitingCashConfirm: true,
+      ...over,
+    }),
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot) =>
+    decideDefaultReply({
+      text: texto,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state,
+    });
+
+  it('CONFIRMO agenda el pedido', () => {
+    for (const frase of ['CONFIRMO', 'confirmo', 'si', 'dale']) {
+      expect(decidir(frase, esperandoConfirmacion()).action, frase).toBe('cash_confirm');
+    }
+  });
+
+  it('CANCELAR lo cierra', () => {
+    // Es lo que escribió el cliente del #39, palabra por palabra.
+    for (const frase of ['Cancelar pedido', 'cancelar', 'ya no quiero']) {
+      expect(decidir(frase, esperandoConfirmacion()).action, frase).toBe('cash_cancel');
+    }
+  });
+
+  it('una queja por el precio NO cancela nada', () => {
+    // "Muy caro su moto" es lo que escribió el del #40. No es un CANCELAR: su
+    // pedido se queda esperando, y el barrido lo caduca solo si no vuelve.
+    const decision = decidir('Muy caro su moto', esperandoConfirmacion());
+    expect(decision.action).not.toBe('cash_cancel');
+    expect(decision.action).not.toBe('cash_confirm');
+  });
+
+  it('va antes que todo lo demás del pedido abierto', () => {
+    // Ese pedido no está en cocina ni en el grupo: lo que decide este mensaje es
+    // si entra o desaparece, y eso manda sobre cualquier otra lectura.
+    expect(decidir('confirmo', esperandoConfirmacion()).action).toBe('cash_confirm');
+  });
+
+  it('ya confirmado, esas palabras dejan de decidir nada', () => {
+    const yaConfirmado = esperandoConfirmacion({ awaitingCashConfirm: false });
+    const decision = decidir('cancelar', yaConfirmado);
+    expect(decision.action).not.toBe('cash_cancel');
+  });
+
+  it('un pedido por QR no pasa por aquí', () => {
+    // Ahí lo que confirma el pedido es el comprobante.
+    const porQr: CustomerStateSnapshot = {
+      ...esperandoConfirmacion(),
+      openOrder: pedido({ payment: 'no_proof', paymentMethod: 'qr' }),
+    };
+    expect(decidir('confirmo', porQr).action).not.toBe('cash_confirm');
+  });
+});

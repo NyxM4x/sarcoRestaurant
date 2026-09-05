@@ -11,7 +11,6 @@ import {
   createKapsoNotificationSender,
   createSupabaseNotificationStore,
 } from '@/lib/orders/notifications/service';
-import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
 import { dispatchSingleNotification } from '@/lib/orders/notifications/web-notify';
 import type { DeliveryPricing, DeliveryQuoteStatus, DeliveryType, OrderStatus } from '@/types';
 import { normalizePhone } from '@/lib/phone';
@@ -180,18 +179,22 @@ export function createQuoteOrchestratorDeps(
       // llevar algo que nadie había pagado. Sale cuando el pago se acepta, en
       // `decidePaymentAttempt`.
       //
-      // ── Para el EFECTIVO, este SÍ es el momento (04-09-2026) ──────────────
+      // ── Y para el EFECTIVO tampoco (05-09-2026) ───────────────────────────
       //
-      // Un pedido en efectivo no genera `payment_attempts`, así que no hay
-      // ningún `accept` que disparar: por el camino del QR no llegaría nunca al
-      // grupo. Y el argumento de arriba no le aplica —no hay pago que esperar,
-      // el repartidor cobra en la puerta—, mientras que el pedido ya es firme:
-      // el cliente eligió, mandó su ubicación y conoce el total.
+      // Durante un día sí salió aquí: un pedido en efectivo no genera
+      // `payment_attempts`, así que no hay ningún `accept` que lo dispare, y
+      // este parecía el único momento disponible.
       //
-      // La función comprueba el método por su cuenta: si el pedido resulta ser
-      // por QR, se descarta aquí mismo. Y el índice único `(kind, target_ref)`
-      // de 0028 sigue garantizando un solo aviso por pedido.
-      await notifyDeliveryGroup(orderId, undefined, 'cash_confirmed');
+      // Lo que enseñó esa noche es que el pedido NO era firme todavía. El
+      // cliente ve el precio del envío en el mismo mensaje que acaba de salir,
+      // y es entonces cuando decide:
+      //
+      //   #40  "Delivery: Bs. 27"  →  "Muy caro su moto"  →  no volvió
+      //   #39  "Delivery: Bs. 30"  →  "Cancelar pedido"
+      //
+      // Los dos estaban ya en el teléfono de quien reparte. Ahora el aviso sale
+      // cuando el cliente escribe CONFIRMO, en `confirmCashOrder`, que es el
+      // primer instante en que consta que quiere el pedido a ese precio.
     },
 
     isRainSurchargeActive: () => readRainSurcharge(supabase),

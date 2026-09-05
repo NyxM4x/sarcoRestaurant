@@ -54,6 +54,8 @@ interface FilaPedido {
   status: OrderStatus;
   total_amount: number;
   payment_method: PaymentMethod | null;
+  /** 0036: cuándo el cliente confirmó su pedido en efectivo. `null` = aún no. */
+  cash_confirmed_at: string | null;
 }
 
 /**
@@ -70,7 +72,7 @@ async function pedidoAbierto(
 
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, status, total_amount, payment_method')
+    .select('id, order_number, status, total_amount, payment_method, cash_confirmed_at')
     .eq('customer_phone', customerPhone)
     .in('status', [...OPEN_ORDER_STATUSES])
     .gte('created_at', desde)
@@ -261,6 +263,10 @@ export async function lookupCustomerState(
       payment: gate.state,
       proofReceived,
       paymentMethod: pedido.payment_method ?? null,
+      // Un pedido en efectivo sin confirmar no está en cocina ni en el grupo de
+      // reparto: su siguiente mensaje puede ser el CONFIRMO que lo agenda.
+      awaitingCashConfirm:
+        pedido.payment_method === 'cash' && pedido.cash_confirmed_at === null,
     };
 
     // 3. El cooldown solo interesa cuando de verdad se va a recordar algo.

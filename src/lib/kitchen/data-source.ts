@@ -36,7 +36,9 @@ import type {
  */
 const KITCHEN_ORDER_COLUMNS =
   'id,order_number,status,delivery_type,notes,created_at,confirmed_at,updated_at,' +
-  'total_amount,subtotal_amount,payment_method,delivery_fee_paid';
+  // `cash_confirmed_at` (0036): un pedido en efectivo sin el CONFIRMO del
+  // cliente no se pinta en el tablero. Ver `toKitchenTickets`.
+  'total_amount,subtotal_amount,payment_method,delivery_fee_paid,cash_confirmed_at';
 
 /** Techo de seguridad: el tablero nunca descarga la tabla entera. */
 const MAX_BOARD_ROWS = 200;

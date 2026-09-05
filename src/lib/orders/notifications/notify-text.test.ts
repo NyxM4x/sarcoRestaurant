@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildCashPaymentText,
+  orderCancelledByCustomerText,
+  orderConfirmedByCashText,
   buildConfirmationText,
   buildQrPaymentCaption,
   type ConfirmationTextInput,
@@ -228,17 +230,16 @@ describe('por QR se cobra la comida; el envío se paga al recibir', () => {
 });
 
 /**
- * EL PEDIDO EN EFECTIVO YA ESTÁ ANOTADO, Y HAY QUE DECÍRSELO (05-09-2026).
+ * EL PEDIDO EN EFECTIVO ESPERA UN "CONFIRMO" (05-09-2026).
  *
- * Quien paga por QR recibe "Pago confirmado ✅. Tu pedido está siendo preparado.
- * El delivery tiene tu número…" en cuanto alguien acepta su comprobante. Ese
- * aviso lo dispara la REVISIÓN del comprobante, y un pedido en efectivo no tiene
- * ninguno que revisar: no salía nunca. El cliente leía su total y se quedaba sin
- * saber si su pedido había quedado anotado — y el que duda vuelve a escribir o
- * arma otro pedido, que es lo que pasó con el #26.
+ * Durante un día este mensaje anunciaba que el pedido ya estaba en cocina.
+ * Duró lo que tardaron dos clientes en enseñar que no era verdad: los dos
+ * vieron el precio del envío en este mismo mensaje y dijeron que no —"muy caro
+ * su moto", "cancelar pedido"— con el pedido ya en el grupo de reparto.
+ *
+ * Ahora pregunta, y lo que afirma se dice cuando el cliente contesta.
  */
 describe('el aviso del pedido en EFECTIVO', () => {
-  // El mensaje real del #26, tal como lo recibió el cliente.
   const CONFIRMACION = `📦 Pedido #26
 
 Comida: Bs. 18
@@ -246,62 +247,86 @@ Delivery: Bs. 10
 Total: Bs. 28`;
   const MONTOS = { subtotal: 18, deliveryAmount: 10 };
 
-  it('le dice que su pedido quedó confirmado', () => {
-    const text = buildCashPaymentText(CONFIRMACION, MONTOS, 'delivery');
-    expect(text).toContain('Tu pedido ya está confirmado');
-  });
-
-  it('en delivery le avisa de que el repartidor lo va a llamar', () => {
-    // La MISMA frase que recibe quien paga por QR, importada y no copiada.
-    const text = buildCashPaymentText(CONFIRMACION, MONTOS, 'delivery');
-    expect(text).toContain(PAYMENT_ACCEPTED_NEXT.delivery);
-  });
-
-  it('en recojo le dice que lo esperamos, no que salga una moto', () => {
-    const text = buildCashPaymentText(CONFIRMACION, undefined, 'pickup');
-    expect(text).toContain(PAYMENT_ACCEPTED_NEXT.pickup);
-    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.delivery);
-  });
-
-  it('NUNCA dice que el pago está confirmado: ese cliente no ha pagado nada', () => {
-    // Es la línea que separa este aviso del del QR. Decirle "pago confirmado" a
-    // quien va a pagar en la puerta es prometerle algo que no ha ocurrido.
-    for (const tipo of ['delivery', 'pickup'] as const) {
-      const text = buildCashPaymentText(CONFIRMACION, MONTOS, tipo);
-      expect(text, tipo).not.toContain('Pago confirmado');
-    }
-  });
-
-  it('sin saber cómo lo recibe, se calla la segunda frase', () => {
-    // Mismo criterio que `paymentDecisionText`: antes eso que decirle que espere
-    // en la puerta a quien iba a pasar a buscarlo.
+  it('le pide que confirme o cancele, con las dos palabras', () => {
     const text = buildCashPaymentText(CONFIRMACION, MONTOS);
-    expect(text).toContain('Tu pedido ya está confirmado');
-    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.delivery);
-    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.pickup);
+    expect(text).toContain('¿Confirmás tu pedido?');
+    expect(text).toContain('CONFIRMO');
+    expect(text).toContain('CANCELAR');
   });
 
-  it('conserva lo que ya decía: la cifra, el desglose y el aviso del monto', () => {
-    const text = buildCashPaymentText(CONFIRMACION, MONTOS, 'delivery');
+  it('NO afirma que el pedido esté en cocina: todavía no lo está', () => {
+    const text = buildCashPaymentText(CONFIRMACION, MONTOS);
+    expect(text).not.toContain('ya está confirmado');
+    expect(text).not.toContain('pasa a cocina');
+    // Y sigue sin decir que el pago está confirmado, que nunca lo estuvo.
+    expect(text).not.toContain('Pago confirmado');
+  });
+
+  it('conserva la cifra, el desglose y el aviso del monto', () => {
+    const text = buildCashPaymentText(CONFIRMACION, MONTOS);
     expect(text).toContain('💵 Pagas en EFECTIVO al recibir: Bs. 28');
     expect(text).toContain('(comida Bs. 18 + delivery Bs. 10)');
     expect(text).toContain('Ten el monto listo, por favor 🙌');
     expect(text).toContain('📦 Pedido #26');
   });
 
-  it('sin envío cotizado también queda confirmado', () => {
-    // La rama corta —recojo, o un delivery aún sin cotizar— tenía el mismo
-    // agujero: decía cómo se paga y nada sobre el pedido.
-    const text = buildCashPaymentText(CONFIRMACION, undefined, 'delivery');
-    expect(text).toContain('💵 Pagas en efectivo al recibir tu pedido.');
-    expect(text).toContain('Tu pedido ya está confirmado');
+  it('la pregunta va al FINAL, después de lo que tiene que pagar', () => {
+    // Primero lo que va a costarle, que es sobre lo que decide.
+    const text = buildCashPaymentText(CONFIRMACION, MONTOS);
+    expect(text.indexOf('¿Confirmás')).toBeGreaterThan(text.indexOf('Ten el monto listo'));
   });
 
-  it('la confirmación va al FINAL, después de lo que tiene que pagar', () => {
-    // Primero lo que le toca hacer, después la tranquilidad.
-    const text = buildCashPaymentText(CONFIRMACION, MONTOS, 'delivery');
-    expect(text.indexOf('Tu pedido ya está confirmado')).toBeGreaterThan(
-      text.indexOf('Ten el monto listo'),
-    );
+  it('sin envío cotizado también se le pregunta', () => {
+    const text = buildCashPaymentText(CONFIRMACION, undefined);
+    expect(text).toContain('💵 Pagas en efectivo al recibir tu pedido.');
+    expect(text).toContain('CONFIRMO');
+  });
+});
+
+/**
+ * Y ESTO ES LO QUE RECIBE CUANDO CONFIRMA.
+ *
+ * El mensaje que el cliente en efectivo no recibía nunca, movido al momento en
+ * que por fin es verdad.
+ */
+describe('la respuesta al CONFIRMO', () => {
+  it('le dice que ya está en cocina y cuánto va a pagar', () => {
+    const text = orderConfirmedByCashText('ORD-260904-040', 63, 'delivery');
+    expect(text).toContain('#40');
+    expect(text).toContain('ya está en cocina');
+    expect(text).toContain('Bs. 63');
+  });
+
+  it('en delivery le avisa de que el repartidor lo va a llamar', () => {
+    // La MISMA frase que recibe quien paga por QR, importada y no copiada.
+    const text = orderConfirmedByCashText('ORD-260904-040', 63, 'delivery');
+    expect(text).toContain(PAYMENT_ACCEPTED_NEXT.delivery);
+  });
+
+  it('en recojo le dice que lo esperamos, no que salga una moto', () => {
+    const text = orderConfirmedByCashText('ORD-260904-040', 63, 'pickup');
+    expect(text).toContain(PAYMENT_ACCEPTED_NEXT.pickup);
+    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.delivery);
+  });
+
+  it('sin saber cómo lo recibe, se calla la segunda frase', () => {
+    const text = orderConfirmedByCashText('ORD-260904-040', 63);
+    expect(text).toContain('ya está en cocina');
+    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.delivery);
+    expect(text).not.toContain(PAYMENT_ACCEPTED_NEXT.pickup);
+  });
+
+  it('nunca dice "pago confirmado": ese cliente aún no ha pagado', () => {
+    const text = orderConfirmedByCashText('ORD-260904-040', 63, 'delivery');
+    expect(text).not.toContain('Pago confirmado');
+  });
+});
+
+describe('el acuse de la cancelación', () => {
+  it('cancela sin reproche y deja la puerta abierta', () => {
+    const text = orderCancelledByCustomerText('ORD-260904-039');
+    expect(text).toContain('#39');
+    expect(text).toContain('cancelamos');
+    expect(text).toContain('menú');
   });
 });

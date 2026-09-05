@@ -4,6 +4,7 @@ import { safeCompare } from '@/lib/security/compare';
 import { POST as tickWebhookInbox } from '../../webhook-events/worker/tick/route';
 import { POST as tickNotifications } from '../../order-notifications/worker/tick/route';
 import { POST as tickTelegramAlerts } from '../../telegram-alerts/worker/tick/route';
+import { expireUnconfirmedCashOrders } from '@/lib/orders/cash-confirm-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -113,6 +114,21 @@ export async function GET(request: Request): Promise<Response> {
   ]);
 
   /**
+   * Y los pedidos en efectivo que nadie confirmó (05-09-2026).
+   *
+   * No es un worker con su propia ruta: es una consulta acotada por un índice
+   * parcial y un puñado de UPDATEs, así que no necesita lease, ni reintentos, ni
+   * observabilidad propia. Lo que necesita es correr de vez en cuando.
+   *
+   * Va FUERA del `allSettled` de arriba a propósito: los tres workers son la
+   * recuperación —lo que decide si este latido fue bien— y esto es limpieza.
+   * Que no se pueda cancelar un pedido caducado no puede teñir de rojo un
+   * minuto en el que el inbox sí se recuperó. La función no lanza, y si falla
+   * lo dice en su propio log.
+   */
+  const caducados = await expireUnconfirmedCashOrders();
+
+  /**
    * Estado de UN worker, saneado.
    *
    * Una promesa rechazada sale como `'error'` y nada más: el mensaje de la
@@ -144,6 +160,7 @@ export async function GET(request: Request): Promise<Response> {
     inbox: estado(inbox),
     notifications: estado(notifications),
     alerts: estado(alerts),
+    cash_expired: caducados.cancelled,
   });
 
   // ── 200 solo si los DOS se ejecutaron; 503 si alguno no ────────────────────

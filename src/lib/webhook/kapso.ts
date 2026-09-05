@@ -267,6 +267,24 @@ export type SendOrderReview = (input: {
 }) => Promise<{ ok: boolean }>;
 
 /**
+ * "CONFIRMO" / "CANCELAR" de un pedido en efectivo (05-09-2026).
+ *
+ * DOS efectos que no se pueden separar: se escribe la decisión en el pedido
+ * —confirmarlo lo mete en cocina y lo manda al grupo de reparto; cancelarlo lo
+ * cierra— y solo entonces se le contesta al cliente.
+ *
+ * `decision` dice cuál de las dos. NUNCA lanza. Opcional: sin él, ese mensaje
+ * sigue su camino y el pedido se queda esperando.
+ */
+export type DecideCashOrder = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  sourceMessageId: string;
+  orderId: string;
+  decision: 'confirm' | 'cancel';
+}) => Promise<{ ok: boolean }>;
+
+/**
  * "Sin cebolla" anotado en el pedido y confirmado al cliente (04-09-2026).
  *
  * DOS efectos que no se pueden separar: se escribe la nota en `orders.notes`
@@ -480,6 +498,7 @@ export interface HandleKapsoWebhookParams {
    */
   sendProofReminder?: SendProofReminder;
   sendOrderReview?: SendOrderReview;
+  decideCashOrder?: DecideCashOrder;
   /**
    * Preferencias de cocina sobre un pedido ya armado (04-09-2026). Sin este
    * puerto, "sin cebolla" cae en el recordatorio del comprobante.
@@ -671,6 +690,7 @@ async function responderPorDefecto(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
   sendOrderReview?: SendOrderReview;
+  decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -772,6 +792,31 @@ async function responderPorDefecto(
     // buena una preferencia que la cocina nunca verá.
     if (!anotada.ok) return null;
     return { ok: true, handled: 'kitchen_note', result: 'saved' };
+  }
+
+  if (decision.action === 'cash_confirm' || decision.action === 'cash_cancel') {
+    // Sin puerto no se promete nada: el pedido se queda como está y el mensaje
+    // sigue su camino. Contestarle "listo, ya está en cocina" sin haberlo metido
+    // es la promesa falsa de siempre.
+    if (!deps.decideCashOrder) return null;
+
+    const confirmar = decision.action === 'cash_confirm';
+    const hecho = await deps.decideCashOrder({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderId: decision.order.orderId,
+      decision: confirmar ? 'confirm' : 'cancel',
+    });
+
+    if (!hecho.ok) return null;
+
+    log.info('webhook_cash_decision', { decision: confirmar ? 'confirm' : 'cancel' });
+    return {
+      ok: true,
+      handled: confirmar ? 'cash_confirm' : 'cash_cancel',
+      result: 'sent',
+    };
   }
 
   if (decision.action === 'order_review' || decision.action === 'order_review_kept') {
@@ -935,6 +980,7 @@ async function processMessage(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
   sendOrderReview?: SendOrderReview;
+  decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -1567,6 +1613,7 @@ async function processEnvelopes(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
   sendOrderReview?: SendOrderReview;
+  decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -2241,6 +2288,7 @@ async function runBusiness(
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
       sendOrderReview: params.sendOrderReview,
+      decideCashOrder: params.decideCashOrder,
       appendKitchenNote: params.appendKitchenNote,
       switchToPickup: params.switchToPickup,
     });

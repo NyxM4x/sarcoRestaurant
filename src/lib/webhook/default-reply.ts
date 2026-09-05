@@ -10,6 +10,7 @@ import {
 } from './order-change-intent';
 import { isPickupSwitchRequest } from './pickup-switch-intent';
 import { readOrderReviewReply } from './order-review-reply';
+import { readCashConfirmReply } from './cash-confirm-reply';
 
 /**
  * QUÉ RECIBE EL CLIENTE CUANDO NO PIDIÓ NADA CONCRETO — módulo PURO (03-09-2026).
@@ -161,6 +162,17 @@ export interface OpenOrderSnapshot {
    * hace escribir al cliente para preguntar qué QR.
    */
   paymentMethod: PaymentMethod | null;
+  /**
+   * ¿Es un pedido en EFECTIVO que todavía espera su CONFIRMO? (05-09-2026)
+   *
+   * Sale de `orders.cash_confirmed_at` (migración 0036). Mientras sea `true`
+   * ese pedido no está en cocina ni en el grupo de reparto: el cliente acaba de
+   * ver cuánto le cuesta el envío y todavía puede decir que no.
+   *
+   * Ausente = `false`, que es como se comportaba antes de que existiera este
+   * paso: el pedido se daba por firme en cuanto se cotizaba.
+   */
+  awaitingCashConfirm?: boolean;
 }
 
 /**
@@ -243,6 +255,15 @@ export type DefaultReplyDecision =
   | { action: 'order_review'; order: OpenOrderSnapshot }
   /** Contestó que está bien así: se le confirma y no se toca nada. */
   | { action: 'order_review_kept'; order: OpenOrderSnapshot }
+  /**
+   * Escribió CONFIRMO sobre un pedido en efectivo (05-09-2026).
+   *
+   * Es el instante en que ese pedido entra a cocina y sale al grupo de reparto.
+   * Hasta aquí no había hecho ninguna de las dos cosas.
+   */
+  | { action: 'cash_confirm'; order: OpenOrderSnapshot }
+  /** Escribió CANCELAR: el pedido se cierra y no se cocina nada. */
+  | { action: 'cash_cancel'; order: OpenOrderSnapshot }
   /** Pasar su pedido a recojo: se lo lleva él y ya no hay envío que cobrar. */
   | { action: 'pickup_switch'; order: OpenOrderSnapshot }
   | { action: 'none'; reason: DefaultReplySkipReason };
@@ -452,6 +473,23 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     if (PICKUP_SWITCHABLE_STATUSES.includes(order.status)) {
       const pideRecojo = candidatos.some((t) => isPickupSwitchRequest(t));
       if (pideRecojo) return { action: 'pickup_switch', order };
+    }
+
+    // ── "CONFIRMO" / "CANCELAR" del pedido en efectivo ─────────────────────
+    //
+    // Va la PRIMERA de todas, y es lo más específico que puede traer un mensaje
+    // en este punto: ese pedido no está en cocina ni en el grupo de reparto, y
+    // este mensaje decide si entra o si desaparece.
+    //
+    // Antes que el recojo, incluso: quien escribe "cancelar" sobre un pedido que
+    // todavía no existe para nadie no está cambiando por dónde sale — está
+    // diciendo que no lo quiere.
+    if (order.awaitingCashConfirm === true) {
+      const decision = candidatos.map((t) => readCashConfirmReply(t)).find((r) => r !== null);
+      if (decision === 'confirm') return { action: 'cash_confirm', order };
+      if (decision === 'cancel') return { action: 'cash_cancel', order };
+      // Cualquier otra cosa sigue su camino: puede estar preguntando algo antes
+      // de decidir, y ahí el resto de puertas hacen su trabajo de siempre.
     }
 
     // ── Su respuesta a "¿querés agregar algo más?" ─────────────────────────

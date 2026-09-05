@@ -70,6 +70,16 @@ export interface RawKitchenOrderRow {
    * es lo mismo "no consta" que "consta que hay que cobrar".
    */
   delivery_fee_paid?: boolean | null;
+  /**
+   * Cuándo el cliente confirmó su pedido en EFECTIVO (0036, 05-09-2026).
+   *
+   * `null` en un pedido en efectivo significa que todavía no ha dicho que sí, y
+   * ese pedido NO se pinta en el tablero. Ausente —una fila vieja, un adaptador
+   * que no la pida— se trata como confirmado: antes del 05-09 no había nada que
+   * esperar, y hacer desaparecer los pedidos de anoche del historial sería peor
+   * que enseñar uno de más.
+   */
+  cash_confirmed_at?: string | null;
 }
 
 /** Fila cruda minima de `order_items`: producto y cantidad, nada de precios. */
@@ -544,6 +554,18 @@ export function deliveryCollectOf(
   return { ...deducido, basis: 'pedido', canOverride: sePuedeMarcar };
 }
 
+/**
+ * ¿Es un pedido en efectivo que sigue esperando el CONFIRMO del cliente?
+ *
+ * La ausencia de la columna (`undefined`) NO cuenta como "sin confirmar": una
+ * fila anterior a 0036 nunca tuvo ese paso, y tratarla como pendiente borraría
+ * del historial los pedidos en efectivo de las noches anteriores.
+ */
+function esperaConfirmacionEnEfectivo(row: RawKitchenOrderRow): boolean {
+  if (row.payment_method !== 'cash') return false;
+  return row.cash_confirmed_at === null;
+}
+
 export function toKitchenTickets(
   rows: RawKitchenOrderRow[],
   items: RawKitchenItemRow[],
@@ -598,6 +620,24 @@ export function toKitchenTickets(
     // si la hamburguesa ya está en la plancha, hacerla desaparecer de la
     // pantalla no la devuelve al refrigerador.
     if (stage === 'new' && (gate.state === 'rejected_grace' || gate.state === 'expired')) {
+      continue;
+    }
+
+    // ── El pedido en efectivo que el cliente todavía no confirmó ───────────
+    //
+    // No se pinta. En efectivo el cliente ve el precio del envío DESPUÉS de
+    // armar su pedido, y a veces dice que no: dos de la madrugada del 05-09
+    // —"muy caro su moto", "cancelar pedido"— habrían estado ocupando una celda
+    // del tablero, con alguien mirándolos y sin saber que nadie los iba a
+    // pagar. Peor: alguien podría haberlos empezado.
+    //
+    // Sale de la vista, NO de la base, igual que el de arriba: el pedido sigue
+    // vivo esperando su respuesta, y en cuanto escriba CONFIRMO aparece solo.
+    // Cancelarlo aquí sería decidir por el cliente.
+    //
+    // Solo mientras está NUEVO, por el mismo motivo de siempre: si ya está en
+    // la plancha, hacerlo desaparecer no devuelve la comida al refrigerador.
+    if (stage === 'new' && esperaConfirmacionEnEfectivo(row)) {
       continue;
     }
 
