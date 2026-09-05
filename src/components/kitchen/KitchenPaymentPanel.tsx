@@ -45,6 +45,16 @@ export interface KitchenPaymentPanelProps {
    * recibir el pedido.
    */
   amountDueByQr: number;
+  /**
+   * ¿Este pedido se paga en EFECTIVO al recibirlo? (05-09-2026)
+   *
+   * Cambia el rótulo entero. "A cobrar por QR Bs 18" sobre un pedido en
+   * efectivo es falso dos veces: no hay QR por el que cobrar, y esos Bs 18 no
+   * son lo que nadie va a pedir —el repartidor cobra el total en la puerta, que
+   * es lo que dice el chip de abajo—. Dos cifras distintas en el mismo ticket,
+   * y la de arriba en el sitio donde se mira el dinero.
+   */
+  isCash: boolean;
   /** Refresca el tablero tras una decisión (o un conflicto). */
   onDecided: () => void;
 }
@@ -66,6 +76,7 @@ function formatBs(amount: number): string {
 export function KitchenPaymentPanel({
   payment,
   amountDueByQr,
+  isCash,
   onDecided,
 }: KitchenPaymentPanelProps) {
   // El intento vigente es el más reciente; `toPaymentView` ya los ordena así.
@@ -84,19 +95,35 @@ export function KitchenPaymentPanel({
           El rótulo dice QUÉ es la cifra. "Pago: Bs 48" invita a compararla con
           cualquier cosa; "A cobrar por QR" dice exactamente qué tiene que decir
           el comprobante que se está mirando. */}
-      <div className="flex items-baseline justify-between gap-2">
+      {/* En efectivo va el rótulo SOLO, sin cifra: la única que hay que cobrar
+          está en el chip de la puerta, y repetir aquí otra distinta es la clase
+          de duda que se resuelve mirando el ticket equivocado. */}
+      {isCash ? (
         <p className="text-[10px] font-bold uppercase leading-none tracking-wider text-zinc-500">
-          A cobrar por QR
+          Paga en efectivo
         </p>
-        <p className="text-base font-extrabold leading-none tabular-nums text-zinc-900">
-          {formatBs(amountDueByQr)}
-        </p>
-      </div>
+      ) : (
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[10px] font-bold uppercase leading-none tracking-wider text-zinc-500">
+            A cobrar por QR
+          </p>
+          <p className="text-base font-extrabold leading-none tabular-nums text-zinc-900">
+            {formatBs(amountDueByQr)}
+          </p>
+        </div>
+      )}
 
       {attempt === null ? (
-        <p className="mt-1 text-xs font-semibold leading-tight text-zinc-500">
-          {sueltos.length > 0 ? 'Comprobante sin asociar' : 'Sin comprobante'}
-        </p>
+        // "Sin comprobante" es un dato en un pedido por QR —falta algo que tiene
+        // que llegar— y una obviedad en uno en efectivo, donde no se espera
+        // ninguno. Ahí no se escribe nada.
+        sueltos.length > 0 ? (
+          <p className="mt-1 text-xs font-semibold leading-tight text-zinc-500">
+            Comprobante sin asociar
+          </p>
+        ) : isCash ? null : (
+          <p className="mt-1 text-xs font-semibold leading-tight text-zinc-500">Sin comprobante</p>
+        )
       ) : (
         <AttemptBlock attempt={attempt} onDecided={onDecided} />
       )}

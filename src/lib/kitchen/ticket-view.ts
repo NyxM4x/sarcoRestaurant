@@ -55,9 +55,11 @@ export interface RawKitchenOrderRow {
   total_amount?: number | string | null;
   subtotal_amount?: number | string | null;
   /**
-   * Como se paga el pedido. NO viaja al ticket: solo decide si el pedido entra
-   * al tablero, porque un pedido por QR espera comprobante y uno historico en
-   * efectivo no tiene ninguno que esperar.
+   * Como se paga el pedido. La PALABRA no viaja al ticket —quien cocina no
+   * tiene nada que hacer con ella— pero desde el 05-09-2026 sí viaja derivada
+   * en `paysCash`, para que la pantalla no le hable de un QR a quien paga en
+   * efectivo. Y sigue decidiendo si el pedido entra al tablero, porque un
+   * pedido por QR espera comprobante y uno en efectivo no espera ninguno.
    */
   payment_method?: PaymentMethod | null;
   /**
@@ -181,9 +183,23 @@ export interface KitchenTicket {
   /** Hora en que se marco listo (solo etapa `done`); alimenta el historial. */
   completedAt: string | null;
   /**
+   * ¿Este pedido se paga en EFECTIVO al recibirlo? (05-09-2026)
+   *
+   * Un BOOLEANO y no el método de pago, y la diferencia importa: el ticket
+   * sigue sin transportar cómo se paga —esa regla la vigila un test— porque
+   * quien cocina no tiene nada que hacer con esa palabra. Lo que sí necesita la
+   * pantalla es saber que este pedido NO espera ningún comprobante, para no
+   * escribirle "A cobrar por QR Bs 18" y "Sin comprobante" encima a un pedido
+   * que se cobra entero en la puerta. Ver `KitchenPaymentPanel`.
+   */
+  paysCash: boolean;
+  /**
    * Lo que el cliente debia transferir por QR: la cifra contra la que se
    * contrasta el comprobante. En delivery es la comida (el envio se paga al
    * recibir); en recojo, el total.
+   *
+   * En un pedido en EFECTIVO no significa nada —no hay QR— y por eso no se
+   * pinta: la cifra que hay que cobrar es la del chip de la puerta.
    */
   amountDueByQr: number;
   /**
@@ -596,6 +612,7 @@ export function toKitchenTickets(
       lines: lines[row.id] ?? [],
       notes: row.notes,
       completedAt: stage === 'done' ? row.updated_at : null,
+      paysCash: row.payment_method === 'cash',
       amountDueByQr: amountDueByQrOf(row),
       // Sin haber podido consultar los pagos no se afirma que falte confirmar:
       // eso vaciaría el resumen entero por un fallo de consulta, que es la misma

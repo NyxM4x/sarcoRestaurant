@@ -120,13 +120,32 @@ export function KitchenTicketCard({
    * del ticket y van arriba del todo; cuando no, es un dato de consulta y va
    * detrás de los platos.
    */
-  const bloquePago = (
-    <KitchenPaymentPanel
-      payment={ticket.payment}
-      amountDueByQr={ticket.amountDueByQr}
-      onDecided={onPaymentDecided ?? (() => {})}
-    />
-  );
+  /**
+   * En EFECTIVO el pago solo se pinta si hay algo que mirar (05-09-2026).
+   *
+   * Ese pedido no espera ningún comprobante: se cobra entero en la puerta y el
+   * chip rojo ya lo dice con su cifra. El bloque no aportaba más que un rótulo
+   * falso y un "Sin comprobante" que enunciaba lo evidente, encima del sitio
+   * donde se mira el dinero.
+   *
+   * Si llega una foto igualmente —alguien que decide pagar por QR después, o un
+   * comprobante suelto que hay que asociar— el bloque vuelve con sus botones:
+   * lo que no se pinta es el vacío, no el trabajo.
+   */
+  const esEfectivo = ticket.paysCash;
+  const hayPagoQueMirar =
+    ticket.payment !== null &&
+    (ticket.payment.attempts.length > 0 || ticket.payment.unlinkedProofs.length > 0);
+
+  const bloquePago =
+    esEfectivo && !hayPagoQueMirar ? null : (
+      <KitchenPaymentPanel
+        payment={ticket.payment}
+        amountDueByQr={ticket.amountDueByQr}
+        isCash={esEfectivo}
+        onDecided={onPaymentDecided ?? (() => {})}
+      />
+    );
 
   return (
     <article className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-black/5">
@@ -180,7 +199,7 @@ export function KitchenTicketCard({
         {/* Pago ARRIBA cuando es lo que impide cocinar: sus botones son la
             acción a hacer ahora, y al final del scroll salían cortados por la
             mitad — medio botón verde asomando es peor que ninguno. */}
-        {pagoBloqueaInicio && <div className="mb-2">{bloquePago}</div>}
+        {pagoBloqueaInicio && bloquePago !== null && <div className="mb-2">{bloquePago}</div>}
 
         {/* ── El tamaño de la letra ────────────────────────────────────────
             Lo que se cocina es lo que más grande se lee: cantidad a 30 px y
