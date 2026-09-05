@@ -137,10 +137,12 @@ export type DeliveryCollectKind =
  *
  *   `persona`      alguien miró el comprobante y lo marcó. Manda sobre todo.
  *   `comprobante`  lo dice la etiqueta del análisis. Es un dato leído.
+ *   `efectivo`     el cliente eligió pagar al recibir. No hay nada que leer ni
+ *                  que confirmar: se cobra todo en la puerta.
  *   `pedido`       nadie leyó nada; sale de la regla general. Hay que
  *                  confirmarlo antes de cobrar.
  */
-export type DeliveryCollectBasis = 'persona' | 'comprobante' | 'pedido';
+export type DeliveryCollectBasis = 'persona' | 'comprobante' | 'efectivo' | 'pedido';
 
 export type DeliveryCollect = DeliveryCollectKind & {
   basis: DeliveryCollectBasis;
@@ -454,11 +456,29 @@ export function deliveryCollectOf(
   const subtotal = Number(row.subtotal_amount) || 0;
   const envio = total - subtotal;
 
+  // ── EFECTIVO: aquí no hay nada que decidir (05-09-2026) ───────────────────
+  //
+  // El pedido #25 fue el primero que eligió efectivo, y su ticket salió con los
+  // dos botones de marcar el envío y con "Sin confirmar: no se pudo leer el
+  // comprobante" debajo. Las tres cosas son falsas a la vez: no hay comprobante
+  // que leer, no hay envío pagado por adelantado que confirmar, y no hay
+  // ninguna duda que zanjar — este cliente no ha pagado nada todavía.
+  //
+  // Salía así porque el efectivo caía en el mismo saco que todo lo demás: se
+  // deducía de la regla general y se marcaba `pedido`, que es la etiqueta de
+  // "nadie leyó nada, confírmalo antes de cobrar". Pero esto no es una
+  // deducción: es lo que el cliente eligió al confirmar, escrito en su fila.
+  //
+  // Se resuelve ANTES que nada, incluso que `delivery_fee_paid`: en efectivo no
+  // hay ningún camino por el que el envío pueda constar pagado de antemano, y
+  // una marca vieja de cuando existían esos botones no puede sobrevivirles.
+  if (row.payment_method === 'cash') {
+    return total > 0 ? { kind: 'todo', amount: total, basis: 'efectivo', canOverride: false } : null;
+  }
+
   /** Lo que falta cobrar según cómo se pagó, sin mirar ningún comprobante. */
   const segunElPedido = (): DeliveryCollectKind | null => {
-    if (row.payment_method === 'cash') {
-      return total > 0 ? { kind: 'todo', amount: total } : null;
-    }
+    // El efectivo ya salió por arriba: aquí solo llega lo que se paga por QR.
     if (row.payment_method === 'qr') {
       return envio > 0 ? { kind: 'envio', amount: envio } : { kind: 'pagado' };
     }

@@ -364,9 +364,34 @@ describe('ticket — qué se cobra en la puerta', () => {
       .toEqual({ kind: 'envio', amount: 10, basis: 'pedido', canOverride: true });
   });
 
-  it('delivery en efectivo: se cobra todo', () => {
+  it('delivery en efectivo: se cobra todo, y no hay nada que confirmar', () => {
+    // 05-09-2026, el pedido #25 —el primero que eligió efectivo—. Salía con
+    // `basis: 'pedido'` y `canOverride: true`, o sea con los dos botones de
+    // marcar el envío y con "Sin confirmar: no se pudo leer el comprobante"
+    // debajo. Las tres cosas falsas: no hay comprobante que leer, no hay envío
+    // pagado por adelantado, y no hay duda que zanjar.
     expect(cobro({ delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 44, total_amount: 54 }))
-      .toEqual({ kind: 'todo', amount: 54, basis: 'pedido', canOverride: true });
+      .toEqual({ kind: 'todo', amount: 54, basis: 'efectivo', canOverride: false });
+  });
+
+  it('una marca vieja del envío no sobrevive en un pedido en efectivo', () => {
+    // Los botones existieron para estos tickets antes del 05-09. Lo que alguien
+    // tocara entonces no puede seguir mandando ahora: en efectivo el envío no
+    // tiene ningún camino por el que constar pagado de antemano.
+    expect(
+      cobro({
+        delivery_type: 'delivery',
+        payment_method: 'cash',
+        subtotal_amount: 44,
+        total_amount: 54,
+        delivery_fee_paid: true,
+      }),
+    ).toEqual({ kind: 'todo', amount: 54, basis: 'efectivo', canOverride: false });
+  });
+
+  it('un pedido en efectivo sin importes no inventa una cifra que cobrar', () => {
+    expect(cobro({ delivery_type: 'delivery', payment_method: 'cash', subtotal_amount: 0, total_amount: 0 }))
+      .toBeNull();
   });
 
   it('en recojo no hay puerta donde cobrar', () => {
