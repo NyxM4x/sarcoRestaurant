@@ -5,7 +5,7 @@ import type { KdsAction } from '@/lib/kitchen/kds-status';
 import { formatClockTime } from '@/lib/kitchen/timer';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import { shortOrderNumber } from '@/lib/orders/order-number';
-import { CollectChip } from './KitchenTicketCard';
+import { bs, CollectChip } from './KitchenTicketCard';
 
 /**
  * Historial de "Pedidos listos": el salvavidas por si un cocinero completo un
@@ -30,6 +30,39 @@ export interface KitchenReadyPanelProps {
   onClose: () => void;
   /** Recarga el tablero tras marcar un envío. Sin él, espera al poll. */
   onCollectDecided?: () => void;
+}
+
+/**
+ * "Productos Bs 87 · Envío Bs 27" — el reparto de lo que se cobra.
+ *
+ * ── Por qué se calcula aquí y no viaja en el ticket ─────────────────────────
+ *
+ * Porque ya está todo. `amountDueByQr` es la comida (en delivery, el subtotal)
+ * y el chip trae la otra mitad, así que no hace falta mandar el total del
+ * pedido a cocina — y no mandarlo es una regla del ticket, con su test.
+ *
+ *   efectivo (`todo`)   el chip lleva el TOTAL  →  envío = total − comida
+ *   por QR   (`envio`)  el chip lleva el ENVÍO  →  se usa tal cual
+ *   por QR   (`pagado`) no hay cifra de envío   →  se dice que está pagado
+ *
+ * `null` cuando no hay nada que repartir: en recojo no hay envío, y sin comida
+ * conocida la resta no diría nada.
+ */
+function desgloseDe(ticket: KitchenTicket): string | null {
+  const collect = ticket.deliveryCollect;
+  if (collect === null) return null;
+
+  const comida = ticket.amountDueByQr;
+  if (comida <= 0) return null;
+
+  if (collect.kind === 'pagado') return `Productos Bs ${bs(comida)} · Envío pagado`;
+
+  const envio = collect.kind === 'todo' ? collect.amount - comida : collect.amount;
+  // Una resta que sale negativa significa que las cifras no cuadran entre sí:
+  // se calla en vez de escribir un envío imposible.
+  if (envio < 0) return null;
+
+  return `Productos Bs ${bs(comida)} · Envío Bs ${bs(envio)}`;
 }
 
 export function KitchenReadyPanel({
@@ -164,6 +197,23 @@ export function KitchenReadyPanel({
                       orderNumber={ticket.orderNumber}
                       onDecided={onCollectDecided}
                     />
+                  )}
+
+                  {/* Productos y envío POR SEPARADO (05-09-2026).
+
+                      Esta es la pantalla donde Zarco y los repartidores cuadran
+                      la caja al final del turno, y ahí una sola cifra no sirve:
+                      lo que se reparte es el envío, y lo que entra al negocio
+                      son los productos. Con "COBRAR TODO BS 114" había que
+                      abrir el pedido para saber cuánto de eso era la moto.
+
+                      Va en los dos métodos de pago, no solo en efectivo: en un
+                      pedido por QR la comida ya entró por el banco y el envío
+                      se cobra en la puerta, y esa cuenta también se cuadra. */}
+                  {desgloseDe(ticket) && (
+                    <p className="mt-1 px-0.5 text-[12px] font-semibold leading-tight text-zinc-600">
+                      {desgloseDe(ticket)}
+                    </p>
                   )}
 
                   {/* En recojo no hay puerta donde cobrar, así que no hay chip

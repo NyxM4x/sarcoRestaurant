@@ -400,7 +400,7 @@ function jornadaAnteriorLabel(orderNumber: string): string {
 }
 
 /** Bs sin decimales cuando no hacen falta: "10" y no "10.00". */
-function bs(amount: number): string {
+export function bs(amount: number): string {
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 
