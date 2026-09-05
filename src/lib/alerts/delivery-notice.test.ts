@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDeliveryNotice,
   mapsLink,
+  escapeTelegramHtml,
   shortOrderNumber,
   whatsappLink,
   type DeliveryNoticeInput,
@@ -22,6 +23,8 @@ const BASE: DeliveryNoticeInput = {
     { name: 'Gaseosa 2 L', quantity: 1 },
   ],
   deliveryAmount: 16,
+  subtotalAmount: 78,
+  isCash: false,
   collect: { kind: 'envio' },
   latitude: -17.842950820923,
   longitude: -63.179233551025,
@@ -62,7 +65,7 @@ describe('aviso al grupo de reparto', () => {
       expect(text, dato).toContain(dato);
     }
     // Sin el enlace, el repartidor no tiene a dónde ir.
-    expect(text).toContain(mapsLink(BASE.latitude, BASE.longitude));
+    expect(text).toContain(escapeTelegramHtml(mapsLink(BASE.latitude, BASE.longitude)));
   });
 
   it('NO lleva el total del pedido (03-09-2026)', () => {
@@ -112,7 +115,7 @@ describe('aviso al grupo de reparto', () => {
     // El geocoding inverso devolvía "Calle 1, Santa Cruz de la Sierra…", que
     // ocupaba dos renglones sin distinguir un punto de otro.
     expect(text).not.toContain('Zona');
-    expect(text).toContain(`Ubicación: ${mapsLink(BASE.latitude, BASE.longitude)}`);
+    expect(text).toContain(`Ubicación: ${escapeTelegramHtml(mapsLink(BASE.latitude, BASE.longitude))}`);
   });
 
   it('un pedido sin nombre no deja el campo en blanco', () => {
@@ -131,7 +134,7 @@ describe('aviso al grupo de reparto', () => {
   });
 
   it('el enlace lleva las coordenadas exactas, sin redondear', () => {
-    const link = mapsLink(-17.842950820923, -63.179233551025);
+    const link = escapeTelegramHtml(mapsLink(-17.842950820923, -63.179233551025));
     expect(link).toContain('-17.842950820923,-63.179233551025');
     expect(link.startsWith('https://')).toBe(true);
   });
@@ -195,7 +198,7 @@ describe('la instrucción de cobro', () => {
     expect(text).not.toContain('PAGADO');
     // Y el resto del aviso sigue entero.
     expect(text).toContain('Envío: Bs 16');
-    expect(text).toContain(mapsLink(BASE.latitude, BASE.longitude));
+    expect(text).toContain(escapeTelegramHtml(mapsLink(BASE.latitude, BASE.longitude)));
   });
 
   it('va entre el envío y la ubicación, en su propio renglón', () => {
@@ -206,5 +209,63 @@ describe('la instrucción de cobro', () => {
     expect(iEnvio).toBeGreaterThan(-1);
     expect(iCobro).toBeGreaterThan(iEnvio);
     expect(iMapa).toBeGreaterThan(iCobro);
+  });
+});
+
+/**
+ * EL AVISO DE EFECTIVO (04-09-2026).
+ *
+ * Quien lleva un pedido en efectivo no comprueba un cobro: lo hace. Necesita el
+ * desglose entero para pedir la cifra y dar el vuelto, y necesita ver de un
+ * golpe que este pedido no está pagado.
+ */
+describe('aviso de reparto en EFECTIVO', () => {
+  const EFECTIVO = { ...BASE, isCash: true, subtotalAmount: 18, deliveryAmount: 10 };
+
+  it('avisa en negrita que es efectivo', () => {
+    // Negrita y no mayúsculas a secas: es lo primero que cambia su trabajo.
+    expect(buildDeliveryNotice(EFECTIVO)).toContain('<b>QUIERE EFECTIVO</b>');
+  });
+
+  it('lleva el desglose y la suma que hay que cobrar', () => {
+    const text = buildDeliveryNotice(EFECTIVO);
+    expect(text).toContain('Productos: Bs 18');
+    expect(text).toContain('Envío: Bs 10');
+    expect(text).toContain('TOTAL A COBRAR: Bs 28');
+  });
+
+  it('el total se calcula, no se recibe: no puede discrepar del desglose', () => {
+    const text = buildDeliveryNotice({ ...EFECTIVO, subtotalAmount: 46.5, deliveryAmount: 13 });
+    expect(text).toContain('TOTAL A COBRAR: Bs 59.50');
+  });
+
+  it('no lleva la instrucción del QR: en efectivo se cobra todo, y ya lo dice', () => {
+    const text = buildDeliveryNotice({ ...EFECTIVO, collect: { kind: 'envio' } });
+    expect(text).not.toContain('COBRAR ENVÍO');
+    expect(text).not.toContain('ENVÍO PAGADO');
+  });
+
+  it('conserva lo de siempre: pedido, cliente, productos y ubicación', () => {
+    const text = buildDeliveryNotice(EFECTIVO);
+    expect(text).toContain('Cliente: GRAD');
+    expect(text).toContain(escapeTelegramHtml(mapsLink(BASE.latitude, BASE.longitude)));
+  });
+});
+
+describe('escape de HTML — el aviso viaja con parse_mode', () => {
+  it('un nombre con < > & no rompe el mensaje', () => {
+    // Sin escapar, Telegram responde 400 y el aviso no llega a nadie.
+    const text = buildDeliveryNotice({ ...BASE, customerName: 'Ana & <b>Pepe</b>' });
+    expect(text).toContain('Cliente: Ana &amp; &lt;b&gt;Pepe&lt;/b&gt;');
+    expect(text).not.toContain('<b>Pepe');
+  });
+
+  it('el nombre de un producto también se escapa', () => {
+    const text = buildDeliveryNotice({ ...BASE, items: [{ name: 'Combo <3', quantity: 1 }] });
+    expect(text).toContain('1x Combo &lt;3');
+  });
+
+  it('el & del enlace de Maps se escapa: sin eso se come media URL', () => {
+    expect(buildDeliveryNotice(BASE)).toContain('&amp;query=');
   });
 });

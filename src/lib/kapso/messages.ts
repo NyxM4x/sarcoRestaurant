@@ -303,11 +303,19 @@ export const MENU_CHANGE_BUTTON_TEXT = 'MODIFICAR MI PEDIDO';
  * El punto 3 es el que evita el peor desenlace: que pague el QR anterior por un
  * pedido que acaba de cambiar. Por eso no se recorta aunque alargue el mensaje.
  */
-export function orderChangeCtaText(orderNumber: string, totalAmount: number): string {
+export function orderChangeCtaText(
+  orderNumber: string,
+  totalAmount: number,
+  /** `true` si el pedido se paga en efectivo: entonces no hay QR que mandar. */
+  isCash = false,
+): string {
+  const cierre = isCash
+    ? 'te mandamos el total actualizado'
+    : 'te mandamos el total actualizado con el QR';
   return (
     `Tu pedido ${shortOrderNumber(orderNumber)} todavía no está pagado, así que ` +
-    `podés cambiarlo 👇 Armálo de nuevo como lo querés y te mandamos el total ` +
-    `actualizado con el QR. Ahora mismo suma ${formatBs(totalAmount)}.`
+    `podés cambiarlo 👇 Armálo de nuevo como lo querés y ${cierre}. ` +
+    `Ahora mismo suma ${formatBs(totalAmount)}.`
   );
 }
 
@@ -440,11 +448,18 @@ export function proofAckText(orderNumber: string): string {
  * NO promete deshacerlo. Mientras no exista el camino de vuelta automático,
  * ofrecerlo sería la promesa que este proyecto no hace.
  */
-export function pickupSwitchText(orderNumber: string, foodAmount: number): string {
+export function pickupSwitchText(
+  orderNumber: string,
+  foodAmount: number,
+  /** `true` si paga en efectivo: no hay QR, paga al recoger. */
+  isCash = false,
+): string {
+  const pago = isCash
+    ? `Ya no pagas envío: son ${formatBs(foodAmount)} y los pagas al recoger.`
+    : `Ya no pagas envío: son ${formatBs(foodAmount)} y el QR que te mandamos sigue valiendo.`;
   return (
     `Listo 🛍️ Tu pedido ${shortOrderNumber(orderNumber)} queda para que lo recojas ` +
-    `en el local. Ya no pagas envío: son ${formatBs(foodAmount)} y el QR que te ` +
-    'mandamos sigue valiendo. Te avisamos apenas esté listo.'
+    `en el local. ${pago} Te avisamos apenas esté listo.`
   );
 }
 

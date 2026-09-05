@@ -85,7 +85,7 @@ export type CheckoutFormResult =
 export const EMPTY_FORM_FIELDS: CheckoutFormFields = {
   customer_name: '',
   delivery_type: null,
-  payment_method: 'qr',
+  payment_method: null,
   notes: '',
 };
 

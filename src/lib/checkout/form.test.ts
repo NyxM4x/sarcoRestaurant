@@ -249,3 +249,35 @@ describe('validateCheckoutForm — método de pago (6D.1)', () => {
     if (result.ok) expect(result.value.payment_method).toBe('qr');
   });
 });
+
+/**
+ * EL MÉTODO DE PAGO VUELVE A SER UNA PREGUNTA (04-09-2026).
+ *
+ * Se había forzado a `'qr'` el 27-08 porque no había nada que decidir. Hoy hay
+ * clientes pidiendo pagar en efectivo, así que el formulario vuelve a exigir
+ * una respuesta antes de dejar confirmar.
+ */
+describe('método de pago: hay que elegirlo', () => {
+  it('el formulario vacío no nace con el pago resuelto', () => {
+    expect(EMPTY_FORM_FIELDS.payment_method).toBeNull();
+  });
+
+  it('sin elegir método, el pedido no se puede confirmar', () => {
+    const res = validateCheckoutForm(
+      { ...EMPTY_FORM_FIELDS, customer_name: 'Ana', delivery_type: 'pickup' },
+      ITEMS,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errors.payment_method).toBeTruthy();
+  });
+
+  it('efectivo es una respuesta válida, como el QR', () => {
+    for (const metodo of ['cash', 'qr'] as const) {
+      const res = validateCheckoutForm(
+        { ...EMPTY_FORM_FIELDS, customer_name: 'Ana', delivery_type: 'pickup', payment_method: metodo },
+        ITEMS,
+      );
+      expect(res.ok, metodo).toBe(true);
+    }
+  });
+});

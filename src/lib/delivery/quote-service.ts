@@ -11,6 +11,7 @@ import {
   createKapsoNotificationSender,
   createSupabaseNotificationStore,
 } from '@/lib/orders/notifications/service';
+import { notifyDeliveryGroup } from '@/lib/alerts/delivery-notice-service';
 import { dispatchSingleNotification } from '@/lib/orders/notifications/web-notify';
 import type { DeliveryPricing, DeliveryQuoteStatus, DeliveryType, OrderStatus } from '@/types';
 import { normalizePhone } from '@/lib/phone';
@@ -171,16 +172,26 @@ export function createQuoteOrchestratorDeps(
       // descubre la confirmación dinámica una vez el pedido queda 'quoted'.
       await dispatchSingleNotification(store, sender, orderId, 'confirmation');
 
-      // El aviso al grupo de reparto YA NO sale aquí.
+      // El aviso al grupo de reparto NO sale aquí para los pedidos por QR.
       //
-      // Aquí solo se ha cotizado y se ha mandado el QR: el cliente todavía no ha
-      // pagado. Avisar en este punto ponía el pedido delante del reparto antes
+      // Ahí solo se ha cotizado y se ha mandado el QR: el cliente todavía no ha
+      // pagado. Avisar en ese punto ponía el pedido delante del reparto antes
       // de cobrarlo, y si el cliente no llegaba a pagar, alguien podía salir a
-      // llevar algo que nadie había pagado.
+      // llevar algo que nadie había pagado. Sale cuando el pago se acepta, en
+      // `decidePaymentAttempt`.
       //
-      // Ahora sale cuando el pago se acepta, en `decidePaymentAttempt`. La marca
-      // `delivery_notice_sent_at` (0019) sigue siendo la que impide duplicados,
-      // así que el cambio de momento no puede provocar un aviso repetido.
+      // ── Para el EFECTIVO, este SÍ es el momento (04-09-2026) ──────────────
+      //
+      // Un pedido en efectivo no genera `payment_attempts`, así que no hay
+      // ningún `accept` que disparar: por el camino del QR no llegaría nunca al
+      // grupo. Y el argumento de arriba no le aplica —no hay pago que esperar,
+      // el repartidor cobra en la puerta—, mientras que el pedido ya es firme:
+      // el cliente eligió, mandó su ubicación y conoce el total.
+      //
+      // La función comprueba el método por su cuenta: si el pedido resulta ser
+      // por QR, se descarta aquí mismo. Y el índice único `(kind, target_ref)`
+      // de 0028 sigue garantizando un solo aviso por pedido.
+      await notifyDeliveryGroup(orderId, undefined, 'cash_confirmed');
     },
 
     isRainSurchargeActive: () => readRainSurcharge(supabase),

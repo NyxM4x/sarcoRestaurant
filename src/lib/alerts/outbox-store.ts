@@ -240,7 +240,14 @@ export function createRealAlertSender(): AlertSender {
       // cinco veces solo retrasaría media hora el momento de verlo en el panel.
       return { kind: 'permanent', code: 'config_missing' };
     }
-    return createTelegramAlertSender({ botToken: env.TELEGRAM_BOT_TOKEN, chatId }).send(body);
+    // El aviso de reparto lleva formato desde el 04-09-2026 —"QUIERE EFECTIVO"
+    // en negrita— y su constructor escapa todo el contenido variable. El resto
+    // sale en texto plano, como siempre.
+    const parseMode = kind === 'delivery_notice' ? ('HTML' as const) : undefined;
+    return createTelegramAlertSender({ botToken: env.TELEGRAM_BOT_TOKEN, chatId }).send(
+      body,
+      parseMode,
+    );
   };
 }
 

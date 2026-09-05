@@ -153,6 +153,38 @@ export function buildDynamicDeliveryConfirmationText(
 }
 
 /**
+ * La confirmación de un pedido EN EFECTIVO (04-09-2026).
+ *
+ * La otra mitad de `buildQrPaymentCaption`. Hasta hoy el efectivo caía en la
+ * rama de texto pelado y salía sin una sola palabra sobre el pago: el cliente
+ * leía su pedido y su total, y no sabía si tenía que hacer algo o no.
+ *
+ * Dice la cifra ENTERA y con qué se compone, porque es lo que va a tener que
+ * dar en la puerta —y lo que el repartidor va a pedirle—; el QR cobra solo la
+ * comida, así que ahí la suma se parte y aquí no.
+ *
+ * Sin envío cotizado todavía (`deliveryAmount` en 0, o recojo) no se inventa un
+ * total: se dice lo único cierto, que se paga al recibir.
+ */
+export function buildCashPaymentText(
+  confirmationText: string,
+  amounts?: { subtotal: number; deliveryAmount: number },
+): string {
+  if (!amounts || amounts.deliveryAmount <= 0) {
+    return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.`;
+  }
+
+  const total = amounts.subtotal + amounts.deliveryAmount;
+  return [
+    confirmationText,
+    '',
+    `💵 Pagas en EFECTIVO al recibir: ${formatBs(total)}`,
+    `   (comida ${formatBs(amounts.subtotal)} + delivery ${formatBs(amounts.deliveryAmount)})`,
+    'Ten el monto listo, por favor 🙌',
+  ].join('\n');
+}
+
+/**
  * Caption de la confirmación cuando el pago es por QR (Fase 6D.1). Reutiliza el
  * texto de confirmación completo (que YA incluye el número de pedido, clave para
  * reconciliar) y añade la indicación de pago. La imagen del QR viaja aparte (es

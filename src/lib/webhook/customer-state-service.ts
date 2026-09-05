@@ -223,6 +223,7 @@ export async function lookupCustomerState(
       totalAmount: Number(pedido.total_amount),
       payment: gate.state,
       proofReceived,
+      paymentMethod: pedido.payment_method ?? null,
     };
 
     // 3. El cooldown solo interesa cuando de verdad se va a recordar algo.

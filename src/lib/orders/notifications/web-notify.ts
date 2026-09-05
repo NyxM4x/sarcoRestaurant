@@ -10,6 +10,7 @@ import {
   buildConfirmationText,
   buildDynamicDeliveryConfirmationText,
   buildOrderReceivedText,
+  buildCashPaymentText,
   buildQrPaymentCaption,
   type ConfirmationTextResult,
   type NotifyItem,
@@ -398,7 +399,19 @@ async function processConfirmation(
           }),
           order.phone_number_id,
         )
-      : sender.sendText(order.customer_phone, text, order.phone_number_id),
+      : sender.sendText(
+          order.customer_phone,
+          // El efectivo ya no sale mudo (04-09-2026): lleva su cifra y su
+          // instrucción, igual que el QR lleva las suyas. Un método de pago
+          // NULL —históricos, WhatsApp Flow— conserva el texto pelado.
+          order.payment_method === 'cash'
+            ? buildCashPaymentText(text, {
+                subtotal: order.subtotal_amount,
+                deliveryAmount: order.delivery_amount,
+              })
+            : text,
+          order.phone_number_id,
+        ),
   );
   if (!sent.ok) {
     // La RPC decide el estado real (ambiguo -> pending_reconciliation); el

@@ -46,8 +46,20 @@ export interface TelegramDeps {
   clearTimer?: (handle: unknown) => void;
 }
 
+/**
+ * Cómo interpreta Telegram el texto. Ausente = texto plano, que es como salieron
+ * todos los mensajes hasta el 04-09-2026.
+ *
+ * Se eligió HTML y no MarkdownV2 para la única alerta que lo necesita: MarkdownV2
+ * obliga a escapar `.`, `-`, `(` y `)`, que aparecen en los enlaces de Maps, en
+ * "0.8 km" y en cualquier nombre de cliente. Un escape olvidado ahí no es un
+ * mensaje feo: es un 400 de Telegram y un aviso de reparto que no llega. En HTML
+ * solo hay tres caracteres que escapar.
+ */
+export type TelegramParseMode = 'HTML';
+
 export interface AlertSender {
-  send(text: string): Promise<TelegramOutcome>;
+  send(text: string, parseMode?: TelegramParseMode): Promise<TelegramOutcome>;
 }
 
 const DEFAULT_BASE_URL = 'https://api.telegram.org';
@@ -74,7 +86,7 @@ export function createTelegramAlertSender(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return {
-    async send(text: string): Promise<TelegramOutcome> {
+    async send(text: string, parseMode?: TelegramParseMode): Promise<TelegramOutcome> {
       const token = (config.botToken ?? '').trim();
       const chatId = (config.chatId ?? '').trim();
       // Sin credenciales: fallo local seguro, CERO fetch.
@@ -90,7 +102,14 @@ export function createTelegramAlertSender(
         res = await doFetch(`${baseUrl}/bot${token}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+          body: JSON.stringify({
+            chat_id: chatId,
+            text,
+            disable_web_page_preview: true,
+            // Solo viaja cuando alguien lo pide: un `parse_mode` de más
+            // convierte cualquier `<` de un nombre en un 400.
+            ...(parseMode ? { parse_mode: parseMode } : {}),
+          }),
           signal: controller.signal,
         });
       } catch {

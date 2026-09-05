@@ -44,6 +44,7 @@ function pedido(over: Partial<OpenOrderSnapshot> = {}): OpenOrderSnapshot {
     totalAmount: 95,
     payment: 'no_proof',
     proofReceived: false,
+    paymentMethod: null,
     ...over,
   };
 }
@@ -250,6 +251,7 @@ describe('decideDefaultReply — cuando la foto YA llegó (04-09-2026)', () => {
       totalAmount: 28,
       payment: 'no_proof',
       proofReceived: true,
+      paymentMethod: null,
       ...over,
     },
   });

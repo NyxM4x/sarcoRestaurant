@@ -58,6 +58,21 @@ export interface DeliveryNoticeInput {
   /** Tarifa de envío en Bs, ya cotizada. */
   deliveryAmount: number;
   /**
+   * La comida sin el envío, en Bs. Solo se escribe en el aviso de EFECTIVO.
+   *
+   * En un pedido por QR esa cifra ya está cobrada y ponerla delante de quien
+   * reparte solo añade un número que no tiene que pedir.
+   */
+  subtotalAmount: number;
+  /**
+   * ¿Paga en efectivo al recibir? (04-09-2026)
+   *
+   * Cambia el mensaje entero, no una línea: quien lleva un pedido en efectivo
+   * cobra la comida Y el envío, y necesita el desglose para dar el vuelto. En
+   * QR el desglose sobra, porque lo único cobrable es el envío.
+   */
+  isCash: boolean;
+  /**
    * Qué se cobra en la puerta. Sustituye al total del pedido, que se quitó el
    * 03-09-2026: ver `buildDeliveryNotice`.
    */
@@ -66,6 +81,20 @@ export interface DeliveryNoticeInput {
   longitude: number;
   /** Distancia de ruta en metros, si se conoce. */
   distanceMeters: number | null;
+}
+
+/**
+ * Escapa lo que va dentro de un mensaje con `parse_mode: HTML`.
+ *
+ * Se aplica a TODO lo variable: el nombre del cliente, los nombres de los
+ * productos y los enlaces —el de Maps lleva un `&` que sin escapar puede
+ * comerse el resto de la URL—. Las únicas etiquetas del mensaje son las que
+ * pone este módulo.
+ *
+ * Tres caracteres, que son los tres que Telegram exige en modo HTML.
+ */
+export function escapeTelegramHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** Bs con dos decimales solo cuando hacen falta: "16" y no "16.00". */
@@ -156,8 +185,8 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   lines.push('');
 
   const nombre = (input.customerName ?? '').trim();
-  lines.push(`Cliente: ${nombre === '' ? 'sin nombre' : nombre}`);
-  lines.push(`Teléfono: ${whatsappLink(input.customerPhone)}`);
+  lines.push(`Cliente: ${escapeTelegramHtml(nombre === '' ? 'sin nombre' : nombre)}`);
+  lines.push(`Teléfono: ${escapeTelegramHtml(whatsappLink(input.customerPhone))}`);
   lines.push('');
 
   // Cantidades explícitas: en la moto se lee de un vistazo y se verifica la
@@ -165,22 +194,40 @@ export function buildDeliveryNotice(input: DeliveryNoticeInput): string {
   const total = input.items.reduce((sum, i) => sum + i.quantity, 0);
   lines.push(`Pedido (${total} ${total === 1 ? 'producto' : 'productos'}):`);
   for (const item of input.items) {
-    lines.push(`  ${item.quantity}x ${item.name}`);
+    lines.push(`  ${item.quantity}x ${escapeTelegramHtml(item.name)}`);
   }
   lines.push('');
 
   const distancia = input.distanceMeters === null ? '' : ` · ${formatDistance(input.distanceMeters)}`;
-  lines.push(`Envío: Bs ${formatBs(input.deliveryAmount)}${distancia}`);
-  lines.push('');
 
-  // Lo que se busca con la vista al llegar a la puerta. `null` no escribe nada.
-  const instruccion = collectLine(input.collect);
-  if (instruccion !== null) {
-    lines.push(instruccion);
+  if (input.isCash) {
+    // ── EFECTIVO ────────────────────────────────────────────────────────────
+    //
+    // Aquí el repartidor no comprueba un cobro: lo hace. Va el desglose entero
+    // —comida, envío y suma— porque es lo que tiene que pedir en la puerta y lo
+    // que necesita para dar el vuelto, y va el aviso en negrita arriba del todo
+    // porque lo primero que cambia su trabajo es que este pedido no está pagado.
+    //
+    // El total se calcula aquí y no se recibe: sumar dos cifras que ya están en
+    // el mensaje no puede dar una tercera distinta de la que el cliente vio.
+    lines.push('<b>QUIERE EFECTIVO</b>');
+    lines.push(`Productos: Bs ${formatBs(input.subtotalAmount)}`);
+    lines.push(`Envío: Bs ${formatBs(input.deliveryAmount)}${distancia}`);
+    lines.push(`TOTAL A COBRAR: Bs ${formatBs(input.subtotalAmount + input.deliveryAmount)}`);
     lines.push('');
+  } else {
+    lines.push(`Envío: Bs ${formatBs(input.deliveryAmount)}${distancia}`);
+    lines.push('');
+
+    // Lo que se busca con la vista al llegar a la puerta. `null` no escribe nada.
+    const instruccion = collectLine(input.collect);
+    if (instruccion !== null) {
+      lines.push(instruccion);
+      lines.push('');
+    }
   }
 
-  lines.push(`Ubicación: ${mapsLink(input.latitude, input.longitude)}`);
+  lines.push(`Ubicación: ${escapeTelegramHtml(mapsLink(input.latitude, input.longitude))}`);
 
   return lines.join('\n');
 }

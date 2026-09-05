@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId } from 'react';
-import type { DeliveryType } from '@/types';
+import type { DeliveryType, PaymentMethod } from '@/types';
 import type { CartSummary } from '@/lib/cart/cart';
 import { unifiedTotals, type PromoCartSummary } from '@/lib/cart/promo-cart';
 // Solo presentación de totales: `Bs 45,00`. No altera campos, validaciones ni el
@@ -190,28 +190,50 @@ export function CheckoutPanel({
             ) : null}
           </div>
 
-          {/* Método de pago: ya no se elige.
-              Todo pedido por WhatsApp se paga por QR, también los de recojo. Se
-              deja el bloque como INFORMACIÓN y no como campo: el cliente tiene
-              que saber cómo va a pagar antes de confirmar, pero no hay nada que
-              decidir. Un radiogroup de una sola opción es una pregunta cuya
-              respuesta ya está dada, y solo añade un toque más al pedido. */}
+          {/* Método de pago.
+ 
+              Vuelve a ser una PREGUNTA (04-09-2026). Se quitó el 27-08 porque
+              todo pedido se pagaba por QR y un radiogroup de una sola opción es
+              una pregunta con la respuesta ya dada; hoy hay clientes pidiendo
+              pagar en efectivo, así que vuelve a haber algo que decidir.
+ 
+              El campo nunca se fue del modelo —ni del validador, ni del reducer,
+              ni de la RPC— así que esto es exactamente el control de antes. */}
           <div>
             <span id={paymentId} className="block text-sm font-semibold text-zinc-900">
-              Método de pago
+              Método de pago <span className="text-red-600">*</span>
             </span>
             <div
+              role="radiogroup"
               aria-labelledby={paymentId}
-              className="mt-1.5 flex items-start gap-2.5 rounded-lg bg-zinc-100 px-3 py-2.5"
+              aria-invalid={errors.payment_method ? true : undefined}
+              aria-describedby={errors.payment_method ? `${paymentId}-error` : undefined}
+              className="mt-1.5 grid grid-cols-2 gap-2"
             >
-              <span aria-hidden="true" className="text-lg leading-none">
-                📱
-              </span>
-              <p className="text-sm leading-snug text-zinc-700">
-                Todos los pagos por WhatsApp son <strong className="font-semibold">vía QR</strong>.
-                Al confirmar te enviamos el QR para pagar.
-              </p>
+              <PaymentOption
+                label="QR"
+                hint="Escanea y paga"
+                icon="📱"
+                value="qr"
+                active={fields.payment_method === 'qr'}
+                disabled={frozen}
+                onSelect={() => onChange('payment_method', 'qr')}
+              />
+              <PaymentOption
+                label="Efectivo"
+                hint="Pagas al recibir"
+                icon="💵"
+                value="cash"
+                active={fields.payment_method === 'cash'}
+                disabled={frozen}
+                onSelect={() => onChange('payment_method', 'cash')}
+              />
             </div>
+            {errors.payment_method ? (
+              <p id={`${paymentId}-error`} role="alert" className="mt-1.5 text-sm text-red-600">
+                {errors.payment_method}
+              </p>
+            ) : null}
           </div>
 
           {/* Notas */}
@@ -407,6 +429,47 @@ function DeliveryOption({
   hint: string;
   icon: string;
   value: DeliveryType;
+  active: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      data-value={value}
+      onClick={onSelect}
+      disabled={disabled}
+      className={`flex flex-col items-center gap-0.5 rounded-xl border px-3 py-3 transition-colors disabled:opacity-50 ${
+        active
+          ? 'border-donzarco-red-dark bg-donzarco-red-dark text-white'
+          : 'border-zinc-200 bg-white text-zinc-700'
+      }`}
+    >
+      <span className="text-xl leading-none" aria-hidden>
+        {icon}
+      </span>
+      <span className="text-sm font-semibold">{label}</span>
+      <span className={`text-xs ${active ? 'text-white/70' : 'text-zinc-400'}`}>{hint}</span>
+    </button>
+  );
+}
+
+/** Opción del selector de pago (6D.1). Mismo diseño que la de entrega. */
+function PaymentOption({
+  label,
+  hint,
+  icon,
+  value,
+  active,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  hint: string;
+  icon: string;
+  value: PaymentMethod;
   active: boolean;
   disabled: boolean;
   onSelect: () => void;

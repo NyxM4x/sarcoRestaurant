@@ -757,7 +757,11 @@ async function responderPorDefecto(
       reason: 'explicit_request',
       replacesOrderId: decision.order.orderId,
       buttonText: MENU_CHANGE_BUTTON_TEXT,
-      bodyText: orderChangeCtaText(decision.order.orderNumber, decision.order.totalAmount),
+      bodyText: orderChangeCtaText(
+        decision.order.orderNumber,
+        decision.order.totalAmount,
+        decision.order.paymentMethod === 'cash',
+      ),
     });
 
     if (sent.result === 'failed' || sent.result === 'send_unknown') {

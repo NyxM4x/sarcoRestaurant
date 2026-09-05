@@ -99,6 +99,25 @@ function num(value: unknown): number | null {
 }
 
 /**
+ * Desde dónde se pide el aviso. Decide QUÉ pedidos son legítimos aquí.
+ *
+ * El momento correcto depende del método de pago, y esa comprobación vive en
+ * esta función porque es la única que ya tiene la fila delante:
+ *
+ *   `payment_accepted`  alguien aceptó el comprobante. Es el camino del QR y el
+ *                       de siempre: hasta que el pago no está cobrado, nadie
+ *                       sale a llevar nada.
+ *   `cash_confirmed`    el pedido en EFECTIVO acaba de quedar cotizado. No hay
+ *                       pago que esperar —el repartidor cobra en la puerta—, así
+ *                       que este es su equivalente exacto.
+ *
+ * Cada origen solo admite su método: un pedido por QR pedido desde
+ * `cash_confirmed` se descarta, y con eso ningún pedido sin pagar puede colarse
+ * al grupo por la puerta nueva.
+ */
+export type DeliveryNoticeTrigger = 'payment_accepted' | 'cash_confirmed';
+
+/**
  * Avisa al grupo de reparto de un pedido recién cotizado. Best-effort.
  *
  * No devuelve nada: quien la llama no puede hacer nada distinto según el
@@ -107,6 +126,7 @@ function num(value: unknown): number | null {
 export async function notifyDeliveryGroup(
   orderId: string,
   supabase: SupabaseClient = getSupabaseAdmin(),
+  trigger: DeliveryNoticeTrigger = 'payment_accepted',
 ): Promise<void> {
   try {
     const env = getServerEnv();
@@ -136,6 +156,11 @@ export async function notifyDeliveryGroup(
     if (order.delivery_type !== 'delivery' || order.delivery_quote_status !== 'quoted') {
       return;
     }
+
+    // Y solo el método que corresponde a quien llama. Ver `DeliveryNoticeTrigger`.
+    const esEfectivo = order.payment_method === 'cash';
+    if (trigger === 'cash_confirmed' && !esEfectivo) return;
+    if (trigger === 'payment_accepted' && esEfectivo) return;
 
     const latitude = num(order.delivery_latitude);
     const longitude = num(order.delivery_longitude);
@@ -184,6 +209,12 @@ export async function notifyDeliveryGroup(
       customerPhone: String(order.customer_phone ?? ''),
       items,
       deliveryAmount: num(order.delivery_amount) ?? 0,
+      subtotalAmount: num(order.subtotal_amount) ?? 0,
+      // El método de pago SÍ viaja al aviso, y es la única pieza del sistema
+      // donde lo hace: el ticket de cocina sigue recibiendo solo la instrucción
+      // ("COBRAR TODO"), porque quien cocina no necesita saber cómo se paga.
+      // Quien reparte, sí: es él quien cobra.
+      isCash: order.payment_method === 'cash',
       // El tipo del aviso no lleva `basis` ni `canOverride`: en el grupo de
       // reparto no hay nada que marcar, solo una instrucción que seguir.
       collect:

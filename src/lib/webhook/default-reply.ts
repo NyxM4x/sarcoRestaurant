@@ -1,4 +1,4 @@
-import type { OrderStatus } from '@/types';
+import type { OrderStatus, PaymentMethod } from '@/types';
 import type { PaymentGateState } from '@/lib/payment-proof/payment-gate';
 import { PROOF_TARGET_TTL_MS } from '@/lib/payment-proof/association';
 import {
@@ -151,6 +151,14 @@ export interface OpenOrderSnapshot {
    * la otra sigue sabiendo que ese cliente mandó algo.
    */
   proofReceived: boolean;
+  /**
+   * Cómo se paga este pedido (04-09-2026, con la vuelta del efectivo).
+   *
+   * Solo lo usan los COPYS: un pedido en efectivo no tiene QR, y prometerle
+   * "el QR que te mandamos" a quien nunca recibió uno es la clase de frase que
+   * hace escribir al cliente para preguntar qué QR.
+   */
+  paymentMethod: PaymentMethod | null;
 }
 
 /**
