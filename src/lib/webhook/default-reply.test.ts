@@ -351,3 +351,85 @@ describe('decideDefaultReply — corregir la cantidad', () => {
   });
 });
 
+/**
+ * EL PEDIDO #26: EL EFECTIVO NO PODÍA CAMBIARSE (05-09-2026).
+ *
+ * `paymentGateOf` devuelve `not_required` para todo lo que no sea QR, y la
+ * puerta del cambio exigía `no_proof`. Resultado: ningún pedido en efectivo
+ * llegaba nunca al botón de "MODIFICAR MI PEDIDO".
+ *
+ * Aquel cliente escribió "un vaso de limonada también" sobre un pedido en
+ * efectivo ya cotizado, el turno se lo quedó el modelo, le mandó el menú normal
+ * y armó un SEGUNDO pedido: dos comandas y el envío cobrado dos veces.
+ */
+describe('decideDefaultReply — el pedido en efectivo también se cambia', () => {
+  const enEfectivo = (over: Partial<OpenOrderSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['trancapecho', 'vaso', 'limonada', 'gaseosa'],
+    openOrder: pedido({
+      orderNumber: 'ORD-260904-026',
+      // Lo que devuelve `paymentGateOf` para un pedido en efectivo: no hay
+      // comprobante que esperar, así que la puerta del pago no aplica.
+      payment: 'not_required',
+      paymentMethod: 'cash',
+      totalAmount: 28,
+      ...over,
+    }),
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot) =>
+    decideDefaultReply({
+      text: texto,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state,
+    });
+
+  it('le devuelve su pedido para rearmarlo, en vez de callarse', () => {
+    expect(decidir('un vaso de limonada también', enEfectivo()).action).toBe('order_change');
+  });
+
+  it('vale para las tres formas de pedirlo', () => {
+    for (const frase of ['quiero modificar', 'me olvidé algo', 'que sean 3']) {
+      expect(decidir(frase, enEfectivo()).action, frase).toBe('order_change');
+    }
+  });
+
+  it('también antes de mandar la ubicación', () => {
+    // `awaiting_location` es el momento MÁS seguro para rehacerlo: no hay total
+    // final, ni QR, ni nada en la plancha.
+    const state = enEfectivo({ status: 'awaiting_location' });
+    expect(decidir('quiero modificar', state).action).toBe('order_change');
+  });
+
+  it('el QR sigue comportándose exactamente igual que antes', () => {
+    const porQr = (): CustomerStateSnapshot => ({
+      ...enEfectivo(),
+      openOrder: pedido({ payment: 'no_proof', paymentMethod: 'qr' }),
+    });
+    expect(decidir('quiero modificar', porQr()).action).toBe('order_change');
+  });
+
+  it('con el pago ya aceptado no se rehace nada, sea como sea que pague', () => {
+    for (const metodo of ['cash', 'qr'] as const) {
+      const state = enEfectivo({ payment: 'accepted', paymentMethod: metodo, status: 'preparing' });
+      expect(decidir('quiero modificar', state).action, metodo).not.toBe('order_change');
+    }
+  });
+
+  it('si ese cliente mandó una foto igualmente, gana el comprobante', () => {
+    // Un pedido en efectivo puede recibir un comprobante —alguien que decide
+    // pagar por QR después—. Ahí hay algo que mirar antes de tocar el pedido.
+    const state = enEfectivo({ proofReceived: true });
+    expect(decidir('quiero modificar', state).action).toBe('proof_reminder');
+  });
+
+  it('con la comida ya hecha no se rehace: solo estados rearmables', () => {
+    for (const estado of ['preparing', 'ready', 'on_the_way'] as const) {
+      const state = enEfectivo({ status: estado });
+      expect(decidir('quiero modificar', state).action, estado).not.toBe('order_change');
+    }
+  });
+});

@@ -284,6 +284,41 @@ export interface DefaultReplyInput {
 }
 
 /**
+ * ¿Este pedido todavía NO tiene dinero comprometido? (05-09-2026)
+ *
+ * Es la condición para poder rearmarlo: mientras nadie haya pagado nada contra
+ * ese total, cambiar las líneas no le quita el dinero a nadie.
+ *
+ * ── Por qué esto no podía seguir siendo `payment === 'no_proof'` ────────────
+ *
+ * Porque dejaba fuera a TODO el efectivo, y nadie lo notó hasta que costó un
+ * pedido. `paymentGateOf` devuelve `not_required` para cualquier método que no
+ * sea QR —no hay comprobante que esperar— así que un pedido en efectivo jamás
+ * vale `no_proof`, y esta rama era inalcanzable para él: nunca recibía el botón
+ * de "MODIFICAR MI PEDIDO".
+ *
+ * La madrugada del 05-09-2026 un cliente con un pedido en efectivo ya cotizado
+ * escribió "un vaso de limonada también". Como aquí no entraba, el turno se lo
+ * quedó el modelo, que le mandó el menú normal: armó un SEGUNDO pedido, con su
+ * segundo envío y su segunda comanda. Reclamó —"sería 10 bs el envío"— y acabó
+ * una persona en el chat.
+ *
+ * La guarda se escribió cuando todo se pagaba por QR, y el efectivo volvió
+ * después sin que nadie la revisara. Lo que quería decir siempre fue "sin
+ * dinero de por medio", no "sin comprobante".
+ *
+ * El efectivo cumple esa condición por definición: se paga en la puerta, así que
+ * hasta que el repartidor llega no hay un solo boliviano comprometido. Se exige
+ * igualmente que no conste ninguna foto —un cliente en efectivo puede mandar un
+ * comprobante igual, y entonces hay que mirarlo antes de tocar nada—, aunque la
+ * guarda de `proofReceived` de más arriba ya se lo habría llevado.
+ */
+function sinDineroComprometido(order: OpenOrderSnapshot): boolean {
+  if (order.payment === 'no_proof') return true;
+  return order.paymentMethod === 'cash' && !order.proofReceived;
+}
+
+/**
  * ¿Qué le sale a este cliente por defecto?
  *
  * El orden de las guardas es el argumento entero, y va de lo que más daño hace
@@ -383,7 +418,7 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // revisión hay dinero de por medio contra un total concreto, y cambiar las
     // líneas por debajo dejaría al cliente pagando una cosa y recibiendo otra.
     // Ese caso sigue el camino de hoy y acaba donde acaban las excepciones.
-    if (ORDER_CHANGE_STATUSES.includes(order.status) && order.payment === 'no_proof') {
+    if (ORDER_CHANGE_STATUSES.includes(order.status) && sinDineroComprometido(order)) {
       // Las DOS formas de pedirlo, y la segunda es la que llega primero: el
       // cliente pregunta si puede antes de decir qué quiere. Reconocer solo la
       // que nombra productos dejaba ese primer mensaje sin respuesta
