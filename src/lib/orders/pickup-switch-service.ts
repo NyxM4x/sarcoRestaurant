@@ -5,6 +5,7 @@ import { getKapsoClient } from '@/lib/kapso/client';
 import { pickupSwitchText } from '@/lib/kapso/messages';
 import { createAgentStore } from '@/lib/agent/memory/repository';
 import { log } from '@/lib/log';
+import { deliveryNoticeAlreadySent } from '@/lib/alerts/outbox-store';
 
 /**
  * "PASO YO A RECOGERLO" — el pedido deja de ser delivery (04-09-2026).
@@ -61,7 +62,6 @@ interface FilaPedido {
   delivery_type: string;
   status: string;
   subtotal_amount: number;
-  delivery_notice_sent_at: string | null;
   delivery_fee_paid: boolean | null;
 }
 
@@ -80,7 +80,7 @@ export async function switchOrderToPickup(
     const { data, error } = await supabase
       .from('orders')
       .select(
-        'order_number, delivery_type, status, subtotal_amount, delivery_notice_sent_at, delivery_fee_paid',
+        'order_number, delivery_type, status, subtotal_amount, delivery_fee_paid',
       )
       .eq('id', input.orderId)
       .maybeSingle();
@@ -93,8 +93,13 @@ export async function switchOrderToPickup(
 
   if (fila.delivery_type !== 'delivery') return { ok: false };
   if (!ESTADOS_CONVERTIBLES.includes(fila.status)) return { ok: false };
-  if (fila.delivery_notice_sent_at !== null) {
-    // El repartidor ya tiene este pedido: lo mira una persona.
+  // El repartidor ya tiene este pedido: lo mira una persona.
+  //
+  // 05-09-2026: esto miraba `orders.delivery_notice_sent_at`, una columna que
+  // dejó de escribirse en 0028 —el aviso vive en el outbox— así que la guarda
+  // respondía "no se avisó" siempre y no impedía nada. Ver
+  // `deliveryNoticeAlreadySent`.
+  if (await deliveryNoticeAlreadySent(input.orderId, supabase)) {
     log.info('pickup_switch_skipped', { reason: 'notice_sent' });
     return { ok: false };
   }
@@ -109,13 +114,18 @@ export async function switchOrderToPickup(
   try {
     // Las guardas de carrera viajan DENTRO del UPDATE: entre la lectura y la
     // escritura cabe que la cocina despache el pedido y avise al repartidor.
+    //
+    // La del AVISO se quedó fuera desde el 05-09-2026, y no por descuido: vive
+    // en otra tabla (`telegram_alerts`) y no cabe en este `update`. Tampoco se
+    // pierde nada, porque la que había —`delivery_notice_sent_at is null`— era
+    // cierta siempre: esa columna no se escribe desde 0028. La comprobación
+    // real se hace arriba, contra el outbox.
     const { data, error } = await supabase
       .from('orders')
       .update({ delivery_type: 'pickup', delivery_amount: 0, total_amount: comida })
       .eq('id', input.orderId)
       .eq('delivery_type', 'delivery')
       .in('status', ESTADOS_CONVERTIBLES)
-      .is('delivery_notice_sent_at', null)
       .select('id');
     if (error) return { ok: false };
     convertido = (data ?? []).length > 0;

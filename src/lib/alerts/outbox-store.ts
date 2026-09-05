@@ -202,6 +202,45 @@ export async function enqueueAlert(
  * Se pregunta antes de encolar. `handoff_notice` cae al chat general cuando no
  * tiene el suyo, así que le basta con que exista uno de los dos.
  */
+/**
+ * ¿El grupo de reparto llegó a ver este pedido? (05-09-2026)
+ *
+ * ── La guarda que no guardaba nada ──────────────────────────────────────────
+ *
+ * `orders.delivery_notice_sent_at` es la columna que parecería servir, y es la
+ * que miraba `pickup-switch-service` para no convertir a recojo un pedido que
+ * el repartidor ya tenía. Pero desde 0028 el aviso vive en el OUTBOX y esa
+ * columna no la escribe nadie: la guarda respondía "no se avisó" SIEMPRE, así
+ * que un pedido ya anunciado podía pasarse a recojo con el repartidor en la
+ * moto — exactamente lo que la guarda decía impedir.
+ *
+ * La verdad está aquí: si existe la fila del aviso, salió o va a salir.
+ * `failed` es la única que no cuenta, porque esa alerta se rindió sin llegar a
+ * mandarse.
+ *
+ * Ante un error de consulta se responde `true`, que es el lado prudente: quien
+ * pregunta esto lo hace para NO deshacer algo que el reparto ya sabe.
+ */
+export async function deliveryNoticeAlreadySent(
+  orderId: string,
+  client: SupabaseClient = getSupabaseAdmin(),
+): Promise<boolean> {
+  try {
+    const { data, error } = await client
+      .from('telegram_alerts')
+      .select('status')
+      .eq('kind', 'delivery_notice')
+      .eq('target_ref', orderId)
+      .maybeSingle();
+
+    if (error) return true;
+    const fila = data as { status: string } | null;
+    return fila !== null && fila.status !== 'failed';
+  } catch {
+    return true;
+  }
+}
+
 export function isTelegramConfiguredFor(kind: TelegramAlertKind): boolean {
   try {
     const env = getServerEnv();

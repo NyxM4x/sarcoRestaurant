@@ -2,6 +2,13 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
+import { buildDeliveryCancelNotice } from '@/lib/alerts/delivery-notice';
+import {
+  createAlertRunnerDeps,
+  deliveryNoticeAlreadySent,
+  enqueueAlert,
+} from '@/lib/alerts/outbox-store';
+import { trySendNow } from '@/lib/alerts/outbox-runner';
 
 /**
  * El pedido corregido sustituye al anterior — server-only (0035).
@@ -57,9 +64,62 @@ const ESTADOS_ANULABLES = ['awaiting_location', 'confirmed'];
 
 interface FilaPedidoViejo {
   id: string;
+  order_number: string;
   status: string;
   customer_phone: string;
   notes: string | null;
+}
+
+/**
+ * Avisa al grupo de que el pedido que ya tenían se anuló. NUNCA lanza.
+ *
+ * ── Por qué reutiliza el kind `delivery_notice` ─────────────────────────────
+ *
+ * Un `kind` propio sería más explícito, pero `telegram_alerts.kind` tiene un
+ * CHECK en la migración 0028 que solo admite dos valores: estrenar uno tercero
+ * exigiría una migración, y en este proyecto se aplican A MANO. Desplegar el
+ * código antes que la base dejaría cada aviso de anulación rebotando contra el
+ * constraint, justo en el caso que este código viene a cubrir.
+ *
+ * Lo que distingue a los dos avisos es el `target_ref`, con el sufijo del
+ * pedido: `<id>` es el aviso del pedido y `<id>:cancel` el de su anulación. El
+ * índice único `(kind, target_ref)` sigue garantizando uno solo de cada, que es
+ * para lo que existe, y los dos van al mismo chat, que es donde tienen que ir.
+ * `target_ref` no se lee en ningún otro sitio: es la clave de idempotencia y
+ * nada más.
+ */
+async function avisarAnulacionAlReparto(
+  supabase: SupabaseClient,
+  viejo: FilaPedidoViejo,
+  nuevoId: string,
+): Promise<void> {
+  try {
+    if (!(await deliveryNoticeAlreadySent(viejo.id, supabase))) return;
+
+    const { data } = await supabase
+      .from('orders')
+      .select('order_number')
+      .eq('id', nuevoId)
+      .maybeSingle();
+    const nuevo = (data as { order_number: string } | null)?.order_number ?? null;
+
+    const texto = buildDeliveryCancelNotice({
+      orderNumber: viejo.order_number,
+      replacementOrderNumber: nuevo,
+    });
+
+    const alertId = await enqueueAlert('delivery_notice', `${viejo.id}:cancel`, texto, supabase);
+    if (alertId === null) return; // Ya encolado, o sin canal configurado.
+
+    // Fast path, igual que el aviso del pedido: la fila ya es durable, así que
+    // si esto falla el worker lo reintenta en vez de perderlo.
+    await trySendNow(alertId, createAlertRunnerDeps(supabase));
+    log.info('delivery_notice_cancelled', { order_number: viejo.order_number });
+  } catch {
+    // El pedido YA está cancelado, que es lo que protege al cliente. Este aviso
+    // es consecuencia, y perderlo no puede tumbar el reemplazo.
+    log.warn('delivery_notice_cancel_failed');
+  }
 }
 
 /**
@@ -129,7 +189,7 @@ export async function replaceSupersededOrder(
 
     const { data: pedido, error: errorPedido } = await supabase
       .from('orders')
-      .select('id, status, customer_phone, notes')
+      .select('id, order_number, status, customer_phone, notes')
       .eq('id', viejoId)
       .maybeSingle();
 
@@ -170,6 +230,12 @@ export async function replaceSupersededOrder(
     if ((cancelado ?? []).length === 0) return { result: 'skipped', reason: 'not_confirmed' };
 
     log.info('order_replaced', { replaced_order_id: viejo.id, new_order_id: input.newOrderId });
+
+    // El grupo de reparto puede tener ya ese pedido: en efectivo el aviso sale
+    // al cotizar, no al cobrar. Se le dice que se anula ANTES de devolver, pero
+    // sin poder tumbar el reemplazo: la funcion no lanza.
+    await avisarAnulacionAlReparto(supabase, viejo, input.newOrderId);
+
     return { result: 'replaced', replacedOrderId: viejo.id };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.

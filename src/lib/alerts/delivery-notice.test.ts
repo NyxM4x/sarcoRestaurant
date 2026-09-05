@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDeliveryCancelNotice,
   buildDeliveryNotice,
   mapsLink,
   escapeTelegramHtml,
@@ -329,5 +330,58 @@ describe('la nota del cliente', () => {
     const text = buildDeliveryNotice({ ...BASE, customerNote: 'salsa <picante> & papas' });
     expect(text).toContain('salsa &lt;picante&gt; &amp; papas');
     expect(text).not.toContain('<picante>');
+  });
+});
+
+/**
+ * "ESE PEDIDO YA NO VA" (05-09-2026).
+ *
+ * En efectivo el aviso al grupo sale al cotizar, no al cobrar: el pedido está
+ * en el teléfono de quien reparte un minuto después de armarlo. Si el cliente
+ * entonces lo corrige, el grupo se queda con una comanda que ya no existe.
+ */
+describe('el aviso de que un pedido se anuló', () => {
+  it('encabeza con el número anulado, que es lo que hay que reconocer', () => {
+    const text = buildDeliveryCancelNotice({
+      orderNumber: 'ORD-260904-026',
+      replacementOrderNumber: 'ORD-260904-027',
+    });
+    expect(text.split('\n')[0]).toBe('❌ ORD-026 ANULADO');
+  });
+
+  it('dice cuál lo sustituye, para no tener que adivinarlo', () => {
+    const text = buildDeliveryCancelNotice({
+      orderNumber: 'ORD-260904-026',
+      replacementOrderNumber: 'ORD-260904-027',
+    });
+    expect(text).toContain('Va el ORD-027 en su lugar');
+  });
+
+  it('sin el número nuevo no se inventa ninguno', () => {
+    // Nombrar un pedido equivocado es peor que no nombrar ninguno.
+    const text = buildDeliveryCancelNotice({
+      orderNumber: 'ORD-260904-026',
+      replacementOrderNumber: null,
+    });
+    expect(text).toContain('Llega otro pedido suyo en su lugar');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('null');
+  });
+
+  it('recorta la jornada igual que el aviso del pedido', () => {
+    // Se cita respondiendo en el grupo: lo que se ve es el principio.
+    const text = buildDeliveryCancelNotice({
+      orderNumber: 'ORD-260904-026',
+      replacementOrderNumber: 'ORD-260904-027',
+    });
+    expect(text).not.toContain('260904');
+  });
+
+  it('un número de la numeración vieja se deja entero', () => {
+    const text = buildDeliveryCancelNotice({
+      orderNumber: 'ORD-000123',
+      replacementOrderNumber: null,
+    });
+    expect(text).toContain('ORD-000123');
   });
 });

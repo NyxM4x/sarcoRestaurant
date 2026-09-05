@@ -285,6 +285,42 @@ function customerNoteBlock(note: string | null): string[] | null {
 }
 
 /**
+ * "Ese pedido ya no va" — el aviso de que un pedido anunciado se anuló.
+ *
+ * ── Por qué hace falta (05-09-2026) ─────────────────────────────────────────
+ *
+ * En efectivo el aviso al grupo sale al cotizar, no al cobrar: el pedido está
+ * en el teléfono de quien reparte un minuto después de armarlo. Si el cliente
+ * entonces lo corrige —y ahora puede, con el botón de cambiar—, el grupo se
+ * queda con una comanda que ya no existe y con un total que ya no es.
+ *
+ * Sin esto, el reparto solo se enteraría al ver llegar un segundo mensaje con
+ * casi lo mismo, y tendría que adivinar cuál de los dos vale.
+ *
+ * Va en un mensaje aparte y no editando el anterior: en el grupo se responde al
+ * mensaje del pedido para tomarlo —casi siempre con un sticker— y editar el que
+ * alguien ya citó dejaría esa cita apuntando a un texto distinto del que leyó.
+ *
+ * El número del pedido nuevo puede faltar, y entonces no se inventa: se dice
+ * que llega otro. Es preferible a nombrar un número equivocado.
+ */
+export function buildDeliveryCancelNotice(input: {
+  orderNumber: string;
+  replacementOrderNumber: string | null;
+}): string {
+  const nuevo =
+    input.replacementOrderNumber === null
+      ? 'Llega otro pedido suyo en su lugar.'
+      : `Va el ${shortOrderNumber(input.replacementOrderNumber)} en su lugar.`;
+
+  return [
+    `❌ ${shortOrderNumber(input.orderNumber)} ANULADO`,
+    '',
+    `El cliente cambió su pedido. ${nuevo}`,
+  ].join('\n');
+}
+
+/**
  * La línea de la instrucción.
  *
  * `envio` NO repite el monto: ya está arriba, y es la única cifra cobrable del
