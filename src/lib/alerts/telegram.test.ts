@@ -55,6 +55,75 @@ describe('createTelegramAlertSender — clasificación de resultados', () => {
     expect(await s.send('x')).toEqual({ kind: 'permanent', code: 'http_400' });
   });
 
+  // ── Grupo convertido en supergrupo (06-09-2026) ──────────────────────────
+  //
+  // El 400 que trae `migrate_to_chat_id` no rechaza el mensaje: dice a dónde
+  // mandarlo. Tratarlo como permanente dejó seis pedidos sin avisar al reparto
+  // en una sola noche. Ver `chatIdMigrado`.
+  const migrado = (id: number | string) =>
+    jsonRes(400, {
+      ok: false,
+      description: 'Bad Request: group chat was upgraded to a supergroup chat',
+      parameters: { migrate_to_chat_id: id },
+    });
+
+  it('400 con migrate_to_chat_id → reintenta en el chat nuevo y sale', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(migrado(-1004487366646))
+      .mockResolvedValueOnce(jsonRes(200, { ok: true }));
+    const { s } = sender({ fetch: fetchFn });
+
+    expect(await s.send('hola')).toEqual({ kind: 'sent' });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    const [, init1] = fetchFn.mock.calls[0] as [string, { body: string }];
+    const [, init2] = fetchFn.mock.calls[1] as [string, { body: string }];
+    expect(JSON.parse(init1.body).chat_id).toBe('chat-999');
+    // El id nuevo viaja como texto, que es lo que espera la API.
+    expect(JSON.parse(init2.body).chat_id).toBe('-1004487366646');
+    // Y el mensaje es el MISMO: reintentar no puede reescribir el aviso.
+    expect(JSON.parse(init2.body).text).toBe('hola');
+  });
+
+  it('el reintento conserva el parse_mode del original', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(migrado(-1004487366646))
+      .mockResolvedValueOnce(jsonRes(200, { ok: true }));
+    const { s } = sender({ fetch: fetchFn });
+
+    await s.send('<b>QUIERE EFECTIVO</b>', 'HTML');
+    const [, init2] = fetchFn.mock.calls[1] as [string, { body: string }];
+    expect(JSON.parse(init2.body).parse_mode).toBe('HTML');
+  });
+
+  it('si el chat nuevo también falla, es permanent y NO encadena saltos', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(migrado(-1004487366646))
+      .mockResolvedValueOnce(migrado(-1009999999999));
+    const { s } = sender({ fetch: fetchFn });
+
+    expect(await s.send('x')).toEqual({ kind: 'permanent', code: 'http_400' });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('400 con migrate_to_chat_id ilegible → permanent, sin reintento', async () => {
+    const fetchFn = vi.fn(async () => migrado('no-es-un-id'));
+    const { s } = sender({ fetch: fetchFn });
+
+    expect(await s.send('x')).toEqual({ kind: 'permanent', code: 'http_400' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('404 sin migración → permanent a la primera', async () => {
+    const fetchFn = vi.fn(async () => jsonRes(404, { ok: false }));
+    const { s } = sender({ fetch: fetchFn });
+
+    expect(await s.send('x')).toEqual({ kind: 'permanent', code: 'http_404' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it('429 → rate_limited con retry_after válido', async () => {
     const { s } = sender({
       fetch: vi.fn(async () => jsonRes(429, { ok: false, parameters: { retry_after: 30 } })),

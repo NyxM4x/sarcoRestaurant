@@ -1,12 +1,16 @@
 import 'server-only';
+import { log } from '@/lib/log';
 
 /**
  * Transporte de alertas Telegram — server-only (Fase 5.2D.5E.2).
  *
  * ÚNICA responsabilidad: enviar un texto por la API HTTPS de Telegram y traducir
  * la respuesta a un resultado CLASIFICADO. No conoce pedidos, notificaciones ni
- * persistencia. El token y el chat_id son server-side; jamás se registran ni se
- * devuelven. Sin credenciales, NO hace fetch: falla de forma local y segura.
+ * persistencia. El token y el chat_id son server-side; no se devuelven nunca y
+ * no se registran, con UNA excepción: el id al que Telegram redirige un grupo
+ * que se convirtió en supergrupo (ver `chatIdMigrado`), que es un dato de
+ * configuración que hay que corregir a mano y sin el token no abre nada.
+ * Sin credenciales, NO hace fetch: falla de forma local y segura.
  */
 
 /** Resultado clasificado de un intento de envío. Sin datos crudos de Telegram. */
@@ -85,6 +89,37 @@ export function createTelegramAlertSender(
   const baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  /** Un POST a `sendMessage`. `null` = no hubo respuesta (timeout o red). */
+  async function post(
+    token: string,
+    chatId: string,
+    text: string,
+    parseMode?: TelegramParseMode,
+  ): Promise<{ res: TelegramResponse } | { abortada: boolean }> {
+    const controller = new AbortController();
+    const timer = setTimer(() => controller.abort(), timeoutMs);
+    try {
+      const res = await doFetch(`${baseUrl}/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          disable_web_page_preview: true,
+          // Solo viaja cuando alguien lo pide: un `parse_mode` de más
+          // convierte cualquier `<` de un nombre en un 400.
+          ...(parseMode ? { parse_mode: parseMode } : {}),
+        }),
+        signal: controller.signal,
+      });
+      clearTimer(timer);
+      return { res };
+    } catch {
+      clearTimer(timer);
+      return { abortada: controller.signal.aborted };
+    }
+  }
+
   return {
     async send(text: string, parseMode?: TelegramParseMode): Promise<TelegramOutcome> {
       const token = (config.botToken ?? '').trim();
@@ -94,68 +129,113 @@ export function createTelegramAlertSender(
         return { kind: 'permanent', code: 'config_missing' };
       }
 
-      const controller = new AbortController();
-      const timer = setTimer(() => controller.abort(), timeoutMs);
+      // Un solo salto: el primer intento va al chat configurado y, si Telegram
+      // responde que ese grupo migró, el segundo va al que él mismo indica.
+      // Ver `chatIdMigrado`.
+      let destino = chatId;
+      for (let intento = 0; intento < 2; intento += 1) {
+        const salida = await post(token, destino, text, parseMode);
+        if (!('res' in salida)) {
+          // Timeout o error de red: transitorio.
+          return { kind: 'transient', code: salida.abortada ? 'timeout' : 'network_error' };
+        }
+        const res = salida.res;
+        const status = res.status;
 
-      let res: TelegramResponse;
-      try {
-        res = await doFetch(`${baseUrl}/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text,
-            disable_web_page_preview: true,
-            // Solo viaja cuando alguien lo pide: un `parse_mode` de más
-            // convierte cualquier `<` de un nombre en un 400.
-            ...(parseMode ? { parse_mode: parseMode } : {}),
-          }),
-          signal: controller.signal,
-        });
-      } catch {
-        clearTimer(timer);
-        // Timeout o error de red: transitorio.
-        return { kind: controller.signal.aborted ? 'transient' : 'transient', code: controller.signal.aborted ? 'timeout' : 'network_error' };
-      }
-      clearTimer(timer);
-
-      const status = res.status;
-
-      if (status === 200) {
-        let body: unknown;
-        try {
-          body = await res.json();
-        } catch {
+        if (status === 200) {
+          let body: unknown;
+          try {
+            body = await res.json();
+          } catch {
+            return { kind: 'invalid' };
+          }
+          const rec = asRecord(body);
+          if (rec && rec.ok === true) return { kind: 'sent' };
           return { kind: 'invalid' };
         }
-        const rec = asRecord(body);
-        if (rec && rec.ok === true) return { kind: 'sent' };
+
+        if (status === 429) {
+          let retryAfter: number | undefined;
+          try {
+            const rec = asRecord(await res.json());
+            const params = rec ? asRecord(rec.parameters) : null;
+            const ra = params?.retry_after;
+            if (typeof ra === 'number' && Number.isFinite(ra) && ra >= 0 && ra <= 86400) {
+              retryAfter = Math.floor(ra);
+            }
+          } catch {
+            // sin retry_after válido: se reprograma con el backoff por defecto
+          }
+          return { kind: 'rate_limited', retryAfterSeconds: retryAfter };
+        }
+
+        if (status >= 400 && status <= 499) {
+          // El 400 de la migración trae el destino nuevo dentro. Solo en la
+          // primera vuelta: `intento === 1` ya es el chat que Telegram dictó, y
+          // si ese también migra se para aquí en vez de encadenar saltos.
+          const migrado = intento === 0 ? await chatIdMigrado(res) : null;
+          if (migrado !== null) {
+            // El id del grupo NO es una credencial —sin el token no sirve de
+            // nada— y es el único dato que permite arreglar la causa. Se
+            // registra a propósito: el salto de abajo hace que los avisos
+            // sigan llegando, pero cada uno gasta dos llamadas hasta que una
+            // persona ponga este valor en `TELEGRAM_CHAT_ID`.
+            log.error('telegram_chat_migrated', { migrate_to_chat_id: migrado });
+            destino = migrado;
+            continue;
+          }
+          return { kind: 'permanent', code: `http_${status}` };
+        }
+        if (status >= 500 && status <= 599) {
+          return { kind: 'transient', code: `http_${status}` };
+        }
+        // Cualquier otro estado inesperado: ilegible, no marcar enviada.
         return { kind: 'invalid' };
       }
 
-      if (status === 429) {
-        let retryAfter: number | undefined;
-        try {
-          const rec = asRecord(await res.json());
-          const params = rec ? asRecord(rec.parameters) : null;
-          const ra = params?.retry_after;
-          if (typeof ra === 'number' && Number.isFinite(ra) && ra >= 0 && ra <= 86400) {
-            retryAfter = Math.floor(ra);
-          }
-        } catch {
-          // sin retry_after válido: se reprograma con el backoff por defecto
-        }
-        return { kind: 'rate_limited', retryAfterSeconds: retryAfter };
-      }
-
-      if (status >= 400 && status <= 499) {
-        return { kind: 'permanent', code: `http_${status}` };
-      }
-      if (status >= 500 && status <= 599) {
-        return { kind: 'transient', code: `http_${status}` };
-      }
-      // Cualquier otro estado inesperado: ilegible, no marcar enviada.
+      // Inalcanzable: la vuelta 1 solo se llega tras un `continue`, y esa
+      // vuelta no puede volver a saltar. Está por exhaustividad del tipo.
       return { kind: 'invalid' };
     },
   };
+}
+
+/**
+ * El chat al que Telegram redirige un grupo que se convirtió en supergrupo.
+ * `null` si esta respuesta no es esa.
+ *
+ * ── Por qué el transporte lo sigue en vez de rendirse (06-09-2026) ──────────
+ *
+ * Un grupo normal pasa a supergrupo solo, sin que nadie lo pida: basta con que
+ * alguien lo haga público, active el historial o supere cierto tamaño. Al
+ * hacerlo CAMBIA de id, y el viejo deja de aceptar mensajes con un 400
+ * —`group chat was upgraded to a supergroup chat`— que trae dentro el id nuevo.
+ *
+ * Ese 400 se estaba clasificando como `permanent`, así que cada aviso de
+ * reparto se marcaba `failed` a la primera y nadie salía a repartir. La noche
+ * del 05-09-2026 se perdieron seis pedidos seguidos así, con la cocina
+ * trabajando y el grupo en silencio.
+ *
+ * Es la única clase de 400 que se resuelve reintentando, porque Telegram no
+ * está rechazando el mensaje: está diciendo a dónde mandarlo. Rendirse teniendo
+ * la respuesta en la mano es lo que convirtió un cambio de ajuste del grupo en
+ * una noche sin repartos.
+ *
+ * `getChat` con el id viejo sigue respondiendo normalmente, así que ninguna
+ * comprobación de configuración detecta esto: el único sitio donde se ve es
+ * aquí, en la respuesta al envío.
+ */
+async function chatIdMigrado(res: TelegramResponse): Promise<string | null> {
+  try {
+    const rec = asRecord(await res.json());
+    const params = rec ? asRecord(rec.parameters) : null;
+    const destino = params?.migrate_to_chat_id;
+    // Telegram lo manda como número, y los ids de supergrupo son negativos y
+    // grandes; se acepta también en texto por si algún día cambia el tipo.
+    if (typeof destino === 'number' && Number.isSafeInteger(destino)) return String(destino);
+    if (typeof destino === 'string' && /^-?\d+$/.test(destino.trim())) return destino.trim();
+    return null;
+  } catch {
+    return null;
+  }
 }
