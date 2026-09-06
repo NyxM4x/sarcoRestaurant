@@ -107,6 +107,24 @@ export interface AgentTurnDeps {
    * Production nadie lo pasa.
    */
   mediaLimits?: TurnMediaLimits;
+  /**
+   * Callar la conversación DESPUÉS de un envío ya confirmado (06-09-2026).
+   *
+   * Lo pide la herramienta con `silenceAfterReply` y lo hace este puerto: el
+   * core no sabe qué significa callar aquí —cuánto dura, si se avisa a alguien—
+   * y no debe saberlo. Solo garantiza el momento: cuando el mensaje ya salió.
+   *
+   * Ausente = nada calla, y el turno se comporta exactamente como antes. Es el
+   * interruptor de apagado de esta política, igual que `actions` o `media`.
+   *
+   * NUNCA lanza, y su resultado se ignora: el mensaje ya está en el teléfono
+   * del cliente y ningún fallo de contabilidad puede deshacer eso.
+   */
+  silenceAfterReply?: (input: {
+    customerPhone: string;
+    sourceMessageId: string;
+    inboundText: string;
+  }) => Promise<void>;
   now?: () => string;
 }
 
@@ -503,6 +521,14 @@ export async function runAgentTurn(
   let userVisibleEffectConfirmed = false;
 
   /**
+   * ¿Hay que callar al agente después de que salga el texto de este turno?
+   *
+   * Lo levanta la herramienta ejecutada y lo consume el hook de después del
+   * envío. Ver `AgentToolOutcome.silenceAfterReply`.
+   */
+  let silenceRequested = false;
+
+  /**
    * El modelo se calló DESPUÉS de un efecto confirmado.
    *
    * No es un fallo: el cliente ya recibió algo real en su WhatsApp y el propio
@@ -741,6 +767,7 @@ export async function runAgentTurn(
         inboundText,
       });
       userVisibleEffectConfirmed = executed.userVisibleEffectConfirmed;
+      silenceRequested = executed.silenceAfterReply;
       // Observabilidad saneada: NOMBRE de la acción y si se ejecutó. Nunca los
       // argumentos ni el resultado — ahí viven la URL y el token.
       log.info('agent_tool_call', {
@@ -846,6 +873,31 @@ export async function runAgentTurn(
 
   // ── A partir de AQUÍ Kapso YA aceptó el envío y devolvió un WAMID real ────
   //
+  // EL SILENCIO VA AQUÍ, Y SOLO AQUÍ (06-09-2026).
+  //
+  // Después del WAMID: la frase ya está en el teléfono del cliente. Es la
+  // inversión deliberada del orden de `handoff/service.ts` —allí la pausa va
+  // ANTES del aviso, para que nadie hable encima— y el motivo es que aquí lo
+  // que va antes es el ENVÍO: pausar primero haría que la barrera pre-send
+  // abortara el mensaje por el que se pausa, y el cliente se quedaría con el
+  // silencio sin la explicación.
+  //
+  // Va antes de la persistencia y no después porque un fallo al guardar el
+  // saliente sale por `send_unknown` y se saltaría el silencio — y el cliente
+  // habría leído la frase igual.
+  if (silenceRequested && deps.silenceAfterReply) {
+    try {
+      await deps.silenceAfterReply({
+        customerPhone: message.customerPhone,
+        sourceMessageId,
+        inboundText,
+      });
+    } catch {
+      // Nunca puede tocar el desenlace del turno: el mensaje ya salió.
+      log.warn('agent_silence_after_reply_failed', { runId });
+    }
+  }
+
   // El mensaje está en el teléfono del cliente. Todo lo que sigue es
   // contabilidad nuestra, y ningún fallo de contabilidad puede desembocar en un
   // segundo envío. Por eso la persistencia va dentro de un try: si la base

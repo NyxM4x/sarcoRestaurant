@@ -54,6 +54,19 @@ export interface AgentToolOutcome {
    * después de esto, ¿el turno ya le dio algo al cliente? Ausente = no.
    */
   userVisibleEffectConfirmed?: boolean;
+  /**
+   * ¿Hay que callar al agente DESPUÉS de que salga el texto de este turno?
+   *
+   * Distinta de `userVisibleEffectConfirmed` en el MOMENTO, y ahí está todo:
+   * aquella se consulta antes de decidir si el turno ya dio algo; esto ocurre
+   * después de enviar. Y tiene que ser después, porque la barrera pre-send
+   * mata el envío si encuentra la pausa puesta — el agente se callaría sin
+   * haber dicho la frase por la que se calla.
+   *
+   * Ausente = no. El core no la interpreta: se limita a llamar al puerto que le
+   * hayan inyectado, que es quien sabe qué significa callar aquí.
+   */
+  silenceAfterReply?: boolean;
 }
 
 export interface AgentTool {
@@ -130,6 +143,12 @@ export interface ExecutedTool {
    * booleano de verdad, aunque la herramienta devuelva otra cosa.
    */
   userVisibleEffectConfirmed: boolean;
+  /**
+   * La otra señal para el core. Igual que la de arriba: booleano de verdad, y
+   * `false` en toda rama de fallo — una tool que no llegó a ejecutarse no
+   * calla a nadie.
+   */
+  silenceAfterReply: boolean;
 }
 
 /** Esquema de una tool SIN argumentos, en la forma que exige `strict: true`. */
@@ -178,6 +197,7 @@ export async function executeToolCall(
       ok: false,
       output: JSON.stringify({ error: 'unknown_tool' }),
       userVisibleEffectConfirmed: false,
+      silenceAfterReply: false,
     };
   }
 
@@ -188,6 +208,7 @@ export async function executeToolCall(
       ok: false,
       output: JSON.stringify({ error: 'invalid_arguments' }),
       userVisibleEffectConfirmed: false,
+      silenceAfterReply: false,
     };
   }
 
@@ -201,6 +222,7 @@ export async function executeToolCall(
       ok: false,
       output: JSON.stringify({ error: 'not_executable' }),
       userVisibleEffectConfirmed: false,
+      silenceAfterReply: false,
     };
   }
 
@@ -214,6 +236,7 @@ export async function executeToolCall(
       // `=== true` y no un truthy: la señal entra al core como booleano o no
       // entra. Un `undefined` de una tool futura vale exactamente "no".
       userVisibleEffectConfirmed: outcome.userVisibleEffectConfirmed === true,
+      silenceAfterReply: outcome.silenceAfterReply === true,
     };
   } catch {
     // El detalle del fallo se queda aquí: puede llevar el mensaje de Supabase,
@@ -224,6 +247,7 @@ export async function executeToolCall(
       ok: false,
       output: JSON.stringify({ error: 'tool_failed' }),
       userVisibleEffectConfirmed: false,
+      silenceAfterReply: false,
     };
   }
 }

@@ -36,6 +36,21 @@ export const PAUSE_REASON_HUMAN_BUSINESS_APP = 'human_whatsapp_business_app';
 export const PAUSE_REASON_HANDOFF_REQUESTED = 'handoff_requested';
 
 /**
+ * El agente DIJO que hace falta una persona, sin que la puerta lo autorizara
+ * (06-09-2026).
+ *
+ * Distinto de `handoff_requested`, y la diferencia importa a quien lo lea: aquel
+ * cruzó `handoff-gate` —hay una queja o una petición explícita—; esto ocurre
+ * justo cuando la puerta dijo que NO, así que su origen es el mismo material
+ * que produjo los falsos positivos del 04-09.
+ *
+ * La frase salía igual, porque el prompt se lo permite y el turno seguía vivo
+ * para redactarla. Lo que no ocurría era nada más: nadie avisado, chat sin
+ * pausar, y el agente conversando encima de su propia promesa.
+ */
+export const PAUSE_REASON_HANDOFF_SPOKEN = 'handoff_spoken';
+
+/**
  * El cliente lleva muchos mensajes y no llegó a pedir. No es una queja: es
  * alguien atascado, que es peor porque no se queja — se va.
  *

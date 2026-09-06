@@ -1180,6 +1180,8 @@ interface FakeActionOptions {
   effectCompletesTurn?: boolean;
   /** `false` = acción SIN `execute`, como `answer_directly`: no hay nada que correr. */
   executes?: boolean;
+  /** Pide callar al agente DESPUÉS del envío. Ver `silenceAfterReply`. */
+  silences?: boolean;
 }
 
 function fakeAction(name: string, options: FakeActionOptions = {}) {
@@ -1196,6 +1198,7 @@ function fakeAction(name: string, options: FakeActionOptions = {}) {
             return {
               result: options.result ?? { ok: true },
               userVisibleEffectConfirmed: options.confirmed === true,
+              silenceAfterReply: options.silences === true,
             };
           },
         }),
@@ -3193,5 +3196,145 @@ describe('run — las demás barreras siguen en pie con accessMode all', () => {
 
     expect(segundo.result).toBe('duplicate');
     expect(store.runs).toHaveLength(1);
+  });
+});
+
+/**
+ * EL SILENCIO DESPUÉS DE HABERLO DICHO (06-09-2026).
+ *
+ * `request_human` con `handed: false` deja el turno vivo y el modelo redacta
+ * "hace falta una persona del equipo". Esa frase salía y el agente seguía
+ * conversando: nadie avisado, chat sin pausar, la promesa sin el efecto.
+ *
+ * El silencio NO puede ponerse antes del envío. La barrera pre-send relee la
+ * pausa y abortaría el mensaje por el que se pausa — el cliente se quedaría con
+ * el silencio y sin la explicación. De ahí que sea un hook de DESPUÉS.
+ */
+describe('run — callar después de un envío ya confirmado', () => {
+  it('el mensaje SALE, y el silencio va después', async () => {
+    store.seedConversation();
+    const orden: string[] = [];
+    const accion = fakeAction('request_human', { silences: true });
+    const model = scriptedModel([selects('request_human'), FINAL('te atiende una persona')]);
+
+    const send: AgentSendPort = {
+      async sendText() {
+        orden.push('send');
+        return { ok: true, wamid: WAMID_OUT };
+      },
+    };
+
+    const result = await runAgentTurn(
+      inbound(),
+      deps({
+        model: model.model,
+        send,
+        actions: [accion.tool],
+        silenceAfterReply: async () => {
+          orden.push('silence');
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ result: 'replied' });
+    // El ORDEN es la garantía: al revés, la barrera pre-send mataría el envío.
+    expect(orden).toEqual(['send', 'silence']);
+  });
+
+  it('le pasa al puerto con qué callar, y nada más', async () => {
+    store.seedConversation();
+    const recibido: unknown[] = [];
+    const accion = fakeAction('request_human', { silences: true });
+    const model = scriptedModel([selects('request_human'), FINAL()]);
+
+    await runAgentTurn(
+      inbound({ content: 'ya salio mi pedido?' }),
+      deps({
+        model: model.model,
+        actions: [accion.tool],
+        silenceAfterReply: async (input) => {
+          recibido.push(input);
+        },
+      }),
+    );
+
+    expect(recibido).toEqual([
+      { customerPhone: PHONE, sourceMessageId: WAMID_IN, inboundText: 'ya salio mi pedido?' },
+    ]);
+  });
+
+  it('si el envío FALLA no se calla a nadie: no hubo frase que justificarlo', async () => {
+    store.seedConversation();
+    let callado = 0;
+    const accion = fakeAction('request_human', { silences: true });
+    const model = scriptedModel([selects('request_human'), FINAL()]);
+
+    const result = await runAgentTurn(
+      inbound(),
+      deps({
+        model: model.model,
+        send: fakeSend({ ok: false, error: 'transport' }).send,
+        actions: [accion.tool],
+        silenceAfterReply: async () => {
+          callado += 1;
+        },
+      }),
+    );
+
+    expect(result.result).not.toBe('replied');
+    expect(callado).toBe(0);
+  });
+
+  it('una acción que no lo pide no calla nada', async () => {
+    store.seedConversation();
+    let callado = 0;
+    const accion = fakeAction('answer_algo');
+    const model = scriptedModel([selects('answer_algo'), FINAL()]);
+
+    await runAgentTurn(
+      inbound(),
+      deps({
+        model: model.model,
+        actions: [accion.tool],
+        silenceAfterReply: async () => {
+          callado += 1;
+        },
+      }),
+    );
+
+    expect(callado).toBe(0);
+  });
+
+  it('un puerto que revienta no cambia el desenlace: el mensaje ya salió', async () => {
+    store.seedConversation();
+    const accion = fakeAction('request_human', { silences: true });
+    const model = scriptedModel([selects('request_human'), FINAL()]);
+
+    const result = await runAgentTurn(
+      inbound(),
+      deps({
+        model: model.model,
+        actions: [accion.tool],
+        silenceAfterReply: async () => {
+          throw new Error('supabase caido');
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ result: 'replied' });
+  });
+
+  it('sin el puerto cableado, todo se comporta como antes', async () => {
+    // El interruptor de apagado, igual que `actions` o `media`.
+    store.seedConversation();
+    const accion = fakeAction('request_human', { silences: true });
+    const model = scriptedModel([selects('request_human'), FINAL()]);
+
+    const result = await runAgentTurn(
+      inbound(),
+      deps({ model: model.model, actions: [accion.tool] }),
+    );
+
+    expect(result).toMatchObject({ result: 'replied' });
   });
 });

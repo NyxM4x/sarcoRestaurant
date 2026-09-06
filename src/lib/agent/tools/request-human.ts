@@ -126,7 +126,25 @@ export function createRequestHumanAction(port: HandoffPort): AgentTool {
       // NO cierra, y el modelo redacta con ese dato delante: es el único caso
       // en que el cliente recibe algo, y debe recibirlo — nadie le está
       // atendiendo por otro lado.
-      return { result: toolResult, userVisibleEffectConfirmed: handed };
+      return {
+        result: toolResult,
+        userVisibleEffectConfirmed: handed,
+        // ── Y después de decirlo, se calla (06-09-2026) ──────────────────
+        //
+        // Justo en el caso contrario al de arriba. Con `handed: true` la pausa
+        // ya está puesta y el cliente no recibe nada; con `handed: false` la
+        // puerta rechazó la derivación pero el modelo va a redactar igual, y el
+        // prompt le permite decir que hace falta una persona del equipo.
+        //
+        // Esa frase salía y el agente seguía conversando como si nada: el
+        // cliente leía que lo iba a atender alguien, nadie era avisado y la
+        // conversación no se pausaba. La promesa sin el efecto.
+        //
+        // Ahora la frase tiene consecuencias — silencio y aviso al grupo—, que
+        // es lo que la convierte en verdad. El puerto lo decide todo; aquí solo
+        // se levanta la mano.
+        silenceAfterReply: !handed,
+      };
     },
   };
 }

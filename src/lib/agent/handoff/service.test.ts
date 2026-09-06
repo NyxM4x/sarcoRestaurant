@@ -78,7 +78,8 @@ vi.mock('@/lib/kapso/client', () => ({
   },
 }));
 
-const { createHandoffPort, HANDOFF_PAUSE_MINUTES } = await import('./service');
+const { createHandoffPort, HANDOFF_PAUSE_MINUTES, silenceAfterSpokenHandoff, HANDOFF_SPOKEN_PAUSE_MINUTES } =
+  await import('./service');
 
 const entrada = {
   customerPhone: '59171234567',
@@ -232,5 +233,75 @@ describe('handoff — la puerta: derivar exige un MOTIVO', () => {
       await createHandoffPort().escalate({ ...entrada, inboundText: 'okay gracias' }),
     ).toEqual({ handed: false });
     expect(PAUSAS).toEqual([]);
+  });
+});
+
+/**
+ * Y CUANDO LA FRASE SALIÓ IGUAL (06-09-2026).
+ *
+ * El reverso del archivo. Arriba: derivar es callarse sin anunciarlo. Aquí: el
+ * anuncio YA salió —el modelo lo redactó porque la puerta rechazó la derivación
+ * y el turno siguió vivo— y no se puede recoger. Lo único que queda es hacerlo
+ * verdad: callar, y avisar para que alguien pueda entrar.
+ */
+describe('handoff — el agente lo dijo, así que después se calla', () => {
+  it('pausa media hora, no dos', async () => {
+    // 30 y no 120: esto pasa justo cuando la puerta dijo que NO, el mismo
+    // material que produjo los falsos positivos del 04-09.
+    await silenceAfterSpokenHandoff(entrada);
+
+    expect(HANDOFF_SPOKEN_PAUSE_MINUTES).toBe(30);
+    expect(PAUSAS).toEqual([
+      {
+        customerPhone: entrada.customerPhone,
+        reason: 'handoff_spoken',
+        source: 'system',
+        sourceMessageId: entrada.sourceMessageId,
+        minutes: 30,
+        trigger: 'agent_action',
+      },
+    ]);
+  });
+
+  it('avisa al equipo: sin eso, el cliente espera a alguien a quien nadie llamó', async () => {
+    await silenceAfterSpokenHandoff(entrada);
+
+    expect(AVISOS).toEqual([
+      {
+        customerPhone: entrada.customerPhone,
+        reason: 'handoff_spoken',
+        lastMessage: entrada.inboundText,
+      },
+    ]);
+  });
+
+  it('con su propio motivo, distinto del de una derivación comprobada', async () => {
+    await silenceAfterSpokenHandoff(entrada);
+    expect((AVISOS[0] as { reason: string }).reason).toBe('handoff_spoken');
+    expect((AVISOS[0] as { reason: string }).reason).not.toBe('handoff_requested');
+  });
+
+  it('primero la pausa y después el aviso, como en la derivación de verdad', async () => {
+    await silenceAfterSpokenHandoff(entrada);
+    expect(ORDEN).toEqual(['pausa', 'aviso']);
+  });
+
+  it('si este mismo mensaje ya la había puesto, no se avisa dos veces', async () => {
+    PAUSA = { result: 'ok', pause: 'already_applied' };
+    await silenceAfterSpokenHandoff(entrada);
+    expect(AVISOS).toEqual([]);
+  });
+
+  it('si la pausa no se pudo escribir, tampoco se avisa', async () => {
+    // El agente va a seguir contestando, así que no hay silencio del que
+    // rescatar a nadie.
+    PAUSA = { result: 'rejected' };
+    await silenceAfterSpokenHandoff(entrada);
+    expect(AVISOS).toEqual([]);
+  });
+
+  it('no le manda NADA al cliente: la frase ya se la mandó el modelo', async () => {
+    // La trampa de `getKapsoClient` revienta si alguien intenta enviar por aquí.
+    await expect(silenceAfterSpokenHandoff(entrada)).resolves.toBeUndefined();
   });
 });

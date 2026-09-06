@@ -15,7 +15,7 @@ import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { isReplaceableOrder } from '@/lib/webhook/default-reply';
 import { createAnswerDirectlyAction } from './tools/answer-directly';
 import { createRequestHumanAction } from './tools/request-human';
-import { createHandoffPort } from './handoff/service';
+import { createHandoffPort, silenceAfterSpokenHandoff } from './handoff/service';
 import type { AgentTool } from './tools/registry';
 import { createAgentStore } from './memory/repository';
 import { handleHumanTakeover, humanTakeoverPauseMinutes } from './control/takeover';
@@ -108,6 +108,10 @@ export function createAgentChannel(): AgentChannelPort {
           // Vision (5C.5). Su ausencia sería el interruptor de apagado: sin
           // resolver, el turno no mira ninguna foto y avisa de que no pudo.
           media: createKapsoMediaResolver(),
+          // 06-09-2026: si el agente le dijo al cliente que lo va a atender una
+          // persona, después de decirlo se calla — y se avisa al equipo, para
+          // que esa frase no sea una promesa que nadie recibió.
+          silenceAfterReply: (input) => silenceAfterSpokenHandoff(input),
         },
         burst,
       );

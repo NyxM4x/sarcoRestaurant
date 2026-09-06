@@ -26,6 +26,9 @@
 /** Por qué se derivó, en el vocabulario de quien va a atender. */
 export const HANDOFF_CATEGORY_LABELS: Record<string, string> = {
   handoff_requested: 'El cliente necesita hablar con una persona',
+  // Puede ser falsa alarma: la puerta rechazó esta derivación y el agente dijo
+  // la frase igual. Se avisa para que el cliente no quede esperando a nadie.
+  handoff_spoken: 'El agente le dijo que lo atendería una persona',
   handoff_stuck_customer: 'No consigue hacer su pedido',
   // Valor histórico: lo escribió el detector mientras contaba menús enviados.
   // Se conserva para que una alerta sobre una fila vieja siga siendo legible.

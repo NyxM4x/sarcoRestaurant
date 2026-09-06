@@ -115,7 +115,13 @@ describe('request_human — qué pasa al ejecutarla', () => {
   it('derivado con éxito → el turno cierra en silencio', async () => {
     const tool = createRequestHumanAction(puerto(true));
     const res = await tool.execute!(contexto);
-    expect(res).toEqual({ result: { handed: true }, userVisibleEffectConfirmed: true });
+    expect(res).toEqual({
+      result: { handed: true },
+      userVisibleEffectConfirmed: true,
+      // Aquí la pausa YA está puesta y el cliente no recibe nada: no hay
+      // ninguna frase después de la cual callar.
+      silenceAfterReply: false,
+    });
   });
 
   it('si la derivación no llegó a ocurrir, el turno NO cierra en falso', async () => {
@@ -124,7 +130,14 @@ describe('request_human — qué pasa al ejecutarla', () => {
     // solo se justifica cuando de verdad hay una derivación detrás.
     const tool = createRequestHumanAction(puerto(false));
     const res = await tool.execute!(contexto);
-    expect(res).toEqual({ result: { handed: false }, userVisibleEffectConfirmed: false });
+    expect(res).toEqual({
+      result: { handed: false },
+      userVisibleEffectConfirmed: false,
+      // Pero el modelo VA a redactar, y el prompt le permite decir que hace
+      // falta una persona. Esa frase salía y el agente seguía conversando
+      // encima de su propia promesa: desde el 06-09, después de decirla calla.
+      silenceAfterReply: true,
+    });
   });
 
   it('un puerto que revienta no tumba el turno', async () => {
