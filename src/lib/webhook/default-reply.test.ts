@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   decideDefaultReply,
+  waitingOnUs,
   OPEN_ORDER_STATUSES,
   type CustomerStateSnapshot,
   type OpenOrderSnapshot,
@@ -261,33 +262,72 @@ describe('decideDefaultReply — cuando la foto YA llegó (04-09-2026)', () => {
 
   it('se le dice que la tenemos, en vez de pedírsela otra vez', () => {
     expect(decidir('ya le envie el comprobante', conFoto())).toEqual({
-      action: 'proof_reminder',
+      action: 'wait_notice',
       order: conFoto().openOrder,
-      variant: 'received',
+      kind: 'payment_review',
     });
   });
 
   it('no se le ofrece rehacer el pedido: ese pago ya está hecho', () => {
     // Es el caso exacto del 04-09: comprobante mandado y, un minuto después,
     // "me olvidé". Antes salía el botón y el cliente acababa con dos pedidos.
-    expect(decidir('me olvide, quiero armar de nuevo', conFoto()).action).toBe('proof_reminder');
+    // Desde el 06-09 se le manda con el repartidor, que es quien todavía puede
+    // hacer algo — pero lo que NO pasa sigue siendo lo mismo: rehacerlo.
+    const decision = decidir('me olvide, quiero armar de nuevo', conFoto());
+    expect(decision.action).toBe('delivery_relay');
+    expect(decision.action).not.toBe('order_change');
+    expect(decision.action).not.toBe('order_review');
   });
 
-  it('una preferencia se sigue anotando: no toca el total', () => {
-    expect(decidir('sin cebolla porfa', conFoto()).action).toBe('kitchen_note');
+  it('una preferencia YA NO se anota: se le dice a quién decírsela (06-09-2026)', () => {
+    // Cambio de política. La comanda ya está puesta y el aviso ya salió al
+    // grupo de reparto, y ese aviso no se reescribe: una nota anotada aquí no
+    // la vería nadie con la bolsa delante. Ver `deliveryRelayText`.
+    expect(decidir('sin cebolla porfa', conFoto()).action).toBe('delivery_relay');
   });
 
   it('con el pago ya aceptado no se le dice nada de comprobantes', () => {
     const decision = decidir('gracias', conFoto({ payment: 'accepted', status: 'preparing' }));
+    expect(decision.action).not.toBe('wait_notice');
     expect(decision.action).not.toBe('proof_reminder');
   });
 
-  it('si ya se le contestó hace poco, no se repite', () => {
-    const state = { ...conFoto(), proofRemindedRecently: true };
+  it('si ya se le pidió paciencia, CALLA — y calla de verdad', () => {
+    // El corazón del arreglo del 06-09. Antes esto devolvía `none`, que no
+    // calla a nadie: produce el cuerpo `ignored`, el sobre se clasifica
+    // `eligible` y el turno se lo queda el modelo. Se le pedía al cliente que
+    // no escribiera más y se le contestaba con una frase de IA por cada
+    // mensaje que escribía.
+    const state = { ...conFoto(), waitNoticeSent: true };
     expect(decidir('ya mande el comprobante', state)).toEqual({
-      action: 'none',
-      reason: 'reminded_recently',
+      action: 'silence',
+      reason: 'awaiting_payment_review',
     });
+  });
+
+  it('el cooldown del recordatorio ya no gobierna esta rama', () => {
+    // `proofRemindedRecently` es el reloj de 15 minutos del recordatorio que
+    // FALTA. Aquí no pinta nada: lo que manda es si ya se le avisó de ESTE
+    // pedido, y eso no caduca.
+    const state = { ...conFoto(), proofRemindedRecently: true, waitNoticeSent: false };
+    expect(decidir('ya mande el comprobante', state).action).toBe('wait_notice');
+  });
+
+  it('durante el silencio, pedir un cambio SÍ recibe respuesta', () => {
+    const state = { ...conFoto(), waitNoticeSent: true };
+    expect(decidir('me aumentas una gaseosa', state).action).toBe('delivery_relay');
+  });
+
+  it('y el que pide el menú lo recibe: quiere pedir OTRA cosa', () => {
+    const state = { ...conFoto(), waitNoticeSent: true };
+    const decision = decideDefaultReply({
+      text: 'quiero pedir',
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: true,
+      state,
+    });
+    expect(decision.action).toBe('menu');
   });
 });
 
@@ -364,8 +404,12 @@ describe('decideDefaultReply — corregir la cantidad', () => {
 
   it('con el comprobante ya mandado NO se rehace nada', () => {
     // Hay dinero contra un total concreto: esa guarda va antes y sigue mandando.
+    // Lo que cambió el 06-09 es la respuesta —se le manda con el repartidor—,
+    // no el hecho de que el pedido ya no se toque.
     const state = conPedido({ proofReceived: true });
-    expect(decidir('que sean 3', state).action).toBe('proof_reminder');
+    const accion = decidir('que sean 3', state).action;
+    expect(accion).toBe('delivery_relay');
+    expect(accion).not.toBe('order_change');
   });
 
   it('contestar una hora o una distancia no reabre el pedido', () => {
@@ -454,7 +498,10 @@ describe('decideDefaultReply — el pedido en efectivo también se cambia', () =
     // Un pedido en efectivo puede recibir un comprobante —alguien que decide
     // pagar por QR después—. Ahí hay algo que mirar antes de tocar el pedido.
     const state = enEfectivo({ proofReceived: true });
-    expect(decidir('quiero modificar', state).action).toBe('proof_reminder');
+    const accion = decidir('quiero modificar', state).action;
+    expect(accion).toBe('delivery_relay');
+    expect(accion).not.toBe('order_change');
+    expect(accion).not.toBe('order_review');
   });
 
   it('con la comida ya hecha no se rehace: solo estados rearmables', () => {
@@ -649,5 +696,137 @@ describe('decideDefaultReply — CONFIRMO / CANCELAR en efectivo', () => {
       openOrder: pedido({ payment: 'no_proof', paymentMethod: 'qr' }),
     };
     expect(decidir('confirmo', porQr).action).not.toBe('cash_confirm');
+  });
+});
+
+/**
+ * EL PEDIDO #30: DESPUÉS DEL CONFIRMO NADIE LO CUBRÍA (06-09-2026).
+ *
+ * El cliente escribió CONFIRMO, recibió "ya está en cocina", y media hora
+ * después preguntó "Ya salió el pedido". Ninguna guarda lo agarraba:
+ * `awaitingCashConfirm` ya era `false`, `proofReceived` es `false` en efectivo y
+ * `payment` vale `not_required`. Caía en `open_order`, que devuelve `none` — y
+ * `none` no calla al agente, le CEDE el turno al modelo. Contestó "No puedo
+ * confirmar eso. Necesitas hablar con alguien del equipo."
+ */
+describe('decideDefaultReply — el pedido en efectivo ya está en cocina', () => {
+  const enCocina = (over: Partial<CustomerStateSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['hamburguesa', 'papa', 'gaseosa', 'trancapecho'],
+    openOrder: {
+      orderId: 'order-uuid',
+      orderNumber: 'ORD-260905-030',
+      status: 'confirmed',
+      totalAmount: 37,
+      payment: 'not_required',
+      proofReceived: false,
+      paymentMethod: 'cash',
+      awaitingCashConfirm: false,
+      cashConfirmed: true,
+      deliveryType: 'delivery',
+    },
+    ...over,
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot) =>
+    decideDefaultReply({
+      text: texto,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state,
+    });
+
+  it('la primera vez se le pide paciencia', () => {
+    expect(decidir('ya salio el pedido?', enCocina())).toEqual({
+      action: 'wait_notice',
+      order: enCocina().openOrder,
+      kind: 'kitchen',
+    });
+  });
+
+  it('EL CASO DEL #30: después, CALLA — y no cae en open_order', () => {
+    const decision = decidir('Ya salio el pedido', enCocina({ waitNoticeSent: true }));
+    expect(decision).toEqual({ action: 'silence', reason: 'order_in_kitchen' });
+    expect(decision).not.toEqual({ action: 'none', reason: 'open_order' });
+  });
+
+  it('pedir un cambio se manda con el repartidor, no rearma nada', () => {
+    // OJO con las frases: `isKitchenNoteRequest` exige una MARCA de preferencia
+    // ("sin", "con", "que lleve"). "quiero llajua" no la lleva y no se detecta
+    // como nota — cae en el silencio, igual que antes de este cambio caía en el
+    // modelo. Es una limitación del detector, anterior a esto.
+    for (const frase of ['me aumentas 2 papas', 'que lleve llajua', 'sin cebolla', 'que sean 3']) {
+      const accion = decidir(frase, enCocina({ waitNoticeSent: true })).action;
+      expect(accion, frase).toBe('delivery_relay');
+      expect(accion, frase).not.toBe('kitchen_note');
+      expect(accion, frase).not.toBe('order_change');
+    }
+  });
+
+  it('"paso yo a recogerlo" SIGUE atendiéndose: se lee más arriba', () => {
+    // No es modificar el pedido, es cambiar por dónde sale — y tiene su propia
+    // protección en `pickup-switch-service`, que no convierte un pedido que el
+    // repartidor ya tiene.
+    expect(decidir('paso a recogerlo', enCocina({ waitNoticeSent: true })).action).toBe(
+      'pickup_switch',
+    );
+  });
+
+  it('una persona atendiendo gana sobre el silencio', () => {
+    const state = enCocina({ waitNoticeSent: true, paused: true });
+    expect(decidir('hola', state)).toEqual({ action: 'none', reason: 'paused' });
+  });
+
+  it('sin CONFIRMO todavía, nada de esto aplica', () => {
+    // Ese pedido no está en cocina ni en el grupo de reparto: su siguiente
+    // mensaje puede ser el CONFIRMO que lo agenda.
+    const state = enCocina({
+      openOrder: { ...enCocina().openOrder!, cashConfirmed: false, awaitingCashConfirm: true },
+    });
+    const accion = decidir('ya salio el pedido?', state).action;
+    expect(accion).not.toBe('silence');
+    expect(accion).not.toBe('wait_notice');
+  });
+
+  it('esperando ubicación tampoco: le falta algo por hacer', () => {
+    const state = enCocina({
+      openOrder: { ...enCocina().openOrder!, status: 'awaiting_location' },
+      waitNoticeSent: true,
+    });
+    expect(decidir('hola', state).action).not.toBe('silence');
+  });
+});
+
+describe('waitingOnUs — las dos esperas y ninguna más', () => {
+  const pedido = (over: Partial<OpenOrderSnapshot>): OpenOrderSnapshot => ({
+    orderId: 'order-uuid',
+    orderNumber: 'ORD-260905-030',
+    status: 'confirmed',
+    totalAmount: 37,
+    payment: 'no_proof',
+    proofReceived: false,
+    paymentMethod: null,
+    ...over,
+  });
+
+  it('con la foto mandada y el pago sin decidir, nos espera', () => {
+    expect(waitingOnUs(pedido({ proofReceived: true }))).toBe('payment_review');
+  });
+
+  it('con el pago YA decidido, no: esa conversación es otra', () => {
+    for (const payment of ['accepted', 'rejected_grace'] as const) {
+      expect(waitingOnUs(pedido({ proofReceived: true, payment })), payment).toBeNull();
+    }
+  });
+
+  it('el efectivo confirmado nos espera', () => {
+    expect(waitingOnUs(pedido({ paymentMethod: 'cash', cashConfirmed: true }))).toBe('kitchen');
+  });
+
+  it('el que todavía nos debe algo, no', () => {
+    expect(waitingOnUs(pedido({}))).toBeNull();
+    expect(waitingOnUs(pedido({ paymentMethod: 'cash', cashConfirmed: false }))).toBeNull();
   });
 });

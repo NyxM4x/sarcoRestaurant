@@ -1,4 +1,5 @@
 import { orderReviewKeptText, orderReviewText } from './messages';
+import { CASH_WAIT_TEXT, PROOF_WAIT_TEXT, deliveryRelayText } from './messages';
 import { describe, it, expect } from 'vitest';
 import {
   buildImagePayload,
@@ -320,5 +321,64 @@ describe('el cierre: "queda así"', () => {
     const text = orderReviewKeptText('ORD-260904-026', 48, true);
     expect(text).not.toContain('¿Querés agregar');
     expect(text).not.toContain('Respondé');
+  });
+});
+
+/**
+ * LOS TEXTOS DE LA ESPERA (06-09-2026).
+ *
+ * Los tres salen cuando el pedido ya no depende del cliente. El de QR es del
+ * dueño palabra por palabra —minúsculas y tildes ausentes incluidas— y se
+ * compara por igualdad literal a propósito: un "arreglo de estilo" tiene que
+ * reventar aquí y no descubrirse en el chat de un cliente.
+ */
+describe('los avisos de espera', () => {
+  it('el del comprobante es EXACTAMENTE el texto del dueño', () => {
+    expect(PROOF_WAIT_TEXT).toBe(
+      'perfecto danos tiempo para revisar el comprobante y te diremos nuestra ' +
+        'respuesta, no es necesario que envies tu comprobante de nuevo, ni mas ' +
+        'mensajes, solo te pido un poco de paciencia.',
+    );
+  });
+
+  it('ninguno lleva las marcas canónicas de una confirmación', () => {
+    // `outbound-classify` reconoce una confirmación por estas marcas. Un aviso
+    // que las llevara se emparejaría con la confirmación de OTRO pedido al
+    // reconciliar. Ver `proofReminderText`, que carga la misma restricción.
+    const marcas = ['📦 Pedido ', '📦 Recibimos tu pedido ', 'Comida:', 'Delivery:', 'Total:'];
+    const textos = [
+      PROOF_WAIT_TEXT,
+      CASH_WAIT_TEXT,
+      deliveryRelayText('delivery'),
+      deliveryRelayText('pickup'),
+      deliveryRelayText(null),
+    ];
+    for (const texto of textos) {
+      for (const marca of marcas) {
+        expect(texto, `${marca} en "${texto.slice(0, 30)}…"`).not.toContain(marca);
+      }
+    }
+  });
+
+  it('los dos acuses piden que no escriba más: después viene el silencio', () => {
+    // Sin esa mitad, el silencio que viene detrás se lee como que se cortó la
+    // conversación.
+    expect(PROOF_WAIT_TEXT).toContain('mensajes');
+    expect(CASH_WAIT_TEXT).toContain('mensajes');
+  });
+
+  it('el del efectivo NO promete avisarle cuando salga', () => {
+    // No existe ningún saliente automático que lo haga: `notifyDeliveryGroup`
+    // va a Telegram, no al cliente. Prometerlo lo devolvería a escribir.
+    expect(CASH_WAIT_TEXT).not.toContain('te avisamos');
+    expect(CASH_WAIT_TEXT).not.toContain('te avisaremos');
+  });
+
+  it('a quien pasa a recoger no se le habla de un delivery', () => {
+    expect(deliveryRelayText('pickup')).not.toContain('delivery');
+    expect(deliveryRelayText('pickup')).toContain('recogerlo');
+    // Y sin dato se asume delivery, que es lo que es casi todo el volumen.
+    expect(deliveryRelayText(null)).toContain('delivery');
+    expect(deliveryRelayText('delivery')).toContain('delivery');
   });
 });

@@ -236,8 +236,26 @@ export type SendProofReminder = (input: {
   sourceMessageId: string;
   orderNumber: string;
   totalAmount: number;
-  /** `received` = ya mandó su comprobante y se le dice que lo tenemos. */
-  variant?: 'missing' | 'received';
+}) => Promise<{ ok: boolean }>;
+
+/**
+ * "Tu pedido ya está en nuestras manos" (06-09-2026).
+ *
+ * Los tres salientes del tramo en que el cliente ya no puede hacer nada por su
+ * pedido: los dos acuses —comprobante recibido, efectivo confirmado— y la frase
+ * que manda con el repartidor a quien pide un cambio cuando ya no cabe. Ver
+ * `waitingOnUs` en `./default-reply`.
+ *
+ * NUNCA lanza. Opcional: sin ella el mensaje sigue su camino y lo contesta el
+ * modelo, que es exactamente lo que pasaba antes de esta política.
+ */
+export type SendWaitNotice = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
+  sourceMessageId: string;
+  kind: 'proof_wait' | 'cash_wait' | 'delivery_relay';
+  deliveryType?: 'delivery' | 'pickup' | null;
 }) => Promise<{ ok: boolean }>;
 
 /**
@@ -497,6 +515,7 @@ export interface HandleKapsoWebhookParams {
    * este puerto ese cliente no recibe nada, que es lo que pasaba antes.
    */
   sendProofReminder?: SendProofReminder;
+  sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
   /**
@@ -689,6 +708,7 @@ async function responderPorDefecto(
     sendMenuCta: SendMenuCta;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
@@ -884,7 +904,6 @@ async function responderPorDefecto(
       sourceMessageId,
       orderNumber: decision.order.orderNumber,
       totalAmount: decision.order.totalAmount,
-      variant: decision.variant,
     });
     log.info('webhook_proof_reminder', { result: avisado.ok ? 'sent' : 'failed' });
     return {
@@ -892,6 +911,54 @@ async function responderPorDefecto(
       handled: 'proof_reminder',
       result: avisado.ok ? 'sent' : 'failed',
     };
+  }
+
+  if (decision.action === 'wait_notice' || decision.action === 'delivery_relay') {
+    // Sin puerto NO se cae al silencio: se devuelve `null` y el mensaje sigue
+    // su camino. Callar sin haberle explicado por qué es lo mismo que hacía
+    // mal el modelo, con menos palabras.
+    if (!deps.sendWaitNotice) return null;
+
+    const avisado = await deps.sendWaitNotice({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      kind:
+        decision.action === 'delivery_relay'
+          ? 'delivery_relay'
+          : decision.kind === 'payment_review'
+            ? 'proof_wait'
+            : 'cash_wait',
+      deliveryType: decision.order.deliveryType ?? null,
+    });
+    log.info('webhook_wait_notice', {
+      action: decision.action,
+      result: avisado.ok ? 'sent' : 'failed',
+    });
+    // Incluso con `ok:false` el cuerpo NO es `DETERMINISTIC_DECLINED`, así que
+    // el turno queda cerrado y el modelo no habla. Es deliberado, y el mismo
+    // comportamiento que ya tiene `proof_reminder`: el envío falló, pero la
+    // decisión de que este mensaje no es del modelo sigue siendo la buena.
+    return {
+      ok: avisado.ok,
+      handled: decision.action,
+      result: avisado.ok ? 'sent' : 'failed',
+    };
+  }
+
+  if (decision.action === 'silence') {
+    // La ÚNICA rama que atiende el mensaje sin mandar nada, y la única sin
+    // puerto: no hay `if (!deps.x) return null` porque no hay nada que pueda
+    // fallar. Eso importa — cualquier `return null` de aquí devolvería el turno
+    // al modelo, que es justo lo que este silencio existe para impedir.
+    //
+    // El cuerpo tiene que ser DISTINTO de `DETERMINISTIC_DECLINED`: con
+    // `handled:'ignored'` el sobre se clasifica `eligible` y `pickTurnAnchor`
+    // lo ancla. Ahí está todo el efecto de esta rama.
+    //
+    // Solo el motivo, que es un enum cerrado. Ni teléfono, ni texto, ni pedido.
+    log.info('webhook_default_silence', { reason: decision.reason });
+    return { ok: true, handled: 'silence', result: 'silenced' };
   }
 
   const sent = await deps.sendMenuCta({
@@ -979,6 +1046,7 @@ async function processMessage(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
@@ -1612,6 +1680,7 @@ async function processEnvelopes(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
     appendKitchenNote?: AppendKitchenNote;
@@ -1808,6 +1877,19 @@ function pickTurnAnchor(results: readonly EnvelopeResult[]): EnvelopeResult | nu
     (r) => r.body.handled === 'menu_cta' && (r.body.result === 'sent' || r.body.result === 'duplicate'),
   );
   if (menuEntregado) return null;
+
+  // ── Y un silencio cierra la entrega entera (06-09-2026) ───────────────────
+  //
+  // Se mira "si hubo alguno" y no solo el último, al revés que la regla de
+  // arriba, y el caso es la FOTO: en `[texto, foto]` el silencio se decide
+  // sobre el texto, pero la foto no es texto —`decideDefaultReply` sale por
+  // `no_text`—, así que queda `eligible` y le devuelve el turno al modelo.
+  //
+  // Justo la foto: al cliente se le acaba de decir que no hace falta que mande
+  // su comprobante de nuevo, y la que manda igual no puede ser la que reabra la
+  // conversación que ese mensaje venía a cerrar.
+  const silenciado = results.some((r) => r.body.handled === 'silence');
+  if (silenciado) return null;
 
   const candidatos = mensajes.filter((r) => r.kind !== 'deterministic');
   if (candidatos.length === 0) return null;
@@ -2287,6 +2369,7 @@ async function runBusiness(
       askLocationForQuote: params.askLocationForQuote,
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
+      sendWaitNotice: params.sendWaitNotice,
       sendOrderReview: params.sendOrderReview,
       decideCashOrder: params.decideCashOrder,
       appendKitchenNote: params.appendKitchenNote,

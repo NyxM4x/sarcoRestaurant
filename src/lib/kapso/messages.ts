@@ -514,22 +514,77 @@ export function proofReminderText(orderNumber: string, totalAmount: number): str
 }
 
 /**
- * Ya tenemos su comprobante y todavía no lo hemos mirado (04-09-2026).
+ * Ya tenemos su comprobante y todavía no lo hemos mirado (06-09-2026).
  *
  * Es la otra mitad de `proofReminderText`. Al cliente que YA mandó su foto no
  * se le puede pedir otra —el 04-09 le pasó a uno, y acabó reenviándola tres
  * veces y hablando con una persona— pero tampoco se le puede dejar sin
  * respuesta: el que escribe después de pagar está preguntando si llegó.
  *
- * Dice las dos cosas que necesita y ninguna más: que la tenemos, y que no tiene
- * que hacer nada. No promete cuándo, porque eso depende de que alguien la mire.
+ * ── Por qué pide además que no escriba más ──────────────────────────────────
+ *
+ * Porque después de este mensaje el agente CALLA, y un silencio que llega sin
+ * anunciarse se lee como que se cortó la conversación. La versión anterior solo
+ * pedía no reenviar la foto, y el cliente seguía escribiendo — cada mensaje le
+ * devolvía el mismo texto, porque el cooldown de la variante `received` nunca
+ * llegaba a calcularse. Ver `waitingOnUs` y `waitNoticeSent`.
+ *
+ * Sale UNA vez por pedido. Eso no lo gobierna un reloj sino el pedido mismo.
+ *
+ * Texto del DUEÑO, palabra por palabra: minúsculas y tildes ausentes incluidas.
+ * No se "corrige" de estilo — misma regla que `KITCHEN_NOTE_ACK_TEXT`.
+ *
+ * No lleva `📦 Pedido `, `Comida:`, `Delivery:` ni `Total:`: son las marcas
+ * canónicas con las que `outbound-classify` reconoce una confirmación, y este
+ * mensaje se emparejaría con la de otro pedido al reconciliar.
  */
-export function proofAckText(orderNumber: string): string {
-  return (
-    `Ya tenemos tu comprobante del pedido ${shortOrderNumber(orderNumber)} 🙌 ` +
-    'Lo estamos revisando y te avisamos apenas lo pasemos a la cocina. ' +
-    'No hace falta que lo mandes de nuevo.'
-  );
+export const PROOF_WAIT_TEXT =
+  'perfecto danos tiempo para revisar el comprobante y te diremos nuestra ' +
+  'respuesta, no es necesario que envies tu comprobante de nuevo, ni mas ' +
+  'mensajes, solo te pido un poco de paciencia.';
+
+/**
+ * El mismo aviso, para el pedido en EFECTIVO ya confirmado (06-09-2026).
+ *
+ * Aquí no hay comprobante que revisar —el cliente escribió CONFIRMO y paga en
+ * la puerta— así que la mitad del texto de arriba no aplica. Lo que sí aplica
+ * es lo mismo que hace falta decirle: que ya está hecho y que no tiene que
+ * escribir más.
+ *
+ * NO promete avisarle cuando salga. No existe ningún saliente automático que
+ * haga eso —`notifyDeliveryGroup` va a Telegram, no a él— y prometerlo lo
+ * devolvería a escribir preguntando por un aviso que nadie iba a mandar.
+ */
+export const CASH_WAIT_TEXT =
+  'Perfecto, tu pedido ya está en cocina 🙌 Danos un tiempo para prepararlo y ' +
+  'salir, no es necesario que mandes más mensajes, solo te pido un poco de ' +
+  'paciencia.';
+
+/**
+ * Pide cambiar algo cuando ya no se puede tocar el pedido (06-09-2026).
+ *
+ * ── Por qué se le manda con el repartidor ───────────────────────────────────
+ *
+ * Porque es el único que todavía puede hacerlo. Cuando este texto sale, la
+ * comanda ya está puesta y el aviso ya salió al grupo de reparto — y ese aviso
+ * NO se reescribe: el outbox manda lo que se encoló, así que una nota anotada
+ * ahora no la vería nadie con la bolsa delante. Ver `delivery-notice-service`.
+ *
+ * Antes de esto, "quiero llajua" después del comprobante se anotaba en el
+ * pedido y se le contestaba que sí. La nota entraba en la comanda si había
+ * suerte y desaparecía si no, sin que el cliente pudiera saber cuál de las dos
+ * cosas pasó.
+ *
+ * ── La variante de recojo ───────────────────────────────────────────────────
+ *
+ * A quien pasa a buscarlo no lo va a llamar ningún delivery, y decírselo sería
+ * hacerle esperar una llamada que no existe. Ahí la persona a quien decírselo
+ * es la del mostrador, cuando llegue.
+ */
+export function deliveryRelayText(deliveryType: 'delivery' | 'pickup' | null): string {
+  return deliveryType === 'pickup'
+    ? 'Tu pedido ya está en cocina 🙌 Cuando pases a recogerlo, decinos ahí mismo lo que necesitás.'
+    : 'El delivery se comunicará contigo. Espera sus mensajes y hazle saber esto mismo antes de que salga 🙌';
 }
 
 /**

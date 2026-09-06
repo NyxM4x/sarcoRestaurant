@@ -32,13 +32,19 @@ export type AutomationAction =
   | 'send_menu'
   | 'human_handoff'
   | 'proof_reminder'
-  | 'kitchen_note';
+  | 'kitchen_note'
+  | 'proof_wait'
+  | 'cash_wait'
+  | 'delivery_relay';
 
 const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
   'send_menu',
   'human_handoff',
   'proof_reminder',
   'kitchen_note',
+  'proof_wait',
+  'cash_wait',
+  'delivery_relay',
 ];
 
 /** ¿Es una acción conocida? Todo lo demás cae al evento genérico. */
@@ -192,6 +198,22 @@ export function automationEventLine(action: AutomationAction | null | undefined)
     // anotó en su pedido. Sin esta línea, el modelo podría volver a ofrecerle
     // arreglar lo que ya está arreglado.
     return 'Evento del canal: el sistema anotó en el pedido una preferencia que pidió el cliente.';
+  }
+  if (action === 'proof_wait') {
+    // Ya mandó su comprobante y se le pidió que espere sin escribir más. Si el
+    // modelo llega a hablar después de esto, tiene que saber que ese silencio
+    // fue nuestro y a propósito — no un descuido que deba compensar.
+    return 'Evento del canal: el sistema le dijo al cliente que estamos revisando su comprobante y que espere.';
+  }
+  if (action === 'cash_wait') {
+    // Lo mismo para el efectivo: escribió CONFIRMO y su pedido ya está hecho.
+    return 'Evento del canal: el sistema le dijo al cliente que su pedido ya está en cocina y que espere.';
+  }
+  if (action === 'delivery_relay') {
+    // Pidió cambiar algo cuando el pedido ya estaba en cocina y en el grupo de
+    // reparto. Sin esta línea el modelo podría ofrecerle rehacerlo, que es
+    // exactamente lo que ya no se puede.
+    return 'Evento del canal: el cliente pidió un cambio con el pedido ya en cocina y el sistema le dijo que se lo diga al repartidor.';
   }
   return null;
 }

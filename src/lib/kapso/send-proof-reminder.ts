@@ -1,6 +1,6 @@
 import 'server-only';
 import { getKapsoClient } from './client';
-import { proofAckText, proofReminderText } from './messages';
+import { proofReminderText } from './messages';
 import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { createAgentStore } from '@/lib/agent/memory/repository';
@@ -9,8 +9,13 @@ import { createAgentStore } from '@/lib/agent/memory/repository';
  * "Falta tu comprobante" — envío y memoria (server-only, 03-09-2026).
  *
  * Es la respuesta por defecto del cliente que ya tiene su pedido cotizado y su
- * QR, y escribe antes de mandar el pago. Ver `webhook/default-reply.ts` para
+ * QR, y escribe ANTES de mandar el pago. Ver `webhook/default-reply.ts` para
  * cuándo se elige esta rama y no el botón del menú.
+ *
+ * La otra mitad —el cliente que ya mandó su foto— vive desde el 06-09-2026 en
+ * `send-wait-notice`, y no es un traslado de sitio: son dos políticas opuestas.
+ * Esto se REPITE mientras falte el comprobante, porque el cliente todavía tiene
+ * algo que hacer; aquello sale una vez y calla, porque ya no.
  *
  * ── La fila de memoria no es contabilidad: es el reloj ──────────────────────
  *
@@ -43,11 +48,6 @@ export interface SendProofReminderInput {
   /** Número interno (`ORD-260903-007`); el copy lo acorta a `#7`. */
   orderNumber: string;
   totalAmount: number;
-  /**
-   * Qué se le dice del pago. Ausente = `missing`, que es como se comportaba
-   * antes de que existiera la otra mitad. Ver `DefaultReplyDecision`.
-   */
-  variant?: 'missing' | 'received';
 }
 
 /**
@@ -61,10 +61,7 @@ export interface SendProofReminderInput {
 export async function sendProofReminder(
   input: SendProofReminderInput,
 ): Promise<{ ok: boolean }> {
-  const texto =
-    input.variant === 'received'
-      ? proofAckText(input.orderNumber)
-      : proofReminderText(input.orderNumber, input.totalAmount);
+  const texto = proofReminderText(input.orderNumber, input.totalAmount);
 
   let wamid: string;
   try {

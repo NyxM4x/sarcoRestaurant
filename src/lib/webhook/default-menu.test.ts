@@ -363,6 +363,26 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     ...over,
   });
 
+  /**
+   * El mismo cliente, pero con su comprobante ya mandado (06-09-2026).
+   *
+   * A partir de aquí el pedido nos espera a nosotros: ver `waitingOnUs`. Es el
+   * estado en el que el agente pide paciencia una vez y después calla.
+   */
+  const conFotoRecibida = (over: Partial<CustomerStateSnapshot> = {}): CustomerStateSnapshot =>
+    conPedidoPorPagar({
+      openOrder: {
+        orderId: 'order-uuid',
+        orderNumber: 'ORD-260904-002',
+        status: 'confirmed',
+        totalAmount: 28,
+        payment: 'no_proof',
+        proofReceived: true,
+        paymentMethod: null,
+      },
+      ...over,
+    });
+
   it('se anota en el pedido y se le contesta, en vez de recordarle el pago', async () => {
     const cta = spyCta();
     const notas: Array<{ orderId: string; note: string }> = [];
@@ -486,66 +506,125 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
     // segundo. `proofReceived` sale de `payment_proofs`, que se escribe aunque
     // la descarga se caiga.
     const cta = spyCta();
-    const variantes: (string | undefined)[] = [];
+    const avisos: string[] = [];
 
     const { processed } = await deliver(
       JSON.stringify(envelope({ text: 'Quiero armar de nuevo' })),
       {
         sendMenuCta: cta.sendMenuCta,
-        lookupCustomerState: estado(
-          conPedidoPorPagar({
-            openOrder: {
-              orderId: 'order-uuid',
-              orderNumber: 'ORD-260904-002',
-              status: 'confirmed',
-              totalAmount: 28,
-              payment: 'no_proof',
-              proofReceived: true,
-              paymentMethod: null,
-            },
-          }),
-        ),
-        sendProofReminder: async (input) => {
-          variantes.push(input.variant);
+        lookupCustomerState: estado(conFotoRecibida()),
+        sendWaitNotice: async (input) => {
+          avisos.push(input.kind);
           return { ok: true };
         },
       },
     );
 
     expect(cta.enviados).toHaveLength(0);
-    // Y no se le calla: se le contesta que ya la tenemos. Callar dejaba el turno
-    // libre y lo tomaba el modelo, que el 04-09 mandó a ese cliente a hablar con
-    // una persona.
-    expect(variantes).toEqual(['received']);
+    // Y no se le calla: se le manda con el repartidor, que es quien todavía
+    // puede hacer algo. Callar dejaba el turno libre y lo tomaba el modelo, que
+    // el 04-09 mandó a ese cliente a hablar con una persona.
+    expect(avisos).toEqual(['delivery_relay']);
     expect(processed?.body).not.toMatchObject({ handled: 'order_change' });
   });
 
-  it('pero una preferencia SÍ se sigue anotando con la foto recibida', async () => {
-    // "Sin cebolla" no toca el total ni el QR: se anota igual, que es lo que el
-    // cliente pidió. La guarda nueva va después de la nota, a propósito.
+  it('con la foto recibida, la preferencia va al repartidor y NO a la comanda', async () => {
+    // Cambio de política del 06-09-2026. Cuando este mensaje llega, la comanda
+    // ya está puesta y el aviso ya salió al grupo de reparto — y ese aviso no
+    // se reescribe. Una nota anotada aquí no la vería nadie con la bolsa
+    // delante, así que se le dice a quién decírsela.
     const notas: string[] = [];
+    const avisos: string[] = [];
 
     await deliver(JSON.stringify(envelope({ text: 'porfa sin cebolla' })), {
-      lookupCustomerState: estado(
-        conPedidoPorPagar({
-          openOrder: {
-            orderId: 'order-uuid',
-            orderNumber: 'ORD-260904-002',
-            status: 'confirmed',
-            totalAmount: 28,
-            payment: 'no_proof',
-            proofReceived: true,
-            paymentMethod: null,
-          },
-        }),
-      ),
+      lookupCustomerState: estado(conFotoRecibida()),
       appendKitchenNote: async (input) => {
         notas.push(input.note);
         return { ok: true };
       },
+      sendWaitNotice: async (input) => {
+        avisos.push(input.kind);
+        return { ok: true };
+      },
     });
 
-    expect(notas).toEqual(['porfa sin cebolla']);
+    expect(notas).toHaveLength(0);
+    expect(avisos).toEqual(['delivery_relay']);
+  });
+
+  it('la foto del lote NO le devuelve el turno al modelo', async () => {
+    // El silencio se decide sobre el TEXTO, pero `pickTurnAnchor` mira el
+    // último mensaje de la entrega — y una foto no es texto, así que queda
+    // `eligible` y anclaría el turno. Justo la foto: se le acaba de decir que
+    // no hace falta que mande el comprobante otra vez, y la que manda igual no
+    // puede reabrir la conversación que ese mensaje venía a cerrar.
+    const agente = spyChannel();
+
+    const { processed } = await deliver(
+      batchBody([
+        envelope({ wamid: 'wamid.T1', text: 'le llego?' }),
+        envelope({
+          message: {
+            id: 'wamid.FOTO2',
+            type: 'image',
+            image: { id: 'media-2', mime_type: 'image/jpeg' },
+            from: PHONE_RAW,
+            timestamp: 1_760_000_001,
+            kapso: { direction: 'inbound', origin: 'business_app', status: 'received' },
+          },
+        }),
+      ]),
+      {
+        lookupCustomerState: estado(conFotoRecibida({ waitNoticeSent: true })),
+        agentChannel: agente.channel,
+        sendWaitNotice: async () => ({ ok: true }),
+      },
+      'idem-foto-lote',
+    );
+
+    // `anchor_index: null` ES la prueba: no se ancló ningún turno del modelo.
+    expect(processed?.body).toMatchObject({ handled: 'batch', anchor_index: null });
+    expect(agente.turns).toHaveLength(0);
+  });
+
+  it('y si no pide nada, se le pide paciencia UNA vez y después CALLA', async () => {
+    // El arreglo del 06-09 en su forma más corta. El segundo mensaje no cae en
+    // `none` —que le cedería el turno al modelo— sino en `silence`, que cierra
+    // el turno sin mandar nada.
+    const avisos: string[] = [];
+    const puertos = {
+      sendWaitNotice: async (input: { kind: string }) => {
+        avisos.push(input.kind);
+        return { ok: true };
+      },
+    };
+
+    const primero = await deliver(
+      JSON.stringify(envelope({ wamid: 'wamid.ESPERA1', text: 'ya le mande' })),
+      {
+        lookupCustomerState: estado(conFotoRecibida()),
+        ...puertos,
+      },
+      'idem-espera-1',
+    );
+    expect(primero.processed?.body).toMatchObject({ handled: 'wait_notice' });
+    expect(avisos).toEqual(['proof_wait']);
+
+    const segundo = await deliver(
+      JSON.stringify(envelope({ wamid: 'wamid.ESPERA2', text: 'le llego?' })),
+      {
+        lookupCustomerState: estado(conFotoRecibida({ waitNoticeSent: true })),
+        ...puertos,
+      },
+      'idem-espera-2',
+    );
+    expect(segundo.processed?.body).toEqual({
+      ok: true,
+      handled: 'silence',
+      result: 'silenced',
+    });
+    // Y no salió ningún mensaje más: el silencio es silencio.
+    expect(avisos).toEqual(['proof_wait']);
   });
 
   it('el pedido que AÚN ESPERA UBICACIÓN también se rearma', async () => {

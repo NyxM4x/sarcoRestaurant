@@ -11,6 +11,7 @@ import {
   OPEN_ORDER_WINDOW_MS,
   ORDER_CHANGE_STATUSES,
   PROOF_REMINDER_COOLDOWN_MS,
+  waitingOnUs,
   type CustomerStateSnapshot,
   type OpenOrderSnapshot,
 } from './default-reply';
@@ -18,6 +19,7 @@ import { catalogTermsFromNames } from './order-change-intent';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { PROOF_REMINDER_ACTION } from '@/lib/kapso/send-proof-reminder';
 import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
+import { CASH_WAIT_ACTION, PROOF_WAIT_ACTION } from '@/lib/kapso/send-wait-notice';
 
 /**
  * En qué situación está el cliente que acaba de escribir — wiring server-only.
@@ -56,6 +58,10 @@ interface FilaPedido {
   payment_method: PaymentMethod | null;
   /** 0036: cuándo el cliente confirmó su pedido en efectivo. `null` = aún no. */
   cash_confirmed_at: string | null;
+  /** Solo para el copy de `deliveryRelayText`: no hay delivery en un recojo. */
+  delivery_type: 'delivery' | 'pickup' | null;
+  /** Ancla del acuse del comprobante. Ver `avisoDeEsperaEnviado`. */
+  created_at: string;
 }
 
 /**
@@ -72,7 +78,10 @@ async function pedidoAbierto(
 
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, status, total_amount, payment_method, cash_confirmed_at')
+    .select(
+      'id, order_number, status, total_amount, payment_method, cash_confirmed_at, ' +
+        'delivery_type, created_at',
+    )
     .eq('customer_phone', customerPhone)
     .in('status', [...OPEN_ORDER_STATUSES])
     .gte('created_at', desde)
@@ -180,6 +189,45 @@ async function preguntadoHacePoco(
 }
 
 /**
+ * ¿Ya salió el aviso de espera de ESTE pedido? (06-09-2026)
+ *
+ * La misma técnica que los dos de arriba —la fila del saliente en
+ * `agent_messages` es a la vez lo que el cliente vio y el estado— pero con un
+ * ancla distinta, y la diferencia es todo el punto.
+ *
+ * `recordadoHacePoco` mira los últimos quince minutos porque el recordatorio
+ * del pago DEBE repetirse: mientras falte el comprobante, el cliente todavía
+ * tiene algo que hacer. Esto mira desde que el pedido entró en espera, porque
+ * este aviso NO debe repetirse nunca: después de él, el agente calla. Un solo
+ * reloj para las dos cosas dejaba al cliente leyendo "danos tiempo" en cada
+ * mensaje que escribía, que es la queja que esto viene a arreglar.
+ *
+ * Ante un error devuelve `true` = ya se avisó = silencio. Es la dirección
+ * segura: el cliente ya sabe que estamos con su pedido, y repetírselo es
+ * justamente lo que no queremos.
+ */
+async function avisoDeEsperaEnviado(
+  supabase: SupabaseClient,
+  conversationId: string | null,
+  action: string,
+  desde: string,
+): Promise<boolean> {
+  if (conversationId === null) return false;
+
+  const { data, error } = await supabase
+    .from('agent_messages')
+    .select('id')
+    .eq('agent_conversation_id', conversationId)
+    .eq('actor', 'automation')
+    .eq('metadata->>action', action)
+    .gte('message_timestamp', desde)
+    .limit(1);
+
+  if (error) return true;
+  return (data ?? []).length > 0;
+}
+
+/**
  * Palabras de los productos ACTIVOS. `undefined` si no se pudo leer la carta.
  *
  * Se lee de `menu_items` por el mismo repositorio que usa el resto del sistema:
@@ -267,13 +315,50 @@ export async function lookupCustomerState(
       // reparto: su siguiente mensaje puede ser el CONFIRMO que lo agenda.
       awaitingCashConfirm:
         pedido.payment_method === 'cash' && pedido.cash_confirmed_at === null,
+      // El complemento, calculado AQUÍ MISMO y no en otro sitio: los dos salen
+      // de la misma columna y son excluyentes por construcción. Separarlos es
+      // como se llega a que ninguno cubra el pedido ya confirmado, que es lo
+      // que pasó el 06-09.
+      cashConfirmed:
+        pedido.payment_method === 'cash' && pedido.cash_confirmed_at !== null,
+      deliveryType: pedido.delivery_type,
     };
 
-    // 3. El cooldown solo interesa cuando de verdad se va a recordar algo.
+    // 3. El cooldown del recordatorio `missing`, y SOLO ese.
+    //
+    //    Que se calcule únicamente en `no_proof` dejó de ser un descuido el
+    //    06-09-2026: la otra mitad —el comprobante ya recibido— tenía este
+    //    mismo cooldown en su rama y NUNCA llegaba a calcularse, porque con una
+    //    foto en la mano el gate vale `awaiting_review`. El aviso salía en cada
+    //    mensaje del cliente. Ahora esa mitad tiene su propio freno, permanente
+    //    y anclado al pedido (`waitNoticeSent`), así que esta condición es
+    //    exactamente la correcta.
     const proofRemindedRecently =
       gate.state === 'no_proof'
         ? await recordadoHacePoco(supabase, pausa?.conversationId ?? null)
         : false;
+
+    // 3b. ¿Ya se le pidió paciencia por este pedido? Una sola consulta, y solo
+    //     cuando la espera existe: quien todavía tiene algo que hacer no la
+    //     paga. El ancla es el instante en que el pedido entró en espera, así
+    //     que el aviso de un pedido anterior queda fuera por ser más viejo.
+    const espera = waitingOnUs(openOrder);
+    const waitNoticeSent =
+      espera === 'payment_review'
+        ? await avisoDeEsperaEnviado(
+            supabase,
+            pausa?.conversationId ?? null,
+            PROOF_WAIT_ACTION,
+            pedido.created_at,
+          )
+        : espera === 'kitchen'
+          ? await avisoDeEsperaEnviado(
+              supabase,
+              pausa?.conversationId ?? null,
+              CASH_WAIT_ACTION,
+              pedido.cash_confirmed_at ?? pedido.created_at,
+            )
+          : false;
 
     // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
     //    Sin ella ninguna frase se anota: no poder descartar que el cliente
@@ -302,6 +387,7 @@ export async function lookupCustomerState(
       proofRemindedRecently,
       catalogTerms,
       awaitingReviewReply,
+      waitNoticeSent,
     };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.

@@ -22,6 +22,7 @@ import { expandMapsLink } from '@/lib/delivery/maps-link-service';
 import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
+import { sendWaitNotice } from '@/lib/kapso/send-wait-notice';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { sendOrderReview, sendOrderReviewKept } from '@/lib/kapso/send-order-review';
 import { cancelCashOrder, confirmCashOrder } from '@/lib/orders/cash-confirm-service';
@@ -118,6 +119,10 @@ export async function POST(request: Request): Promise<Response> {
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),
+      // 06-09-2026: con el comprobante mandado o el CONFIRMO escrito, el pedido
+      // ya no depende del cliente. Se le pide paciencia UNA vez, y si pide un
+      // cambio se le manda con el repartidor. Ver `webhook/default-reply.ts`.
+      sendWaitNotice: (input) => sendWaitNotice(input),
       switchToPickup: (input) => switchOrderToPickup(input),
       // Fase 5.2D.5C: reconciliación de eventos salientes de Kapso.
       outbound: createSupabaseOutboundStore(supabase),
