@@ -145,11 +145,17 @@ describe('totales', () => {
    */
   it('ignorarlos TODOS tampoco lanza: es un carrito vacío, no un error', () => {
     const soloAgotados = summarizeCart({ la_fija: 2 }, []);
-    expect(soloAgotados).toEqual({ lines: [], subtotal: 0, total: 0, units: 0 });
+    expect(soloAgotados.lines).toEqual([]);
+    expect(soloAgotados.total).toBe(0);
+    expect(soloAgotados.units).toBe(0);
+    // Y se anota QUÉ se cayó, para poder decírselo: ver `unavailableCodes`.
+    expect(soloAgotados.unavailableCodes).toEqual(['la_fija']);
 
     // Y con el menú vivo pero sin ninguno de los suyos dentro.
     const otro = summarizeCart({ producto_agotado: 3 }, MENU);
-    expect(otro).toEqual({ lines: [], subtotal: 0, total: 0, units: 0 });
+    expect(otro.lines).toEqual([]);
+    expect(otro.total).toBe(0);
+    expect(otro.unavailableCodes).toEqual(['producto_agotado']);
   });
 
   it('lo que sobrevive se sigue cobrando', () => {
@@ -171,7 +177,9 @@ describe('carrito vacío', () => {
 
   it('summarizeCart devuelve totales en cero sin lanzar', () => {
     const summary = summarizeCart(EMPTY_CART, MENU);
-    expect(summary).toEqual({ lines: [], subtotal: 0, total: 0, units: 0 });
+    expect(summary).toEqual({
+      lines: [], subtotal: 0, total: 0, units: 0, unavailableCodes: [],
+    });
   });
 });
 

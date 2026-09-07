@@ -87,7 +87,22 @@ export function MenuStore({
   // hace horas seguiría mostrando una promoción que ya venció.
   const ahora = useServerClock(serverNow);
 
-  const cart = useCart(items);
+  /**
+   * Lo que se puede COBRAR, que no es lo que se puede VER (07-09-2026).
+   *
+   * Desde que la vitrina enseña los agotados en gris, `items` trae también lo
+   * que no está a la venta. El carrito no puede verlo: `calculateOrder` recorre
+   * la lista que se le pasa y hace una línea de todo lo que tenga cantidad, así
+   * que pasarle la lista entera resucitaría el producto agotado que quedó
+   * guardado en el navegador del cliente — y se lo cobraría.
+   *
+   * El servidor lo rechazaría al crear el pedido (`orders/service` usa
+   * `listActive`), pero eso es un error DESPUÉS de que el cliente lo dio por
+   * pedido. La lista de aquí es la que evita llegar hasta ahí.
+   */
+  const aLaVenta = useMemo(() => items.filter((item) => item.is_active), [items]);
+
+  const cart = useCart(aLaVenta);
   const promos = usePromoCart(promotions, ahora);
 
   /**

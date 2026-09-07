@@ -87,10 +87,28 @@ export interface CartSummary {
    */
   total: number;
   units: number;
+  /**
+   * Códigos que el cliente tenía guardados y ya no se pueden cobrar.
+   *
+   * Simétrico a `unavailableIds` de `summarizePromoCart`, y por el mismo motivo:
+   * el carrito se queda en el navegador entre visitas, así que lo que se agotó
+   * anoche sigue ahí esta mañana. Descartarlo del total es obligatorio —cobrar
+   * lo que no hay es lo único inaceptable— pero descartarlo EN SILENCIO deja al
+   * cliente creyendo que pidió algo que no va a llegarle.
+   *
+   * Aquí solo se anota. Quién lo dice y cómo es cosa de la pantalla.
+   */
+  unavailableCodes: string[];
 }
 
 /** Lo que devuelve un carrito sin nada que cobrar. */
-const RESUMEN_VACIO: CartSummary = { lines: [], subtotal: 0, total: 0, units: 0 };
+const RESUMEN_VACIO: CartSummary = {
+  lines: [],
+  subtotal: 0,
+  total: 0,
+  units: 0,
+  unavailableCodes: [],
+};
 
 /**
  * Calcula el resumen cruzando el carrito con los productos reales.
@@ -117,11 +135,17 @@ export function summarizeCart(cart: CartState, items: MenuItem[]): CartSummary {
   const units = totalUnits(cart);
   if (units === 0) return RESUMEN_VACIO;
 
+  // Lo que el cliente tiene guardado y ya no se le puede cobrar. Se calcula
+  // ANTES de decidir nada: vale igual si sobrevive medio carrito que si no
+  // sobrevive nada, y son justo los dos casos en los que hay que avisarle.
+  const aLaVenta = new Set(items.map((item) => item.code));
+  const unavailableCodes = Object.keys(cart).filter((code) => !aLaVenta.has(code));
+
   // ¿Queda algo del carrito que siga a la venta? La comparación es la MISMA que
   // hace `calculateOrder` al armar sus líneas —el `code` del producto contra las
   // cantidades del carrito— y por eso no puede discrepar con ella.
   const quedaAlgo = items.some((item) => (cart[item.code] ?? 0) > 0);
-  if (!quedaAlgo) return RESUMEN_VACIO;
+  if (!quedaAlgo) return { ...RESUMEN_VACIO, unavailableCodes };
 
   // `calculateOrder` es la única fuente de la aritmética de precios.
   // 'pickup' evita sumar delivery: el tipo de entrega se elige en el checkout.
@@ -132,6 +156,7 @@ export function summarizeCart(cart: CartState, items: MenuItem[]): CartSummary {
     subtotal: round2(calc.subtotal_amount),
     total: round2(calc.total_amount),
     units: calc.lines.reduce((acc, line) => acc + line.quantity, 0),
+    unavailableCodes,
   };
 }
 

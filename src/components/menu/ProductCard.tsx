@@ -51,8 +51,13 @@ export function ProductCard({
           </span>
 
           {!available ? (
-            <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-400">
-              No disponible
+            /* La MISMA palabra que usa el panel al retirarlo
+               (`MenuAvailability`) y la que dice el negocio por WhatsApp. Dos
+               nombres para el mismo estado hacen dudar de si son dos estados.
+               Ocupa el sitio de los botones, así que no hay nada que tocar — y
+               el color nunca comunica solo: el gris va con su palabra. */
+            <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-500">
+              Agotado
             </span>
           ) : inCart ? (
             <QuantityControl

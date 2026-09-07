@@ -189,4 +189,51 @@ describe('groupByCategory', () => {
   it('con lista vacía devuelve ningún grupo', () => {
     expect(groupByCategory([])).toEqual([]);
   });
+
+  /**
+   * LO AGOTADO BAJA, PERO NO DESAPARECE (07-09-2026).
+   *
+   * Desde que la vitrina enseña los agotados en gris, el `sort_order` del panel
+   * puede dejar en la primera tarjeta de la pantalla lo único que no se puede
+   * pedir. Bajan al final de su grupo, y ahí se quedan: no se filtran.
+   */
+  it('los agotados van al final de su categoría, sin perderse', () => {
+    const agotado = (code: string, orden: number): MenuItem => ({
+      ...item(code, code, 'plato', 20, orden),
+      is_active: false,
+    });
+
+    const groups = groupByCategory([
+      agotado('trancapecho', 0),
+      item('hamburguesa', 'Hamburguesa', 'plato', 25, 1),
+      agotado('lomito', 2),
+      item('salchipapa', 'Salchipapa', 'plato', 18, 3),
+    ]);
+
+    expect(groups[0].items.map((i) => i.code)).toEqual([
+      'hamburguesa',
+      'salchipapa',
+      'trancapecho',
+      'lomito',
+    ]);
+  });
+
+  it('no reordena entre iguales: dentro de cada mitad manda el sort_order', () => {
+    // El desempate es SOLO por disponibilidad. Un `sort` que además tocara el
+    // orden del panel movería el menú cada vez que se agota cualquier cosa.
+    const groups = groupByCategory(MENU);
+    expect(groups[0].items.map((i) => i.code)).toEqual(
+      MENU.filter((i) => i.category === 'plato').map((i) => i.code),
+    );
+  });
+
+  it('no muta la lista que recibe', () => {
+    const entrada = [
+      { ...item('a', 'A', 'plato', 10, 0), is_active: false },
+      item('b', 'B', 'plato', 10, 1),
+    ];
+    const antes = entrada.map((i) => i.code);
+    groupByCategory(entrada);
+    expect(entrada.map((i) => i.code)).toEqual(antes);
+  });
 });

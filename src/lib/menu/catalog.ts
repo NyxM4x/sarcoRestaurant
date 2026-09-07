@@ -163,7 +163,18 @@ export function filterMenuItems(
   });
 }
 
-/** Agrupa los productos por categoría, respetando el orden recibido. */
+/**
+ * Agrupa los productos por categoría, respetando el orden recibido.
+ *
+ * Con una excepción: lo AGOTADO baja al final de su grupo (07-09-2026). Desde
+ * que la vitrina lo enseña en gris en vez de esconderlo, el `sort_order` del
+ * panel puede poner un producto que no se vende en la primera tarjeta de la
+ * pantalla — y lo primero que ve quien abre el menú no puede ser lo único que
+ * no puede pedir.
+ *
+ * El orden entre ellos NO se toca: dentro de cada mitad manda el `sort_order`
+ * de siempre. Es un desempate, no una reordenación.
+ */
 export function groupByCategory(
   items: MenuItem[],
 ): Array<{ category: MenuCategory; label: string; items: MenuItem[] }> {
@@ -178,6 +189,7 @@ export function groupByCategory(
   return [...groups.entries()].map(([category, groupItems]) => ({
     category,
     label: categoryLabel(category),
-    items: groupItems,
+    // `sort` sobre una copia: la lista de entrada es la del llamador.
+    items: [...groupItems].sort((a, b) => Number(b.is_active) - Number(a.is_active)),
   }));
 }

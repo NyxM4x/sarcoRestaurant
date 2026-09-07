@@ -89,10 +89,21 @@ export default async function MenuPage(props: {
   let items: MenuItem[] | null = null;
 
   try {
-    items = await createMenuRepository(getSupabaseAdmin()).listActive();
+    // TODOS, no solo los que están a la venta (07-09-2026).
+    //
+    // La vitrina enseña el producto agotado en gris y con su etiqueta, en vez de
+    // hacerlo desaparecer. Un plato que se esfuma del menú deja al cliente
+    // buscándolo —y preguntando por WhatsApp si todavía lo hacen—; uno tachado
+    // se lee de una vez y sin escribirle a nadie.
+    //
+    // Quién puede COBRARSE es otra pregunta, y la contesta `MenuStore`: al
+    // carrito solo le llegan los activos. Las demás vías siguen con
+    // `listActive`, y ahí no se toca nada: el agente no puede ofrecer lo que no
+    // hay, y `orders/service` no puede cobrarlo.
+    items = await createMenuRepository(getSupabaseAdmin()).listAll();
   } catch (error) {
     // El detalle va al log del servidor; al cliente solo un mensaje amigable.
-    log.error('menu.page.listActive', {
+    log.error('menu.page.listAll', {
       error: error instanceof Error ? error.message : 'unknown',
     });
     items = null;

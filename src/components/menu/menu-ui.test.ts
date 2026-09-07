@@ -38,12 +38,15 @@ describe('6B.1R — ProductCard', () => {
     expect(s).toMatch(/line-clamp-2 text-sm/); // descripción
   });
 
-  it('un producto no disponible no ofrece CTA activo', () => {
+  it('un producto agotado no ofrece CTA activo', () => {
     const s = comp('ProductCard');
     expect(s).toContain('item.is_active');
-    expect(s).toContain('No disponible');
+    // "Agotado" y no "No disponible" (07-09-2026): es la palabra del panel y la
+    // que dice el negocio. Desde que la vitrina los enseña en vez de
+    // esconderlos, esta etiqueta la ve el cliente de verdad.
+    expect(s).toContain('Agotado');
     // La disponibilidad decide antes que "Agregar"/QuantityControl.
-    expect(s).toMatch(/!available\s*\?[\s\S]*No disponible/);
+    expect(s).toMatch(/!available\s*\?[\s\S]*Agotado/);
   });
 });
 
@@ -288,5 +291,51 @@ describe('6B.2A — sticky y sesión intactos', () => {
     expect(s).toContain('Abre el menú desde WhatsApp');
     expect(s).toContain('canCheckout');
     expect(s).toContain('hasSession');
+  });
+});
+
+/**
+ * EL PRODUCTO AGOTADO SE VE, PERO NO SE COBRA (07-09-2026).
+ *
+ * La vitrina pasó a enseñarlo en gris en vez de esconderlo, y con eso `items`
+ * trae por primera vez productos que NO están a la venta. Es un cambio barato en
+ * lo visual y caro en lo demás: la misma lista alimenta la parrilla y el
+ * carrito, y `calculateOrder` hace una línea de todo lo que se le pase con
+ * cantidad. Pasarle la lista entera resucitaría el agotado que el cliente tenía
+ * guardado en el navegador y se lo cobraría.
+ *
+ * Estos tests fijan esa separación. Son de fuente, como el resto del archivo:
+ * no prueban el render, prueban que el cableado no se deshaga.
+ */
+describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () => {
+  it('la página pide TODOS los productos, no solo los activos', () => {
+    const s = src('../../app/menu/page.tsx');
+    expect(s).toContain('listAll()');
+    expect(s).not.toContain('listActive()');
+  });
+
+  it('MenuStore filtra por is_active ANTES de darle la lista al carrito', () => {
+    const s = comp('MenuStore');
+    expect(s).toMatch(/items\.filter\(\(item\) => item\.is_active\)/);
+    // El carrito recibe la lista filtrada...
+    expect(s).toContain('useCart(aLaVenta)');
+    // ...y NUNCA la lista entera: es la línea que volvería a cobrar lo agotado.
+    expect(s).not.toContain('useCart(items)');
+  });
+
+  it('la parrilla y el carrito SÍ ven la lista entera: hay que pintarlo y nombrarlo', () => {
+    const s = comp('MenuStore');
+    // Sin esto el agotado no se pintaría en gris: volvería a desaparecer.
+    expect(s).toContain('groupByCategory(filterMenuItems(items, category, query))');
+    // Y el panel necesita `items` completo para poder decir QUÉ se agotó.
+    expect(s).toContain('items={items}');
+  });
+
+  it('el carrito avisa de lo que se agotó en vez de descontarlo en silencio', () => {
+    const s = comp('CartPanel');
+    expect(s).toContain('summary.unavailableCodes');
+    expect(s).toMatch(/agot[óa]/);
+    // Nombres, no códigos: un "se agotó producto_x" es peor que callarse.
+    expect(s).toContain('itemsByCode.get(code)?.name');
   });
 });

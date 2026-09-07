@@ -60,6 +60,31 @@ export function CartPanel({
   const totales = useMemo(() => unifiedTotals(summary, promoSummary), [summary, promoSummary]);
 
   /**
+   * Lo que traía guardado y se agotó mientras tanto (07-09-2026).
+   *
+   * El carrito vive en el navegador entre visitas, así que el producto que se
+   * agotó anoche sigue dentro esta mañana. Se descuenta del total —cobrar lo que
+   * no hay es lo único inaceptable— pero descontarlo en silencio deja al cliente
+   * creyendo que pidió algo que no va a llegarle, y enterándose en la puerta.
+   *
+   * Se nombra desde `items`, que trae TAMBIÉN los agotados desde que la vitrina
+   * los enseña: por eso aquí hay un nombre que enseñar y no un código. Lo que no
+   * se puede nombrar —un código viejo de un producto ya borrado— no se menciona:
+   * "se agotó producto_x" es peor que no decir nada.
+   *
+   * Cuando NO sobrevive nada del carrito, este panel no llega a abrirse: sin
+   * unidades no se pinta el botón que lo abre. Ese caso lo explica la vitrina,
+   * donde el producto sigue estando, en gris y con su etiqueta.
+   */
+  const agotados = useMemo(
+    () =>
+      summary.unavailableCodes
+        .map((code) => itemsByCode.get(code)?.name)
+        .filter((name): name is string => name !== undefined),
+    [summary.unavailableCodes, itemsByCode],
+  );
+
+  /**
    * Lo que el cliente se ahorra por los combos que lleva.
    *
    * Solo se muestra si es positivo. Un "Ahorras Bs 0" en un carrito sin
@@ -208,6 +233,20 @@ export function CartPanel({
               </li>
             );
           })}
+
+          {agotados.length > 0 && (
+            <li className="py-3">
+              <p
+                role="status"
+                className="rounded-xl bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-800"
+              >
+                Se {agotados.length === 1 ? 'agotó' : 'agotaron'}{' '}
+                <span className="font-semibold">{listaDe(agotados)}</span>.{' '}
+                {agotados.length === 1 ? 'Lo quitamos' : 'Los quitamos'} de tu pedido y el total ya
+                no {agotados.length === 1 ? 'lo incluye' : 'los incluye'}.
+              </p>
+            </li>
+          )}
         </ul>
 
         <div className="border-t border-zinc-100 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -254,4 +293,16 @@ export function CartPanel({
       </section>
     </div>
   );
+}
+
+/**
+ * "Trancapecho", "Trancapecho y Papas", "Trancapecho, Papas y Coca".
+ *
+ * A mano y no con `Intl.ListFormat`: son tres nombres como mucho y el separador
+ * del castellano no cambia, así que traer un formateador de locale para esto
+ * añadiría una dependencia del entorno del navegador a cambio de nada.
+ */
+function listaDe(nombres: string[]): string {
+  if (nombres.length <= 1) return nombres[0] ?? '';
+  return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
 }

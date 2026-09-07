@@ -33,9 +33,11 @@ const COMBO: Promotion = {
 
 const AHORA = Date.parse('2026-09-02T20:00:00.000Z');
 
-const carritoVacio: CartSummary = { lines: [], subtotal: 0, total: 0, units: 0 };
+const carritoVacio: CartSummary = {
+  lines: [], subtotal: 0, total: 0, units: 0, unavailableCodes: [],
+};
 const carritoCon = (subtotal: number, units: number): CartSummary => ({
-  lines: [], subtotal, total: subtotal, units,
+  lines: [], subtotal, total: subtotal, units, unavailableCodes: [],
 });
 
 describe('un combo cuenta como UN artículo', () => {
