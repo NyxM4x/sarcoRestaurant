@@ -254,7 +254,9 @@ export type SendWaitNotice = (input: {
   phoneNumberId: string | null;
   /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
   sourceMessageId: string;
-  kind: 'proof_wait' | 'cash_wait' | 'delivery_relay';
+  kind: 'proof_wait' | 'cash_wait' | 'delivery_relay' | 'location_reminder' | 'quote_wait';
+  /** Solo para el copy de los dos avisos del pedido sin cotizar. */
+  orderNumber?: string;
   deliveryType?: 'delivery' | 'pickup' | null;
 }) => Promise<{ ok: boolean }>;
 
@@ -909,6 +911,30 @@ async function responderPorDefecto(
     return {
       ok: avisado.ok,
       handled: 'proof_reminder',
+      result: avisado.ok ? 'sent' : 'failed',
+    };
+  }
+
+  // El pedido parado sin cotizar (07-09-2026). Sale por el mismo puerto que los
+  // demás avisos —mismo transporte, misma memoria, misma pregunta— y solo cambia
+  // el texto y la clave con la que se anota. Ver `send-wait-notice`.
+  if (decision.action === 'location_reminder') {
+    if (!deps.sendWaitNotice) return null;
+
+    const avisado = await deps.sendWaitNotice({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      kind: decision.variant === 'quoting' ? 'quote_wait' : 'location_reminder',
+      orderNumber: decision.order.orderNumber,
+    });
+    log.info('webhook_location_reminder', {
+      variant: decision.variant,
+      result: avisado.ok ? 'sent' : 'failed',
+    });
+    return {
+      ok: avisado.ok,
+      handled: 'location_reminder',
       result: avisado.ok ? 'sent' : 'failed',
     };
   }

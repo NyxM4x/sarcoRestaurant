@@ -35,7 +35,8 @@ export type AutomationAction =
   | 'kitchen_note'
   | 'proof_wait'
   | 'cash_wait'
-  | 'delivery_relay';
+  | 'delivery_relay'
+  | 'location_reminder';
 
 const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
   'send_menu',
@@ -45,6 +46,7 @@ const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
   'proof_wait',
   'cash_wait',
   'delivery_relay',
+  'location_reminder',
 ];
 
 /** ¿Es una acción conocida? Todo lo demás cae al evento genérico. */
@@ -214,6 +216,12 @@ export function automationEventLine(action: AutomationAction | null | undefined)
     // reparto. Sin esta línea el modelo podría ofrecerle rehacerlo, que es
     // exactamente lo que ya no se puede.
     return 'Evento del canal: el cliente pidió un cambio con el pedido ya en cocina y el sistema le dijo que se lo diga al repartidor.';
+  }
+  if (action === 'location_reminder') {
+    // Su pedido está parado sin cotizar. Sin esta línea el modelo puede creer
+    // que el cliente no ha pagado y pedirle el comprobante — que es justo el
+    // mensaje imposible que este aviso viene a quitar: sin ubicación no hay QR.
+    return 'Evento del canal: el pedido del cliente todavía no está cotizado y el sistema ya le habló de eso (le pidió su ubicación, o le dijo que estamos calculando el envío). NO le pidas el comprobante: sin cotizar no existe todavía ningún QR que pagar.';
   }
   return null;
 }

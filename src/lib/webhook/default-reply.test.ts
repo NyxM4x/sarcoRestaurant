@@ -911,3 +911,135 @@ describe('waitingOnUs — las dos esperas y ninguna más', () => {
     expect(waitingOnUs(pedido({ paymentMethod: 'cash', cashConfirmed: false }))).toBeNull();
   });
 });
+
+/**
+ * LOS CATORCE PEDIDOS PARADOS SIN COTIZAR (07-09-2026).
+ *
+ * `awaiting_location` significa que el pedido no está cotizado: no tiene envío
+ * calculado ni QR que enseñar. Pero `payment` vale `no_proof` —literalmente
+ * cierto, no hay comprobante— así que caía en el recordatorio del pago y el
+ * cliente recibía "falta que nos mandes la foto del comprobante" de un pago que
+ * nunca se le pidió.
+ *
+ * El 07-09 había catorce pedidos ahí, cinco de ellos CON comprobante: gente que
+ * hizo caso y pagó a ciegas —con el QR de un pedido anterior— por una comanda
+ * que nunca llegó a cocina. Uno de Bs 108; el del #50 mandó tres en media hora.
+ */
+describe('decideDefaultReply — el pedido parado esperando ubicación', () => {
+  const parado = (over: Partial<CustomerStateSnapshot> = {}): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    catalogTerms: ['lomito', 'papas', 'gaseosa', 'trancapecho'],
+    openOrder: {
+      orderId: 'order-uuid',
+      orderNumber: 'ORD-260906-050',
+      status: 'awaiting_location',
+      totalAmount: 18,
+      payment: 'no_proof',
+      proofReceived: false,
+      paymentMethod: 'qr',
+      awaitingCashConfirm: false,
+      cashConfirmed: false,
+      deliveryType: 'delivery',
+      locationReceived: false,
+    },
+    ...over,
+  });
+
+  const decidir = (texto: string, state: CustomerStateSnapshot, explicitIntent = false) =>
+    decideDefaultReply({
+      text: texto,
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent,
+      state,
+    });
+
+  it('NUNCA le pide el comprobante: sin cotizar no hay QR que pagar', () => {
+    // El corazón del arreglo. Escriba lo que escriba, `proof_reminder` aquí es
+    // una instrucción imposible — y cinco clientes la siguieron igual.
+    for (const frase of ['Es al mismo lugar', 'hola', 'ya te la mande', 'cuanto es']) {
+      const accion = decidir(frase, parado()).action;
+      expect(accion, frase).not.toBe('proof_reminder');
+      expect(accion, frase).toBe('location_reminder');
+    }
+  });
+
+  it('sin pin le pide el pin: es lo único que hace avanzar su pedido', () => {
+    expect(decidir('Es al mismo lugar', parado())).toEqual({
+      action: 'location_reminder',
+      order: parado().openOrder,
+      variant: 'missing',
+    });
+  });
+
+  /**
+   * La mitad que impide que este arreglo cree el fallo que viene a quitar.
+   *
+   * El delivery dinámico guarda el GPS y deja el pedido en `awaiting_location`
+   * hasta que responde la cotización, así que ahí falta algo NUESTRO. Pedirle
+   * otra vez lo que acaba de mandar es el error del 04-09 con otro dato: aquel
+   * cliente reenvió su comprobante tres veces y acabó hablando con una persona.
+   *
+   * De los catorce parados el 07-09, uno estaba exactamente así.
+   */
+  it('CON el pin ya mandado no se lo vuelve a pedir: ahora faltamos nosotros', () => {
+    const conPin = parado();
+    const decision = decidir('ya te mande la ubicacion', {
+      ...conPin,
+      openOrder: { ...conPin.openOrder!, locationReceived: true },
+    });
+
+    expect(decision).toMatchObject({ action: 'location_reminder', variant: 'quoting' });
+  });
+
+  it('el recordatorio se repite, pero no en cada mensaje', () => {
+    // Como el del pago y por lo mismo: mientras falte algo que solo él puede
+    // hacer, callarse lo deja parado. El freno es de reloj, no un "una vez y ya".
+    expect(decidir('hola', parado({ locationRemindedRecently: true }))).toEqual({
+      action: 'silence',
+      reason: 'location_reminded_recently',
+    });
+  });
+
+  it('pedir un cambio SIGUE ganando: ese pedido todavía se puede rearmar', () => {
+    // `awaiting_location` está en `ORDER_CHANGE_STATUSES` desde el 04-09, y es
+    // el momento MÁS seguro para rehacer un pedido. Esta guarda no puede
+    // habérselo llevado por delante.
+    for (const frase of ['me aumentas 2 papas', 'quiero armar de nuevo', 'me olvide de algo']) {
+      expect(decidir(frase, parado()).action, frase).toBe('order_review');
+    }
+  });
+
+  it('el CONFIRMO del efectivo sigue llegando a su puerta', () => {
+    // `cash-confirm-service` admite confirmar en `awaiting_location`, así que
+    // esa rama se lee antes y no puede quedar tapada.
+    const efectivo = parado();
+    const state = {
+      ...efectivo,
+      openOrder: {
+        ...efectivo.openOrder!,
+        paymentMethod: 'cash' as const,
+        payment: 'not_required' as const,
+        awaitingCashConfirm: true,
+      },
+    };
+    expect(decidir('CONFIRMO', state).action).toBe('cash_confirm');
+    expect(decidir('cancelar', state).action).toBe('cash_cancel');
+  });
+
+  it('una persona atendiendo gana sobre todo esto', () => {
+    expect(decidir('hola', parado({ paused: true })).action).toBe('none');
+  });
+
+  it('el pedido YA cotizado no cambia: ahí el comprobante sí se puede pedir', () => {
+    // La otra cara. Con el pedido en `confirmed` hay total, QR y envío
+    // calculado, así que el recordatorio del pago vuelve a tener sentido.
+    const cotizado = parado();
+    const decision = decidir('hola', {
+      ...cotizado,
+      openOrder: { ...cotizado.openOrder!, status: 'confirmed', totalAmount: 30 },
+    });
+    expect(decision).toMatchObject({ action: 'proof_reminder', variant: 'missing' });
+  });
+});

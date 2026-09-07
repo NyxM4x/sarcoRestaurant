@@ -514,6 +514,61 @@ export function proofReminderText(orderNumber: string, totalAmount: number): str
 }
 
 /**
+ * SU PEDIDO ESTÁ PARADO Y FALTA EL PIN (07-09-2026).
+ *
+ * ── El agujero de los catorce pedidos ───────────────────────────────────────
+ *
+ * Un pedido en `awaiting_location` no está cotizado: no tiene envío calculado ni
+ * QR que enseñar. Y aun así, cualquier cosa que escribiera su dueño recibía
+ * `proofReminderText` —"falta que nos mandes la foto del comprobante"— porque
+ * `payment` vale `no_proof`, que es literalmente cierto y completamente inútil:
+ * le pedíamos el comprobante de un pago que nunca se le pidió.
+ *
+ * El 07-09 había catorce pedidos parados ahí, y cinco con comprobante: gente que
+ * hizo caso y pagó a ciegas, con el QR de un pedido anterior, por una comanda
+ * que nunca llegó a cocina. Uno de Bs 108. El del #50 mandó tres en media hora.
+ *
+ * Este texto dice lo ÚNICO que hace avanzar ese pedido, y repite las
+ * instrucciones porque la petición original puede estar veinte mensajes atrás.
+ *
+ * NO lleva el monto. `total_amount` sin cotizar es solo la comida, y enseñarlo
+ * como si fuera el total es prometer un precio que va a subir cuando se calcule
+ * el envío.
+ */
+export function locationReminderText(orderNumber: string): string {
+  return (
+    `Tu pedido ${shortOrderNumber(orderNumber)} está guardado 🙌 Para seguir nos ` +
+    'falta tu ubicación: sin ella no podemos calcular el envío ni mandarte el QR.' +
+    '\n\n' +
+    LOCATION_HOW_TO_TEXT
+  );
+}
+
+/**
+ * El pin ya llegó y el que tarda soy yo (07-09-2026).
+ *
+ * La otra mitad del mismo estado, y es la que impide que este arreglo cree el
+ * fallo que viene a quitar. El delivery dinámico guarda el GPS y deja el pedido
+ * en `awaiting_location` hasta que responde la cotización (ver
+ * `attach-location`), así que ahí `awaiting_location` significa lo contrario:
+ * falta algo NUESTRO.
+ *
+ * Pedirle otra vez lo que acaba de mandar es el error del 04-09 —aquel cliente
+ * reenvió su comprobante tres veces y acabó hablando con una persona— con otro
+ * dato. De los catorce parados el 07-09, uno estaba justo así.
+ *
+ * NO promete un plazo. La cotización puede fallar, y prometer "en un minuto"
+ * para después callarse es peor que no decir nada.
+ */
+export function quotingWaitText(orderNumber: string): string {
+  return (
+    `Ya tenemos tu ubicación para el pedido ${shortOrderNumber(orderNumber)} 🙌 ` +
+    'Estamos calculando el costo del envío y te mandamos el total con el QR en ' +
+    'cuanto esté.'
+  );
+}
+
+/**
  * Ya tenemos su comprobante y todavía no lo hemos mirado (06-09-2026).
  *
  * Es la otra mitad de `proofReminderText`. Al cliente que YA mandó su foto no

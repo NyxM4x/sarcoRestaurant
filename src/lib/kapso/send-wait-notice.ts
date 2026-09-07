@@ -1,6 +1,12 @@
 import 'server-only';
 import { getKapsoClient } from './client';
-import { CASH_WAIT_TEXT, PROOF_WAIT_TEXT, deliveryRelayText } from './messages';
+import {
+  CASH_WAIT_TEXT,
+  PROOF_WAIT_TEXT,
+  deliveryRelayText,
+  locationReminderText,
+  quotingWaitText,
+} from './messages';
 import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { createAgentStore } from '@/lib/agent/memory/repository';
@@ -46,6 +52,15 @@ import { createAgentStore } from '@/lib/agent/memory/repository';
 export const PROOF_WAIT_ACTION = 'proof_wait';
 export const CASH_WAIT_ACTION = 'cash_wait';
 export const DELIVERY_RELAY_ACTION = 'delivery_relay';
+/**
+ * Los dos del pedido parado sin cotizar comparten clave (07-09-2026).
+ *
+ * Es a propósito: el cooldown pregunta "¿se le habló hace poco de que su pedido
+ * está parado?", y la respuesta no cambia porque el pin haya llegado entre un
+ * mensaje y el siguiente. Con dos claves, el cliente cuyo pin llega justo
+ * después de recibir el recordatorio leería los dos textos seguidos.
+ */
+export const LOCATION_REMINDER_ACTION = 'location_reminder';
 
 /**
  * Cuál de los tres avisos.
@@ -55,7 +70,14 @@ export const DELIVERY_RELAY_ACTION = 'delivery_relay';
  * por eso sale cada vez que la hace: es una pregunta nueva suya, no una
  * repetición nuestra.
  */
-export type WaitNoticeKind = 'proof_wait' | 'cash_wait' | 'delivery_relay';
+export type WaitNoticeKind =
+  | 'proof_wait'
+  | 'cash_wait'
+  | 'delivery_relay'
+  /** Falta su ubicación: sin ella no hay envío calculado ni QR. */
+  | 'location_reminder'
+  /** El pin ya llegó; lo que falta es nuestra cotización. */
+  | 'quote_wait';
 
 export interface SendWaitNoticeInput {
   /** Teléfono del cliente, solo dígitos. */
@@ -69,12 +91,19 @@ export interface SendWaitNoticeInput {
    * no se le puede decir que el delivery lo va a llamar.
    */
   deliveryType?: 'delivery' | 'pickup' | null;
+  /**
+   * Solo lo usan `location_reminder` y `quote_wait`, y solo para el copy: el
+   * cliente tiene que reconocer de qué pedido le hablan.
+   */
+  orderNumber?: string;
 }
 
 /** El texto que le toca a cada aviso. */
 function textoDe(input: SendWaitNoticeInput): string {
   if (input.kind === 'proof_wait') return PROOF_WAIT_TEXT;
   if (input.kind === 'cash_wait') return CASH_WAIT_TEXT;
+  if (input.kind === 'location_reminder') return locationReminderText(input.orderNumber ?? '');
+  if (input.kind === 'quote_wait') return quotingWaitText(input.orderNumber ?? '');
   return deliveryRelayText(input.deliveryType ?? null);
 }
 
@@ -90,6 +119,8 @@ function recursoDe(kind: WaitNoticeKind): string {
 function accionDe(kind: WaitNoticeKind): string {
   if (kind === 'proof_wait') return PROOF_WAIT_ACTION;
   if (kind === 'cash_wait') return CASH_WAIT_ACTION;
+  // Los dos del pedido parado comparten clave: ver `LOCATION_REMINDER_ACTION`.
+  if (kind === 'location_reminder' || kind === 'quote_wait') return LOCATION_REMINDER_ACTION;
   return DELIVERY_RELAY_ACTION;
 }
 

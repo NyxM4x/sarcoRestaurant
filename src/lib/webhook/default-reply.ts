@@ -210,6 +210,28 @@ export interface OpenOrderSnapshot {
    * se le puede decir que el delivery lo va a llamar, porque no hay ninguno.
    */
   deliveryType?: 'delivery' | 'pickup' | null;
+  /**
+   * ¿Ya nos mandó su ubicación? (07-09-2026)
+   *
+   * Sale de `orders.delivery_latitude`. Existe porque `awaiting_location` no
+   * quiere decir una sola cosa, y confundir las dos cuesta un mensaje absurdo en
+   * cada dirección:
+   *
+   *   SIN GPS   falta ÉL. Lo que hay que pedirle es la ubicación.
+   *   CON GPS   faltamos NOSOTROS: el delivery dinámico guarda el pin y deja el
+   *             pedido en `awaiting_location` hasta que la cotización con Mapbox
+   *             responde (ver `attach-location`). Pedirle otra vez lo que acaba
+   *             de mandar es el error del 04-09 repetido — aquel cliente reenvió
+   *             su comprobante tres veces y acabó hablando con una persona.
+   *
+   * De los catorce pedidos parados en `awaiting_location` el 07-09, trece no
+   * tenían pin y uno sí. Sin este dato, un solo mensaje serviría para los dos y
+   * estaría mal para uno.
+   *
+   * Ausente = `false`: sin saberlo se asume que falta, que es el caso de trece
+   * de cada catorce y el único en el que el cliente puede hacer algo.
+   */
+  locationReceived?: boolean;
 }
 
 /**
@@ -277,6 +299,19 @@ export interface CustomerStateSnapshot {
    * arriba: ya se le dijo a quién decírselo hace un momento.
    */
   deliveryRelaySentRecently?: boolean;
+  /**
+   * ¿Se le acaba de recordar que falta su ubicación? (07-09-2026)
+   *
+   * Un cooldown de reloj, y del mismo tamaño que el del comprobante
+   * (`PROOF_REMINDER_COOLDOWN_MS`): los dos frenan un recordatorio que DEBE
+   * repetirse, porque mientras falte algo que solo el cliente puede hacer,
+   * callarse lo deja parado. No es el "una vez y ya" del acuse.
+   *
+   * Ante un fallo de consulta vale `true` —callar—: repetirle "mandanos tu
+   * ubicación" en cada mensaje es la insistencia que este freno evita, y el pin
+   * que falta se lo vuelve a pedir su siguiente mensaje pasado el cooldown.
+   */
+  locationRemindedRecently?: boolean;
 }
 
 /** Por qué este mensaje no recibe nada por defecto. Solo para el log. */
@@ -318,7 +353,9 @@ export type DefaultSilenceReason =
   /** Efectivo: su pedido ya está en cocina y ya se le dijo. */
   | 'order_in_kitchen'
   /** Pide otra cosa, pero acabamos de mandarlo con el repartidor. */
-  | 'relayed_recently';
+  | 'relayed_recently'
+  /** Le falta la ubicación, y acabamos de recordárselo. */
+  | 'location_reminded_recently';
 
 export type DefaultReplyDecision =
   | { action: 'menu' }
@@ -372,6 +409,24 @@ export type DefaultReplyDecision =
    * de `waitingOnUs` en `decideDefaultReply`.
    */
   | { action: 'delivery_relay'; order: OpenOrderSnapshot }
+  /**
+   * Su pedido está parado en `awaiting_location` (07-09-2026).
+   *
+   * `variant` dice de quién es el turno, y sale del ESTADO del pedido y no de lo
+   * que escriba el cliente:
+   *
+   *   `missing`  no consta ningún pin  → "mandanos tu ubicación"
+   *   `quoting`  el pin ya llegó       → "estamos calculando tu envío"
+   *
+   * Sustituye al `proof_reminder` en este tramo, que era literalmente cierto
+   * —no hay comprobante— y completamente inútil: sin cotización no hay QR que
+   * pagar. Ver la guarda en `decideDefaultReply`.
+   */
+  | {
+      action: 'location_reminder';
+      order: OpenOrderSnapshot;
+      variant: 'missing' | 'quoting';
+    }
   /** Calla A PROPÓSITO, y cierra el turno. Ver `DefaultSilenceReason`. */
   | { action: 'silence'; reason: DefaultSilenceReason }
   | { action: 'none'; reason: DefaultReplySkipReason };
@@ -845,6 +900,41 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
           ? { action: 'order_change', order }
           : { action: 'order_review', order };
       }
+    }
+
+    // ── El QR todavía no existe: falta la ubicación (07-09-2026) ───────────
+    //
+    // Va ANTES del recordatorio del pago, y es todo el arreglo. Un pedido en
+    // `awaiting_location` no está cotizado, así que no tiene envío calculado ni
+    // QR que enseñar — y aun así caía en la rama de abajo, porque `no_proof` es
+    // literalmente cierto: no hay comprobante. El cliente recibía "falta que nos
+    // mandes la foto del comprobante" de un pago que nunca se le pidió.
+    //
+    // No es teórico. El 07-09 había CATORCE pedidos parados aquí, y cinco de
+    // ellos con comprobante: gente que hizo caso y pagó a ciegas —con el QR de
+    // un pedido anterior— por una comanda que nunca llegó a cocina. Uno de
+    // Bs 108. El del #50 mandó tres comprobantes en media hora.
+    //
+    // Escriba lo que escriba, lo único que hace avanzar su pedido es el pin. Y
+    // el recordatorio se repite, como el del pago y por lo mismo: mientras falte
+    // algo que solo él puede hacer, callarse lo deja parado.
+    //
+    // ── Las dos esperas que caben en el mismo estado ───────────────────────
+    //
+    // Con el pin ya mandado, `awaiting_location` significa lo contrario:
+    // faltamos NOSOTROS. El delivery dinámico guarda el GPS y deja el pedido
+    // aquí hasta que responde la cotización (ver `attach-location`). A ese
+    // cliente no se le puede pedir otra vez lo que acaba de mandar — es el error
+    // del 04-09, el que hizo reenviar un comprobante tres veces— así que recibe
+    // lo contrario: que espere. Ver `locationReceived`.
+    if (order.status === 'awaiting_location') {
+      return state.locationRemindedRecently === true
+        ? { action: 'silence', reason: 'location_reminded_recently' }
+        : {
+            action: 'location_reminder',
+            order,
+            variant: order.locationReceived === true ? 'quoting' : 'missing',
+          };
     }
 
     // El pedido está cotizado, tiene su QR y no ha llegado ningún comprobante.

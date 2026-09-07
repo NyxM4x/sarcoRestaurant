@@ -23,6 +23,7 @@ import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
 import {
   CASH_WAIT_ACTION,
   DELIVERY_RELAY_ACTION,
+  LOCATION_REMINDER_ACTION,
   PROOF_WAIT_ACTION,
 } from '@/lib/kapso/send-wait-notice';
 
@@ -65,6 +66,13 @@ interface FilaPedido {
   cash_confirmed_at: string | null;
   /** Solo para el copy de `deliveryRelayText`: no hay delivery en un recojo. */
   delivery_type: 'delivery' | 'pickup' | null;
+  /**
+   * ¿Consta ya su pin? Solo se mira si es `null` (07-09-2026).
+   *
+   * Distingue las dos esperas que caben en `awaiting_location`: sin pin falta
+   * él, con pin faltamos nosotros. Ver `locationReceived`.
+   */
+  delivery_latitude: number | null;
   /** Ancla del acuse del comprobante. Ver `avisoDeEsperaEnviado`. */
   created_at: string;
 }
@@ -85,7 +93,7 @@ async function pedidoAbierto(
     .from('orders')
     .select(
       'id, order_number, status, total_amount, payment_method, cash_confirmed_at, ' +
-        'delivery_type, created_at',
+        'delivery_type, delivery_latitude, created_at',
     )
     .eq('customer_phone', customerPhone)
     .in('status', [...OPEN_ORDER_STATUSES])
@@ -327,6 +335,7 @@ export async function lookupCustomerState(
       cashConfirmed:
         pedido.payment_method === 'cash' && pedido.cash_confirmed_at !== null,
       deliveryType: pedido.delivery_type,
+      locationReceived: pedido.delivery_latitude !== null,
     };
 
     // 3. El cooldown del recordatorio `missing`, y SOLO ese.
@@ -384,6 +393,19 @@ export async function lookupCustomerState(
             new Date(Date.now() - DELIVERY_RELAY_COOLDOWN_MS).toISOString(),
           );
 
+    // 3d. ¿Y se le acaba de recordar que falta su ubicación? Solo se pregunta
+    //     con el pedido parado ahí: es la única rama que lo lee, y el cliente
+    //     que ya está cotizado no puede pagar una consulta que no le toca.
+    const locationRemindedRecently =
+      openOrder.status === 'awaiting_location'
+        ? await avisoDeEsperaEnviado(
+            supabase,
+            pausa?.conversationId ?? null,
+            LOCATION_REMINDER_ACTION,
+            new Date(Date.now() - PROOF_REMINDER_COOLDOWN_MS).toISOString(),
+          )
+        : false;
+
     // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
     //    Sin ella ninguna frase se anota: no poder descartar que el cliente
     //    nombró un producto es razón suficiente para no tocar el pedido.
@@ -413,6 +435,7 @@ export async function lookupCustomerState(
       awaitingReviewReply,
       waitNoticeSent,
       deliveryRelaySentRecently,
+      locationRemindedRecently,
     };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.
