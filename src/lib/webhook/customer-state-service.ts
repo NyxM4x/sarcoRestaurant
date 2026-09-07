@@ -7,6 +7,7 @@ import { paymentGateOf } from '@/lib/payment-proof/payment-gate';
 import { isPauseActive } from '@/lib/agent/control/pause-gate';
 import { createAgentStore } from '@/lib/agent/memory/repository';
 import {
+  DELIVERY_RELAY_COOLDOWN_MS,
   OPEN_ORDER_STATUSES,
   OPEN_ORDER_WINDOW_MS,
   ORDER_CHANGE_STATUSES,
@@ -19,7 +20,11 @@ import { catalogTermsFromNames } from './order-change-intent';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { PROOF_REMINDER_ACTION } from '@/lib/kapso/send-proof-reminder';
 import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
-import { CASH_WAIT_ACTION, PROOF_WAIT_ACTION } from '@/lib/kapso/send-wait-notice';
+import {
+  CASH_WAIT_ACTION,
+  DELIVERY_RELAY_ACTION,
+  PROOF_WAIT_ACTION,
+} from '@/lib/kapso/send-wait-notice';
 
 /**
  * En qué situación está el cliente que acaba de escribir — wiring server-only.
@@ -342,23 +347,42 @@ export async function lookupCustomerState(
     //     cuando la espera existe: quien todavía tiene algo que hacer no la
     //     paga. El ancla es el instante en que el pedido entró en espera, así
     //     que el aviso de un pedido anterior queda fuera por ser más viejo.
+    //
+    //     El QR ya aceptado NO se consulta: su acuse es `PAYMENT_ACCEPTED_TEXT`
+    //     y no una fila de `cash_wait`, que en un pedido por QR no existe ni
+    //     existirá. Esa equivalencia la resuelve `decideDefaultReply`, que es
+    //     donde vive la regla; aquí solo se ahorra la consulta que sobra.
     const espera = waitingOnUs(openOrder);
     const waitNoticeSent =
-      espera === 'payment_review'
-        ? await avisoDeEsperaEnviado(
-            supabase,
-            pausa?.conversationId ?? null,
-            PROOF_WAIT_ACTION,
-            pedido.created_at,
-          )
-        : espera === 'kitchen'
+      espera === null || openOrder.payment === 'accepted'
+        ? false
+        : espera === 'payment_review'
           ? await avisoDeEsperaEnviado(
+              supabase,
+              pausa?.conversationId ?? null,
+              PROOF_WAIT_ACTION,
+              pedido.created_at,
+            )
+          : await avisoDeEsperaEnviado(
               supabase,
               pausa?.conversationId ?? null,
               CASH_WAIT_ACTION,
               pedido.cash_confirmed_at ?? pedido.created_at,
-            )
-          : false;
+            );
+
+    // 3c. ¿Y se le acaba de mandar con el repartidor? Este SÍ es un cooldown de
+    //     reloj, no un "una vez y ya": ver `deliveryRelaySentRecently`. Se
+    //     consulta junto al anterior y bajo la misma condición, porque los dos
+    //     solo los lee la guarda de `waitingOnUs`.
+    const deliveryRelaySentRecently =
+      espera === null
+        ? false
+        : await avisoDeEsperaEnviado(
+            supabase,
+            pausa?.conversationId ?? null,
+            DELIVERY_RELAY_ACTION,
+            new Date(Date.now() - DELIVERY_RELAY_COOLDOWN_MS).toISOString(),
+          );
 
     // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
     //    Sin ella ninguna frase se anota: no poder descartar que el cliente
@@ -388,6 +412,7 @@ export async function lookupCustomerState(
       catalogTerms,
       awaitingReviewReply,
       waitNoticeSent,
+      deliveryRelaySentRecently,
     };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.

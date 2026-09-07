@@ -164,10 +164,12 @@ describe('decideDefaultReply — las excepciones', () => {
         ...SIN_NADA,
         openOrder: pedido({ status, payment: 'accepted' }),
       };
-      expect(decideDefaultReply({ ...AUTOMATICO, state })).toEqual({
-        action: 'none',
-        reason: 'open_order',
-      });
+      // Y desde el 07-09 tampoco recibe `none`, que le cedía el turno al modelo:
+      // con el pago aceptado el pedido está en cocina, así que entra en la
+      // guarda de `waitingOnUs` y se le contesta con el repartidor. Ver ahí.
+      const decision = decideDefaultReply({ ...AUTOMATICO, state });
+      expect(decision.action, status).not.toBe('menu');
+      expect(decision.action, status).toBe('delivery_relay');
     }
   });
 });
@@ -746,10 +748,79 @@ describe('decideDefaultReply — el pedido en efectivo ya está en cocina', () =
     });
   });
 
-  it('EL CASO DEL #30: después, CALLA — y no cae en open_order', () => {
+  it('EL CASO DEL #30: después NO cae en open_order — se le contesta', () => {
+    // El 06-09 esto devolvía `silence`. Desde el 07-09 devuelve el relevo, y el
+    // cambio es deliberado: "¿ya salió el pedido?" es una pregunta directa, y
+    // "el delivery se comunicará contigo, espera sus mensajes" la contesta. El
+    // silencio ante una pregunta es lo que acaba trayendo a una persona al chat.
+    //
+    // Lo que NO puede seguir siendo es `none`, que no calla a nadie: le cede el
+    // turno al modelo, y eso es lo que produjo "Necesitas hablar con alguien del
+    // equipo".
     const decision = decidir('Ya salio el pedido', enCocina({ waitNoticeSent: true }));
-    expect(decision).toEqual({ action: 'silence', reason: 'order_in_kitchen' });
+    expect(decision).toEqual({ action: 'delivery_relay', order: enCocina().openOrder });
     expect(decision).not.toEqual({ action: 'none', reason: 'open_order' });
+  });
+
+  it('el acuse SÍ calla: al que solo da las gracias no se le relega a nadie', () => {
+    // La otra mitad del default invertido. Sin esto, "ok muchas gracias" tras el
+    // aviso de paciencia recibiría "decíselo al delivery", que no viene a cuento.
+    for (const frase of ['ok muchas gracias', 'ya listo gracias', '🙏', 'perfecto', 'dale']) {
+      expect(decidir(frase, enCocina({ waitNoticeSent: true })), frase).toEqual({
+        action: 'silence',
+        reason: 'order_in_kitchen',
+      });
+    }
+  });
+
+  /**
+   * LAS TRES FRASES DE PRODUCCIÓN (06 y 07-09-2026).
+   *
+   * Ninguna activa ningún detector de `order-change-intent`, y por eso las tres
+   * recibieron silencio. Este test es la razón de existir del default invertido:
+   * si vuelve a depender de la lista, aquí se nota.
+   */
+  it('las frases que la lista NO ve reciben respuesta igual', () => {
+    for (const frase of [
+      'No le coloquen locoto al trancapecho', // `coloquen` no está, y nombra un producto
+      'Más salsita', // `mas` no es marca, y cuenta como cantidad
+      'Me podría mandar salsa bbq', // la lista sabe `manda`, no `mandar`
+      'un favor', // no pide nada todavía, pero anuncia que viene algo
+    ]) {
+      expect(decidir(frase, enCocina({ waitNoticeSent: true })).action, frase).toBe(
+        'delivery_relay',
+      );
+    }
+  });
+
+  it('la ráfaga entera decide: basta un mensaje que pida algo', () => {
+    // El caso literal del pedido #13: "Un favor" / "No le coloquen locoto al
+    // trancapecho" / "🙏" / "Más salsita" en el mismo minuto.
+    const decision = decideDefaultReply({
+      text: 'Más salsita',
+      batchTexts: ['Un favor', 'No le coloquen locoto al trancapecho', '🙏', 'Más salsita'],
+      isBatchAnchor: true,
+      menuAlreadySent: false,
+      explicitIntent: false,
+      state: enCocina({ waitNoticeSent: true }),
+    });
+    expect(decision.action).toBe('delivery_relay');
+  });
+
+  it('no se le repite a los dos minutos', () => {
+    const state = enCocina({ waitNoticeSent: true, deliveryRelaySentRecently: true });
+    expect(decidir('y tampoco cebolla', state)).toEqual({
+      action: 'silence',
+      reason: 'relayed_recently',
+    });
+  });
+
+  it('antes del aviso de paciencia, la lista sigue mandando', () => {
+    // Quien dice "sin cebolla" nada más confirmar merece su respuesta, no "danos
+    // un tiempo": por eso `pideCambio` va delante de la red.
+    expect(decidir('sin cebolla', enCocina()).action).toBe('delivery_relay');
+    // Y lo que no pide nada recibe el aviso, como siempre.
+    expect(decidir('ok gracias', enCocina()).action).toBe('wait_notice');
   });
 
   it('pedir un cambio se manda con el repartidor, no rearma nada', () => {
@@ -815,10 +886,20 @@ describe('waitingOnUs — las dos esperas y ninguna más', () => {
     expect(waitingOnUs(pedido({ proofReceived: true }))).toBe('payment_review');
   });
 
-  it('con el pago YA decidido, no: esa conversación es otra', () => {
-    for (const payment of ['accepted', 'rejected_grace'] as const) {
-      expect(waitingOnUs(pedido({ proofReceived: true, payment })), payment).toBeNull();
-    }
+  it('el pago ACEPTADO nos espera: aceptarlo es lo que pone la comanda', () => {
+    // Faltaba, y era el agujero del pedido #5 del 06-09 (07-09-2026). Decía que
+    // un pago decidido "es otra conversación", y con eso TODO cliente de QR
+    // salía de la guarda justo cuando cocina aceptaba su pago — que es cuando
+    // más cosas pide. Aquel pidió salsa bbq cuatro minutos después de que se le
+    // confirmara el pago, y no recibió nada.
+    expect(waitingOnUs(pedido({ proofReceived: true, payment: 'accepted' }))).toBe('kitchen');
+    // Sin foto tampoco cambia: lo que pone la comanda es el pago aceptado.
+    expect(waitingOnUs(pedido({ payment: 'accepted' }))).toBe('kitchen');
+  });
+
+  it('el RECHAZADO en gracia no: a ese pago le falta algo', () => {
+    // No está esperándonos, está pendiente — tiene que mandar otro comprobante.
+    expect(waitingOnUs(pedido({ proofReceived: true, payment: 'rejected_grace' }))).toBeNull();
   });
 
   it('el efectivo confirmado nos espera', () => {

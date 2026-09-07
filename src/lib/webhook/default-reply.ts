@@ -11,6 +11,7 @@ import {
 import { isPickupSwitchRequest } from './pickup-switch-intent';
 import { readOrderReviewReply } from './order-review-reply';
 import { readCashConfirmReply } from './cash-confirm-reply';
+import { isCourtesyOnly } from './courtesy';
 
 /**
  * QUÉ RECIBE EL CLIENTE CUANDO NO PIDIÓ NADA CONCRETO — módulo PURO (03-09-2026).
@@ -94,6 +95,20 @@ export const OPEN_ORDER_WINDOW_MS = PROOF_TARGET_TTL_MS;
  * sacar la foto.
  */
 export const PROOF_REMINDER_COOLDOWN_MS = 15 * 60 * 1000;
+
+/**
+ * Cada cuánto, como mucho, se le repite "decíselo al repartidor" (07-09-2026).
+ *
+ * Más corto que el del comprobante, y por la razón contraria: aquel frena un
+ * aviso NUESTRO —el cliente no ha hecho nada nuevo, solo escribe— mientras que
+ * este frena la respuesta a algo que él pidió. Callar de más aquí cuesta más,
+ * así que la ventana es la mínima que evita la repetición dentro de la misma
+ * conversación: quien mande cuatro mensajes en un minuto recibe una respuesta,
+ * y quien vuelva a acordarse de algo dentro de un rato recibe otra.
+ *
+ * Ver `deliveryRelaySentRecently`.
+ */
+export const DELIVERY_RELAY_COOLDOWN_MS = 10 * 60 * 1000;
 
 /**
  * Estados en los que un pedido todavía puede pasar a recojo.
@@ -245,6 +260,23 @@ export interface CustomerStateSnapshot {
    * queja que esto viene a arreglar.
    */
   waitNoticeSent?: boolean;
+  /**
+   * ¿Se le acaba de mandar con el repartidor? (07-09-2026)
+   *
+   * ESTO SÍ es un cooldown, y ahí está la diferencia con el de arriba. El acuse
+   * sale una vez y se acaba: después de "danos un tiempo" no hay nada más que
+   * decirle. El relevo contesta a una petición SUYA, y una hora después puede
+   * tener otra —"y tampoco cebolla"— que también merece respuesta.
+   *
+   * Lo que no puede es repetirse a los dos minutos. Desde que contestar es el
+   * default en ese tramo, cualquier cosa que escriba lo dispara; sin freno, el
+   * cliente que manda cuatro mensajes seguidos leería cuatro veces la misma
+   * frase. Ver `DELIVERY_RELAY_COOLDOWN_MS`.
+   *
+   * Ante un fallo de consulta vale `true` —callar— por lo mismo que el de
+   * arriba: ya se le dijo a quién decírselo hace un momento.
+   */
+  deliveryRelaySentRecently?: boolean;
 }
 
 /** Por qué este mensaje no recibe nada por defecto. Solo para el log. */
@@ -284,7 +316,9 @@ export type DefaultSilenceReason =
   /** QR: ya se le pidió paciencia mientras miramos su comprobante. */
   | 'awaiting_payment_review'
   /** Efectivo: su pedido ya está en cocina y ya se le dijo. */
-  | 'order_in_kitchen';
+  | 'order_in_kitchen'
+  /** Pide otra cosa, pero acabamos de mandarlo con el repartidor. */
+  | 'relayed_recently';
 
 export type DefaultReplyDecision =
   | { action: 'menu' }
@@ -486,12 +520,27 @@ export type WaitKind = 'payment_review' | 'kitchen';
  * todavía nos debe algo.
  */
 export function waitingOnUs(order: OpenOrderSnapshot): WaitKind | null {
-  // QR: la foto llegó y todavía nadie la ha mirado. Un pago ya decidido
-  // —aceptado, o en gracia tras el rechazo— NO entra: esa conversación es otra,
-  // y además la pausa de la revisión ya la gobierna.
+  // QR: la foto llegó y todavía nadie la ha mirado.
   if (order.proofReceived && order.payment !== 'accepted' && order.payment !== 'rejected_grace') {
     return 'payment_review';
   }
+  // QR aceptado: cocina cogió el pedido y el aviso salió al grupo de reparto
+  // (07-09-2026).
+  //
+  // Esto FALTABA, y era el agujero más grande de la guarda. Decía que un pago ya
+  // decidido "es otra conversación", pero aceptar el pago es justo lo que pone
+  // la comanda: a partir de ese instante el cliente está en la misma situación
+  // que el de efectivo que escribió CONFIRMO, y sus mensajes tampoco pueden
+  // cambiar nada. Sin esta línea, TODO cliente de QR salía de la guarda en el
+  // momento exacto en que cocina aceptaba su pago —que es cuando más cosas
+  // pide— y caía en `{action:'none', reason:'open_order'}`: silencio.
+  //
+  // Es el caso del pedido #5 del 06-09: pagó, se le confirmó, pidió salsa bbq
+  // cuatro minutos después y no recibió nada.
+  //
+  // `rejected_grace` sigue fuera, y ahí sí con razón: a ese pago le falta algo,
+  // y quien todavía nos debe un comprobante no está esperando, está pendiente.
+  if (order.payment === 'accepted') return 'kitchen';
   // Efectivo: dijo CONFIRMO, y con eso el pedido entró a cocina y salió al
   // grupo de reparto.
   //
@@ -656,13 +705,66 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
       const pideCambio =
         textoDeCambio !== undefined || candidatos.some((t) => isKitchenNoteRequest(t, terminos));
 
-      if (pideCambio) return { action: 'delivery_relay', order };
+      // ¿Ya se le dijo que su pedido está en nuestras manos?
+      //
+      // El pago por QR aceptado cuenta aunque no conste ningún `cash_wait`: su
+      // acuse es `PAYMENT_ACCEPTED_TEXT` —"Pago confirmado ✅. Tu pedido está
+      // siendo preparado."—, que sale al aceptar el pago y dice exactamente eso.
+      // Sin esta mitad, el cliente leería "danos un tiempo para prepararlo"
+      // pegado a "tu pedido está siendo preparado".
+      const avisoYaDado = state.waitNoticeSent === true || order.payment === 'accepted';
+
+      // ── La red que atrapa lo que la lista no ve (07-09-2026) ─────────────
+      //
+      // Hasta hoy esta rama dependía ENTERAMENTE de `pideCambio`: si los
+      // detectores no reconocían la frase, el cliente recibía silencio. Tres
+      // conversaciones reales pagaron esa dependencia:
+      //
+      //   "No le coloquen locoto al trancapecho"  → la lista sabe `coloque` y
+      //        `colocar`, no `coloquen`; y aunque la supiera, el filtro del
+      //        catálogo la descarta por nombrar un `trancapecho`.
+      //   "Más salsita"                           → `mas` no es marca de
+      //        preferencia, y encima cuenta como cantidad, que también descarta.
+      //   "Me podría mandar salsa bbq"            → la lista sabe `manda` y
+      //        `mandame`, no `mandar`.
+      //
+      // Así que la lista deja de ser la condición: sigue delante porque acierta
+      // al primer mensaje —quien dice "sin cebolla" nada más confirmar merece su
+      // respuesta, no "danos un tiempo"— pero ya no es lo único. Cuando el
+      // pedido está en cocina y al cliente YA se le pidió paciencia, cualquier
+      // cosa que escriba que no sea un acuse es que quiere algo, y aquí eso
+      // basta: la respuesta es siempre la misma frase, no hay nada que anotar,
+      // ningún total que recalcular y ningún botón que mandar. La asimetría que
+      // justifica la precisión de `order-change-intent` —confundir un cambio de
+      // líneas con una preferencia cuesta dinero— no existe en este tramo.
+      //
+      // SOLO con el pedido ya en cocina, y eso no es un detalle: en
+      // `payment_review` la comanda todavía no está puesta y no hay ningún
+      // repartidor asignado, así que "el delivery se comunicará contigo" sería
+      // una promesa que nadie ha hecho aún. Ahí sigue mandando la lista.
+      //
+      // Ver `isCourtesyOnly`: reconoce lo que NO pide nada, que es la lista corta
+      // y estable, y deja que la duda conteste. Aquí el único error caro es el
+      // silencio.
+      const pideAlgo =
+        pideCambio ||
+        (espera === 'kitchen' && avisoYaDado && !candidatos.every((t) => isCourtesyOnly(t)));
+
+      if (pideAlgo) {
+        // Salvo que se lo acabemos de decir. El relevo contesta a una petición
+        // suya, así que no se agota como el acuse —puede acordarse de otra cosa
+        // dentro de un rato y merece respuesta— pero repetirle la misma frase a
+        // los dos minutos es la insistencia que devuelve a la gente al chat.
+        return state.deliveryRelaySentRecently === true
+          ? { action: 'silence', reason: 'relayed_recently' }
+          : { action: 'delivery_relay', order };
+      }
 
       // Y si no pide nada, se le pide paciencia UNA vez y después se calla.
       //
       // `silence` y no `none`: `none` no calla a nadie, le cede el turno al
       // modelo. Ver `DefaultSilenceReason`.
-      return state.waitNoticeSent === true
+      return avisoYaDado
         ? {
             action: 'silence',
             reason: espera === 'payment_review' ? 'awaiting_payment_review' : 'order_in_kitchen',
