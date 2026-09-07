@@ -123,7 +123,25 @@ export interface WebCheckoutDeps {
    * notificaciones: el cliente ya tiene su pedido y esto es consecuencia.
    */
   scheduleOrderReplacement?: ScheduleOrderReplacement;
+  /**
+   * ¿El enlace de "Cambiar mi pedido" todavía puede cumplir lo que promete?
+   * (07-09-2026)
+   *
+   * Se pregunta ANTES de crear nada, y es lo único que impide el pedido #50: un
+   * enlace de cambio sigue siendo válido después de que el cliente pagó el
+   * pedido que iba a cambiar, y al usarlo se creaba un segundo pedido que ya
+   * nadie podía juntar con el primero. Ver `checkReplacementFeasible`.
+   *
+   * Opcional: sin ella el checkout se comporta EXACTAMENTE como antes, igual
+   * que sin `scheduleOrderReplacement`.
+   */
+  checkReplacementFeasible?: CheckReplacementFeasible;
 }
+
+/** Ver `checkReplacementFeasible` en `@/lib/orders/order-replacement`. */
+export type CheckReplacementFeasible = (
+  menuSessionId: string,
+) => Promise<'not_a_replacement' | 'possible' | 'blocked'>;
 
 /** Registra la sustitución para después de la respuesta (con `after()`). */
 export type ScheduleOrderReplacement = (input: {
@@ -139,6 +157,19 @@ const SESSION_ERROR_MESSAGE =
 const SESSION_REUSED_MESSAGE =
   'Este enlace ya fue utilizado. Vuelve a WhatsApp para solicitar un nuevo enlace.';
 const INTERNAL_ERROR_MESSAGE = 'No pudimos registrar tu pedido. Intenta de nuevo en un momento.';
+/**
+ * Lo que lee quien llega tarde con su cambio (07-09-2026).
+ *
+ * Dice las dos cosas que le hacen falta y ninguna más: que su pedido está bien
+ * —no lo perdió, está pagado y en cocina— y qué hacer con lo que quería añadir.
+ *
+ * NO le pide que hable con nadie. Al escribir por WhatsApp recibe el botón del
+ * menú, que es justo lo que necesita para el pedido nuevo; prometerle una
+ * persona sería prometer lo que este proyecto no quiere prometer.
+ */
+const ORDER_ALREADY_PAID_MESSAGE =
+  'Tu pedido anterior ya está pagado y en preparación, así que este enlace ya no ' +
+  'puede cambiarlo. Escribinos por WhatsApp y armamos un pedido nuevo con lo que falte.';
 
 function jsonResponse(status: number, body: unknown): Response {
   return Response.json(body, { status });
@@ -281,6 +312,38 @@ export async function handleCreateWebOrder(
 
   if (!menuSessionId) {
     return jsonResponse(401, { error: 'invalid_session', message: SESSION_ERROR_MESSAGE });
+  }
+
+  // 3b. Si el enlace venía a CAMBIAR un pedido, ¿todavía puede? (07-09-2026)
+  //
+  //     Va aquí, con la sesión ya validada y antes de la RPC, porque es el
+  //     último punto en el que todavía no hay nada que deshacer. La guarda
+  //     hermana de `replaceSupersededOrder` corre después de responder, y para
+  //     entonces el pedido duplicado ya existe: lo único que puede hacer es
+  //     dejarlo escrito en el log. Ver `checkReplacementFeasible`.
+  //
+  //     Solo bloquea a los enlaces de cambio. Un enlace normal responde
+  //     `not_a_replacement` y sigue su camino sin enterarse.
+  if (deps.checkReplacementFeasible) {
+    let feasibility: Awaited<ReturnType<CheckReplacementFeasible>>;
+    try {
+      feasibility = await deps.checkReplacementFeasible(menuSessionId);
+    } catch (error) {
+      // La comprobación NUNCA lanza por su cuenta, pero si lo hiciera, crear el
+      // pedido a ciegas es justo lo que esto viene a evitar.
+      log.error('store.orders.replacement_check_threw', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      feasibility = 'blocked';
+    }
+
+    if (feasibility === 'blocked') {
+      log.warn('store.orders.replacement_no_longer_possible');
+      return jsonResponse(409, {
+        error: 'order_already_paid',
+        message: ORDER_ALREADY_PAID_MESSAGE,
+      });
+    }
   }
 
   // 4. Huella canónica, calculada solo con los valores ya normalizados.

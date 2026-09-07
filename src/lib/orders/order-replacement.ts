@@ -144,6 +144,125 @@ async function tienePagoVivo(
   return (data ?? []).length > 0;
 }
 
+/**
+ * ¿ESTE ENLACE TODAVÍA PUEDE CUMPLIR LO QUE PROMETE? (07-09-2026)
+ *
+ * ── El pedido #50 ───────────────────────────────────────────────────────────
+ *
+ * Un cliente con el pedido #47 cotizado pidió cambiarlo y recibió su enlace. A
+ * las 03:08 mandó el comprobante del #47. A las 03:12 abrió el enlace —que
+ * seguía vivo— y armó su pedido corregido.
+ *
+ * El checkout lo creó como #50 y `replaceSupersededOrder` corrió después, en
+ * `after()`, con el cliente ya confirmado: encontró un pago esperando revisión
+ * contra el #47 y salió por `payment_in_flight`, que es lo correcto —cancelarlo
+ * dejaría ese pago huérfano—. Resultado: dos pedidos. Pagó el #47 con un lomito,
+ * el #50 con la salchiburguer se quedó esperando ubicación para siempre, y él
+ * siguió mandando comprobantes de un pedido que nunca llegó a cocina.
+ *
+ * ── Por qué la guarda no bastaba y esto va delante ──────────────────────────
+ *
+ * Porque llegaba tarde. Para cuando decide que no puede cancelar, el pedido
+ * nuevo ya existe y el cliente ya tiene su confirmación en pantalla: lo único
+ * que queda es un `log.warn`.
+ *
+ * La cabecera de este módulo dice que en ese caso el pedido nuevo se crea igual
+ * porque "quedarse sin pedido sería peor que quedar con dos", y sigue siendo
+ * verdad — DESPUÉS de crearlo. Antes de crearlo la cuenta es otra: el cliente
+ * no se queda sin nada, porque justamente lo que bloquea el cambio es que ya
+ * tiene un pedido pagado y vivo. Pidió CAMBIAR uno, no tener dos.
+ *
+ * Así que se le dice antes, y con la verdad. Ver `web-checkout`.
+ *
+ * ── Las mismas preguntas, en un solo sitio ──────────────────────────────────
+ *
+ * Estado y pago se comprueban aquí Y en `replaceSupersededOrder`, así que la
+ * lectura vive en `puedeSustituirse` y las dos la llaman. Dos listas de
+ * condiciones sobre el mismo hecho se separan el día que una se retoca, y la
+ * que se quedara vieja dejaría pasar exactamente el pedido que esto viene a
+ * evitar.
+ */
+export type ReplacementFeasibility =
+  /** La sesión no venía del botón de cambio: el caso de todos los días. */
+  | 'not_a_replacement'
+  /** Hay un pedido que sustituir y todavía se puede. */
+  | 'possible'
+  /** Lo hay, pero ya no se puede tocar: crear el nuevo dejaría dos. */
+  | 'blocked';
+
+/** Lo que hace falta saber del pedido viejo para decidir. */
+interface EstadoDelViejo {
+  status: string;
+  customerPhone: string;
+  /** `null` = no se pudo consultar. Con dinero de por medio, eso es un sí. */
+  pagoVivo: boolean | null;
+}
+
+/**
+ * ¿Se puede sustituir este pedido? Las tres guardas de la cabecera, juntas.
+ *
+ * `null` en `pagoVivo` cuenta como pago vivo: no se toca nada que pudiera tener
+ * dinero detrás, y esa es la misma dirección que toma la guarda de abajo.
+ */
+function puedeSustituirse(viejo: EstadoDelViejo, telefonoSesion: string): boolean {
+  if (viejo.customerPhone !== telefonoSesion) return false;
+  if (!ESTADOS_ANULABLES.includes(viejo.status)) return false;
+  return viejo.pagoVivo === false;
+}
+
+/**
+ * Comprueba, ANTES de crear nada, si el enlace todavía puede sustituir.
+ *
+ * Ante cualquier fallo de consulta devuelve `blocked`, y es deliberado: la
+ * asimetría manda. Bloquear un cambio que sí se podía hacer le cuesta al cliente
+ * un mensaje y un enlace nuevo —y su pedido anterior sigue intacto—; dejarlo
+ * pasar cuando no se podía le cuesta un pedido duplicado, un pago sin comanda y
+ * una noche escribiendo sin respuesta.
+ */
+export async function checkReplacementFeasible(
+  menuSessionId: string,
+  supabase: SupabaseClient = getSupabaseAdmin(),
+): Promise<ReplacementFeasibility> {
+  try {
+    const { data: sesion, error: errorSesion } = await supabase
+      .from('menu_sessions')
+      .select('replaces_order_id, customer_phone')
+      .eq('id', menuSessionId)
+      .maybeSingle();
+
+    if (errorSesion) return 'blocked';
+    const fila = sesion as { replaces_order_id: string | null; customer_phone: string } | null;
+    const viejoId = fila?.replaces_order_id ?? null;
+
+    // Sin nada que sustituir no hay nada que bloquear: es el enlace normal, el
+    // que usa todo el mundo, y no puede pagar por esto.
+    if (!fila || viejoId === null) return 'not_a_replacement';
+
+    const { data: pedido, error: errorPedido } = await supabase
+      .from('orders')
+      .select('status, customer_phone')
+      .eq('id', viejoId)
+      .maybeSingle();
+
+    if (errorPedido) return 'blocked';
+    // El pedido que iba a sustituir ya no está. No hay duplicado posible, así
+    // que el cliente arma el suyo por el camino normal.
+    if (!pedido) return 'not_a_replacement';
+
+    const viejo = pedido as { status: string; customer_phone: string };
+    const pagoVivo = await tienePagoVivo(supabase, viejoId);
+
+    return puedeSustituirse(
+      { status: viejo.status, customerPhone: viejo.customer_phone, pagoVivo },
+      fila.customer_phone,
+    )
+      ? 'possible'
+      : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
 export interface ReplaceOrderInput {
   /** Pedido recién creado desde el enlace de cambio. */
   newOrderId: string;
@@ -198,20 +317,30 @@ export async function replaceSupersededOrder(
 
     const viejo = pedido as FilaPedidoViejo;
 
+    // Las MISMAS tres preguntas que se le hicieron al enlace antes de crear el
+    // pedido, y por la misma función: ver `puedeSustituirse`. Que se pregunten
+    // dos veces no es redundancia — entre aquella comprobación y esta cabe que
+    // la cocina acepte el pago— pero sí tienen que preguntar lo mismo.
     if (viejo.customer_phone !== fila.customer_phone) {
       log.warn('order_replacement_phone_mismatch');
       return { result: 'skipped', reason: 'phone_mismatch' };
     }
-    if (!ESTADOS_ANULABLES.includes(viejo.status)) {
-      return { result: 'skipped', reason: 'not_confirmed' };
-    }
 
     const pagoVivo = await tienePagoVivo(supabase, viejo.id);
-    // `null` es "no lo sabemos", y con dinero de por medio eso se trata como un
-    // sí: no se cancela nada que pudiera tener un pago detrás.
-    if (pagoVivo === null || pagoVivo) {
-      log.warn('order_replacement_payment_in_flight', { order_id: viejo.id });
-      return { result: 'skipped', reason: 'payment_in_flight' };
+    const estado = {
+      status: viejo.status,
+      customerPhone: viejo.customer_phone,
+      pagoVivo,
+    };
+
+    if (!puedeSustituirse(estado, fila.customer_phone)) {
+      // `null` es "no lo sabemos", y con dinero de por medio eso se trata como
+      // un sí: no se cancela nada que pudiera tener un pago detrás.
+      if (pagoVivo === null || pagoVivo) {
+        log.warn('order_replacement_payment_in_flight', { order_id: viejo.id });
+        return { result: 'skipped', reason: 'payment_in_flight' };
+      }
+      return { result: 'skipped', reason: 'not_confirmed' };
     }
 
     // El guard de estado viaja DENTRO del UPDATE: entre la lectura y la

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { CheckoutFailure } from './errors';
 import {
   INITIAL_CHECKOUT_STATE,
   canOpenCheckout,
@@ -585,5 +586,35 @@ describe('MenuStore respeta las guardas', () => {
   it('los dos mensajes de bloqueo están diferenciados', () => {
     expect(source).toMatch(/sessionBlockReason === 'used'/);
     expect(source).toMatch(/sessionBlockReason === 'invalid'/);
+  });
+});
+
+describe('bloqueo por pedido ya pagado (07-09-2026)', () => {
+  it('bloquea el enlace con su propio motivo', () => {
+    const failure: CheckoutFailure = {
+      kind: 'order_already_paid',
+      message: 'Tu pedido anterior ya está pagado y en preparación.',
+      recovery: 'none',
+      ambiguous: false,
+    };
+
+    const state = checkoutReducer(INITIAL_CHECKOUT_STATE, { type: 'FAILURE', failure });
+
+    expect(state.sessionBlockReason).toBe('paid');
+    expect(isSessionBlocked(state)).toBe(true);
+    // Y con el enlace bloqueado el checkout no vuelve a abrirse: sin esto el
+    // cliente reenvía el mismo carrito y recibe el mismo 409 una y otra vez.
+    expect(checkoutReducer(state, { type: 'OPEN_FORM' }).step).not.toBe('form');
+  });
+
+  it('no se confunde con "ya usado": el mensaje al cliente es otro', () => {
+    const failure: CheckoutFailure = {
+      kind: 'order_already_paid',
+      message: 'Tu pedido anterior ya está pagado y en preparación.',
+      recovery: 'none',
+      ambiguous: false,
+    };
+    const state = checkoutReducer(INITIAL_CHECKOUT_STATE, { type: 'FAILURE', failure });
+    expect(state.sessionBlockReason).not.toBe('used');
   });
 });

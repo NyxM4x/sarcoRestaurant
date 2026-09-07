@@ -22,12 +22,16 @@ export type CheckoutStep = 'idle' | 'form' | 'submitting' | 'failed' | 'success'
  *
  * - `used`: el enlace ya tiene un pedido asociado (201, 200 idempotente o 409).
  * - `invalid`: el enlace no es válido o venció (401).
+ * - `paid`: era un enlace de CAMBIO y el pedido que venía a cambiar ya está
+ *   pagado (07-09-2026). Bloquea igual que los otros dos, pero lo que hay que
+ *   decirle es distinto: su pedido está bien y en cocina — lo que ya no se
+ *   puede es cambiarlo por aquí. Ver `checkReplacementFeasible`.
  *
  * Son situaciones distintas y el mensaje al usuario difiere, por eso no basta
  * un booleano. Solo vive en memoria: nunca en `localStorage` ni
  * `sessionStorage`, para que un enlace nuevo empiece limpio.
  */
-export type SessionBlockReason = 'used' | 'invalid';
+export type SessionBlockReason = 'used' | 'invalid' | 'paid';
 
 export interface CheckoutState {
   step: CheckoutStep;
@@ -131,6 +135,7 @@ export function canSubmit(state: CheckoutState): boolean {
 function blockReasonFor(failure: CheckoutFailure): SessionBlockReason | null {
   if (failure.kind === 'session_already_used') return 'used';
   if (failure.kind === 'invalid_session') return 'invalid';
+  if (failure.kind === 'order_already_paid') return 'paid';
   return null;
 }
 

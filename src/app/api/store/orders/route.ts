@@ -13,7 +13,10 @@ import {
   dispatchExistingWebOrderWhatsApp,
   initializeAndDispatchWebOrderWhatsApp,
 } from '@/lib/orders/notifications/service';
-import { replaceSupersededOrder } from '@/lib/orders/order-replacement';
+import {
+  checkReplacementFeasible,
+  replaceSupersededOrder,
+} from '@/lib/orders/order-replacement';
 
 // Requiere APIs de Node (crypto, service_role) — no Edge. Siempre dinámico.
 export const runtime = 'nodejs';
@@ -85,6 +88,16 @@ function buildDeps(): WebCheckoutDeps {
         await replaceSupersededOrder(input);
       });
     },
+
+    /**
+     * 07-09 — la misma pregunta que la de arriba, pero ANTES de crear nada.
+     *
+     * Sin esto, un enlace de cambio usado después de pagar el pedido que venía a
+     * cambiar creaba un segundo pedido que ya nadie podía juntar con el primero:
+     * el de arriba corre en `after()` y para entonces ya no hay marcha atrás.
+     * Ver `checkReplacementFeasible`.
+     */
+    checkReplacementFeasible: (menuSessionId) => checkReplacementFeasible(menuSessionId, supabase),
   };
 }
 

@@ -68,6 +68,27 @@ class FakeDeps implements WebCheckoutDeps {
   };
 }
 
+/**
+ * Las mismas dependencias, con la comprobación del enlace de cambio cableada.
+ *
+ * Va en una subclase y no en `FakeDeps` a propósito: la dep es opcional, y los
+ * tests de arriba —que no la traen— son los que prueban que sin ella el checkout
+ * se comporta EXACTAMENTE como antes de existir.
+ */
+class DepsConReemplazo extends FakeDeps {
+  feasibility: 'not_a_replacement' | 'possible' | 'blocked' = 'not_a_replacement';
+  feasibilityThrows: Error | null = null;
+  feasibilityCalls: string[] = [];
+
+  checkReplacementFeasible = async (
+    menuSessionId: string,
+  ): Promise<'not_a_replacement' | 'possible' | 'blocked'> => {
+    this.feasibilityCalls.push(menuSessionId);
+    if (this.feasibilityThrows) throw this.feasibilityThrows;
+    return this.feasibility;
+  };
+}
+
 function request(body: unknown, opts: { rawBody?: string } = {}): Request {
   return new Request('http://localhost/api/store/orders', {
     method: 'POST',
@@ -752,5 +773,114 @@ describe('createNotificationScheduler', () => {
     expect(a.callbacks).toHaveLength(2);
     expect(r.initializeCalls).toEqual([]);
     expect(r.existingCalls).toEqual([]);
+  });
+});
+
+/**
+ * EL PEDIDO #50: UN ENLACE DE CAMBIO QUE LLEGÓ TARDE (07-09-2026).
+ *
+ * El cliente pidió cambiar el #47 y recibió su enlace. Mandó el comprobante del
+ * #47 a las 03:08 y usó el enlace a las 03:12. Se creó el #50, y la guarda de
+ * `replaceSupersededOrder` —que corre en `after()`, con el cliente ya
+ * confirmado— no pudo cancelar el #47 porque tenía un pago esperando revisión.
+ * Dos pedidos, uno de ellos sin ubicación y sin comanda.
+ *
+ * Estos tests fijan la barrera que lo impide, y sobre todo el orden: el pedido
+ * NO se crea. Un 409 después de haber llamado a la RPC no arregla nada.
+ */
+describe('el enlace de cambio que ya no puede cambiar nada', () => {
+  it('NO llama a la RPC: el pedido duplicado no llega a existir', async () => {
+    const deps = new DepsConReemplazo();
+    deps.feasibility = 'blocked';
+
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(409);
+    // Lo que de verdad importa: nada se creó.
+    expect(deps.rpcCalls).toEqual([]);
+    expect(deps.scheduleCalls).toEqual([]);
+  });
+
+  it('le dice la verdad, y empieza por que su pedido está bien', async () => {
+    const deps = new DepsConReemplazo();
+    deps.feasibility = 'blocked';
+
+    const body = (await handleCreateWebOrder(request(validBody()), deps).then((r) =>
+      r.json(),
+    )) as { error: string; message: string };
+
+    expect(body.error).toBe('order_already_paid');
+    expect(body.message).toContain('ya está pagado');
+    // No lo manda a hablar con una persona: al escribir recibe el botón.
+    expect(body.message).not.toMatch(/compañero|equipo|operador|agente/i);
+  });
+
+  it('se comprueba con la sesión ya validada, no con el token', async () => {
+    const deps = new DepsConReemplazo();
+    deps.feasibility = 'blocked';
+
+    await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(deps.feasibilityCalls).toEqual([SESSION_ID]);
+    // El token en claro no sale de la capa que lo hashea.
+    expect(deps.feasibilityCalls[0]).not.toBe(SESSION_TOKEN);
+  });
+
+  it('con la sesión inválida ni se pregunta: ese 401 manda antes', async () => {
+    const deps = new DepsConReemplazo();
+    deps.sessionId = null;
+
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(401);
+    expect(deps.feasibilityCalls).toEqual([]);
+  });
+
+  it('si la comprobación lanza, tampoco se crea nada', async () => {
+    // Crear el pedido a ciegas es exactamente lo que esto viene a evitar, así
+    // que un fallo inesperado se trata como bloqueo. Ver la asimetría en
+    // `checkReplacementFeasible`.
+    const deps = new DepsConReemplazo();
+    deps.feasibilityThrows = new Error('supabase caído');
+
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(409);
+    expect(deps.rpcCalls).toEqual([]);
+  });
+});
+
+describe('el enlace que SÍ puede seguir', () => {
+  it('un enlace normal no paga por esto', async () => {
+    // `not_a_replacement` es el caso de todos los días: el enlace del menú que
+    // no sustituye a nadie. No puede quedar bloqueado por una guarda que no le
+    // toca.
+    const deps = new DepsConReemplazo();
+    deps.feasibility = 'not_a_replacement';
+
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.rpcCalls).toHaveLength(1);
+  });
+
+  it('un cambio todavía posible se crea como siempre', async () => {
+    const deps = new DepsConReemplazo();
+    deps.feasibility = 'possible';
+
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.rpcCalls).toHaveLength(1);
+    // Y la sustitución sigue programándose por su camino de siempre.
+    expect(deps.scheduleCalls).toHaveLength(1);
+  });
+
+  it('sin la dep cableada, el checkout se comporta como antes de existir', async () => {
+    const deps = new FakeDeps();
+    const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.rpcCalls).toHaveLength(1);
   });
 });

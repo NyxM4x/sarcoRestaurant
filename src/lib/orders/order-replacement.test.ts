@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { replaceSupersededOrder } from './order-replacement';
+import { checkReplacementFeasible, replaceSupersededOrder } from './order-replacement';
 
 /**
  * EL PEDIDO CORREGIDO SUSTITUYE AL ANTERIOR (0035).
@@ -267,5 +267,109 @@ describe('replaceSupersededOrder', () => {
 
     expect(resultado).toEqual({ result: 'failed' });
     expect(registro.updates).toHaveLength(0);
+  });
+});
+
+/**
+ * LA MISMA PREGUNTA, PERO A TIEMPO (07-09-2026).
+ *
+ * `replaceSupersededOrder` corre en `after()`, con el pedido nuevo ya creado y
+ * el cliente ya confirmado: cuando decide que no puede cancelar el viejo, lo
+ * único que le queda es escribirlo en el log. Eso produjo el pedido #50 — un
+ * segundo pedido, sin ubicación y sin comanda, de un cliente que ya había
+ * pagado el primero.
+ *
+ * Esto responde antes de crear nada. Y responde LO MISMO, porque las dos
+ * comparten `puedeSustituirse`: si alguna vez discrepan, la que se quede vieja
+ * deja pasar exactamente el pedido que esto viene a evitar.
+ */
+describe('checkReplacementFeasible', () => {
+  const feasible = (escenario: Escenario) =>
+    checkReplacementFeasible(SESSION_ID, fakeSupabase(escenario).client);
+
+  it('el enlace normal no sustituye a nadie y pasa de largo', async () => {
+    await expect(
+      feasible({ sesion: { replaces_order_id: null, customer_phone: PHONE } }),
+    ).resolves.toBe('not_a_replacement');
+  });
+
+  it('un cambio sobre un pedido sin pagar todavía se puede hacer', async () => {
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'confirmed', customer_phone: PHONE, notes: null },
+        pagos: [],
+      }),
+    ).resolves.toBe('possible');
+  });
+
+  it('EL CASO DEL #50: con el comprobante ya mandado, NO', async () => {
+    // `pending_review` es el estado exacto en el que estaba el #47 cuando el
+    // cliente usó su enlace de cambio cuatro minutos después.
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'confirmed', customer_phone: PHONE, notes: null },
+        pagos: [{ review_status: 'pending_review' }],
+      }),
+    ).resolves.toBe('blocked');
+  });
+
+  it('con el pago ya aceptado, tampoco', async () => {
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'confirmed', customer_phone: PHONE, notes: null },
+        pagos: [{ review_status: 'accepted' }],
+      }),
+    ).resolves.toBe('blocked');
+  });
+
+  it('con el pedido ya en la plancha, tampoco: eso es comida hecha', async () => {
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'preparing', customer_phone: PHONE, notes: null },
+        pagos: [],
+      }),
+    ).resolves.toBe('blocked');
+  });
+
+  it('con otro teléfono, tampoco: un enlace filtrado no cancela pedidos ajenos', async () => {
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'confirmed', customer_phone: '59199999999', notes: null },
+        pagos: [],
+      }),
+    ).resolves.toBe('blocked');
+  });
+
+  it('si no se puede consultar el pago, se bloquea: la duda no crea pedidos', async () => {
+    // La asimetría del módulo. Bloquear de más cuesta un mensaje y un enlace
+    // nuevo, con el pedido anterior intacto; dejar pasar de más cuesta un
+    // pedido duplicado y un pago sin comanda.
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: { id: VIEJO, status: 'confirmed', customer_phone: PHONE, notes: null },
+        pagosError: true,
+      }),
+    ).resolves.toBe('blocked');
+  });
+
+  it('si no se puede leer la sesión, se bloquea', async () => {
+    await expect(feasible({ sesionError: true })).resolves.toBe('blocked');
+  });
+
+  it('si el pedido a sustituir ya no existe, no hay duplicado posible', async () => {
+    // Nada que cancelar y nada que duplicar: el cliente arma el suyo por el
+    // camino de siempre en vez de quedarse sin poder pedir.
+    await expect(
+      feasible({
+        sesion: { replaces_order_id: VIEJO, customer_phone: PHONE },
+        pedido: null,
+      }),
+    ).resolves.toBe('not_a_replacement');
   });
 });

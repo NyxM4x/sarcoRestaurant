@@ -27,6 +27,7 @@ export type CheckoutFailureKind =
   | 'invalid_json'
   | 'invalid_session'
   | 'session_already_used'
+  | 'order_already_paid'
   | 'validation_error'
   | 'product_unavailable'
   | 'internal_error'
@@ -63,6 +64,8 @@ const SESSION_INVALID_MESSAGE =
   'Este enlace ya no es válido. Vuelve a WhatsApp y solicita nuevamente el menú.';
 const SESSION_USED_MESSAGE =
   'Este enlace ya fue utilizado. Vuelve a WhatsApp para solicitar un nuevo enlace.';
+const ORDER_ALREADY_PAID_MESSAGE =
+  'Tu pedido anterior ya está pagado y en preparación, así que este enlace ya no puede cambiarlo.';
 const PRODUCT_MESSAGE = 'Uno de los productos ya no está disponible. Revisa tu pedido.';
 const VALIDATION_MESSAGE = 'Revisa los datos de tu pedido.';
 
@@ -187,6 +190,19 @@ export function mapCheckoutFailure(status: number, body: unknown): CheckoutFailu
     return {
       kind: 'invalid_session',
       message: safeMessage(message, SESSION_INVALID_MESSAGE),
+      recovery: 'none',
+      ambiguous: false,
+    };
+  }
+
+  // El enlace de cambio llegó tarde: el pedido que venía a cambiar ya está
+  // pagado (07-09-2026). Terminal como los otros 409 —reintentar no lo va a
+  // despagar— pero con su propio motivo, porque lo que hay que decirle es otra
+  // cosa: su pedido está bien, lo que no se puede es cambiarlo por aquí.
+  if (code === 'order_already_paid') {
+    return {
+      kind: 'order_already_paid',
+      message: safeMessage(message, ORDER_ALREADY_PAID_MESSAGE),
       recovery: 'none',
       ambiguous: false,
     };

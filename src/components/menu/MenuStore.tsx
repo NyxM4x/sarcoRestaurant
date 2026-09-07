@@ -34,6 +34,19 @@ const SESSION_USED_NOTICE =
 /** El enlace no es válido o venció: 401. */
 const SESSION_INVALID_NOTICE =
   'Este enlace ya no es válido. Vuelve a WhatsApp y solicita nuevamente el menú.';
+/**
+ * El enlace venía a CAMBIAR un pedido que ya está pagado (07-09-2026).
+ *
+ * Empieza por la buena noticia y a propósito: quien lee esto acaba de armar un
+ * carrito que no va a poder mandar, y lo primero que necesita saber es que su
+ * pedido no se perdió. Después, qué hacer con lo que quería añadir.
+ *
+ * No lo manda a hablar con nadie: al escribir por WhatsApp recibe el botón del
+ * menú, que es exactamente lo que hace falta para el pedido nuevo.
+ */
+const ORDER_PAID_NOTICE =
+  'Tu pedido anterior ya está pagado y en preparación, así que este enlace ya no puede ' +
+  'cambiarlo. Escribinos por WhatsApp y armamos un pedido nuevo con lo que falte.';
 
 /**
  * Tienda: catálogo, carrito y checkout.
@@ -159,9 +172,11 @@ export function MenuStore({
       ? SESSION_USED_NOTICE
       : checkout.sessionBlockReason === 'invalid'
         ? SESSION_INVALID_NOTICE
-        : hasSession
-          ? null
-          : NO_SESSION_NOTICE;
+        : checkout.sessionBlockReason === 'paid'
+          ? ORDER_PAID_NOTICE
+          : hasSession
+            ? null
+            : NO_SESSION_NOTICE;
 
   /** Combos vendibles AHORA, en el formato que espera el checkout. */
   const cartPromotions = useMemo(

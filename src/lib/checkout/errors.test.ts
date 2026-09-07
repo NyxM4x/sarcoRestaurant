@@ -175,3 +175,43 @@ describe('mapCheckoutFailure — saneamiento de mensajes', () => {
     expect(mapCheckoutFailure(409, []).kind).toBe('session_already_used');
   });
 });
+
+/**
+ * EL ENLACE DE CAMBIO QUE LLEGÓ TARDE (07-09-2026).
+ *
+ * Comparte status con `session_already_used` —los dos son 409 terminales— pero
+ * NO es lo mismo, y por eso tiene su propio motivo: aquel enlace ya se gastó en
+ * un pedido; este nunca llegó a usarse, lo que pasó es que el pedido que venía a
+ * cambiar se pagó primero. Lo que hay que decirle es distinto.
+ */
+describe('order_already_paid', () => {
+  it('es terminal y no ambiguo: reintentar no lo va a despagar', () => {
+    const failure = mapCheckoutFailure(409, {
+      error: 'order_already_paid',
+      message: 'Tu pedido anterior ya está pagado y en preparación.',
+    });
+
+    expect(failure.kind).toBe('order_already_paid');
+    expect(failure.recovery).toBe('none');
+    expect(failure.ambiguous).toBe(false);
+  });
+
+  it('gana sobre el 409 genérico: el motivo no puede colapsar en "ya usado"', () => {
+    const failure = mapCheckoutFailure(409, { error: 'order_already_paid' });
+    expect(failure.kind).not.toBe('session_already_used');
+  });
+
+  it('conserva el mensaje del servidor y descarta el técnico', () => {
+    const bueno = mapCheckoutFailure(409, {
+      error: 'order_already_paid',
+      message: 'Tu pedido anterior ya está pagado y en preparación.',
+    });
+    expect(bueno.message).toContain('ya está pagado');
+
+    const feo = mapCheckoutFailure(409, {
+      error: 'order_already_paid',
+      message: 'P0001: relation orders does not exist',
+    });
+    expect(feo.message).not.toContain('P0001');
+  });
+});
