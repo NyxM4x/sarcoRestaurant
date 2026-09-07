@@ -89,15 +89,39 @@ export interface CartSummary {
   units: number;
 }
 
+/** Lo que devuelve un carrito sin nada que cobrar. */
+const RESUMEN_VACIO: CartSummary = { lines: [], subtotal: 0, total: 0, units: 0 };
+
 /**
  * Calcula el resumen cruzando el carrito con los productos reales.
  * Los `code` que ya no existan (o estén inactivos) se ignoran.
+ *
+ * ── AGOTAR UN PRODUCTO TUMBABA EL MENÚ ENTERO (07-09-2026) ──────────────────
+ *
+ * "Se ignoran" era verdad para algunos, no para todos. `calculateOrder` LANZA
+ * cuando no le queda ni una línea —"El pedido debe incluir al menos un
+ * producto."— y hace bien: es la guarda del pedido de verdad, la que impide
+ * cobrar por nada. Pero esto no cobra nada, solo PINTA.
+ *
+ * Así que el cliente que tenía dos trancapechos guardados en su navegador y
+ * volvía al menú después de que el panel lo marcara agotado recibía esa
+ * excepción DENTRO del render de `useCart` —ver `use-cart.ts`—, y una excepción
+ * en el render se lleva por delante el árbol entero: el menú no cargaba. No su
+ * carrito: el menú, con todo lo demás que sí estaba a la venta.
+ *
+ * Un carrito cuyo contenido ya no se vende es un carrito vacío para quien lo
+ * dibuja. Se responde lo mismo que a un carrito sin nada, que es exactamente lo
+ * que le queda al cliente.
  */
 export function summarizeCart(cart: CartState, items: MenuItem[]): CartSummary {
   const units = totalUnits(cart);
-  if (units === 0) {
-    return { lines: [], subtotal: 0, total: 0, units: 0 };
-  }
+  if (units === 0) return RESUMEN_VACIO;
+
+  // ¿Queda algo del carrito que siga a la venta? La comparación es la MISMA que
+  // hace `calculateOrder` al armar sus líneas —el `code` del producto contra las
+  // cantidades del carrito— y por eso no puede discrepar con ella.
+  const quedaAlgo = items.some((item) => (cart[item.code] ?? 0) > 0);
+  if (!quedaAlgo) return RESUMEN_VACIO;
 
   // `calculateOrder` es la única fuente de la aritmética de precios.
   // 'pickup' evita sumar delivery: el tipo de entrega se elige en el checkout.

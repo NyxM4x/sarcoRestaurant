@@ -129,6 +129,37 @@ describe('totales', () => {
     expect(summary.lines.map((l) => l.product_code)).toEqual(['la_fija']);
     expect(summary.total).toBe(22);
   });
+
+  /**
+   * AGOTAR UN PRODUCTO TUMBABA EL MENÚ ENTERO (07-09-2026).
+   *
+   * El panel marcó el trancapecho como agotado y `listActive()` dejó de
+   * devolverlo. El cliente que lo tenía guardado en `localStorage` volvía al
+   * menú, `summarizeCart` se quedaba sin ni una línea que cobrar y
+   * `calculateOrder` lanzaba dentro del render de `useCart` — la pantalla
+   * entera, no solo el carrito.
+   *
+   * "Ignora los códigos que ya no existen" tiene que valer también cuando ya no
+   * existe NINGUNO. Es el mismo caso del test de arriba, llevado al extremo que
+   * nadie probó.
+   */
+  it('ignorarlos TODOS tampoco lanza: es un carrito vacío, no un error', () => {
+    const soloAgotados = summarizeCart({ la_fija: 2 }, []);
+    expect(soloAgotados).toEqual({ lines: [], subtotal: 0, total: 0, units: 0 });
+
+    // Y con el menú vivo pero sin ninguno de los suyos dentro.
+    const otro = summarizeCart({ producto_agotado: 3 }, MENU);
+    expect(otro).toEqual({ lines: [], subtotal: 0, total: 0, units: 0 });
+  });
+
+  it('lo que sobrevive se sigue cobrando', () => {
+    // El caso intermedio: se agota uno de los dos. El menú no cae y el cliente
+    // paga por lo que queda — el agotado desaparece de su carrito.
+    const summary = summarizeCart({ la_fija: 2, producto_agotado: 1 }, MENU);
+    expect(summary.lines.map((l) => l.product_code)).toEqual(['la_fija']);
+    expect(summary.units).toBe(2);
+    expect(summary.total).toBe(44);
+  });
 });
 
 describe('carrito vacío', () => {
