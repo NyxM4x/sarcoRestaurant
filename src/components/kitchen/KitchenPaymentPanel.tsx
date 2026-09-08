@@ -312,23 +312,35 @@ const LOOSE_ERRORS: Record<string, string> = {
  * ningún episodio de revisión— y es lo que los saca del callejón sin salida:
  * abre el intento sobre el pedido que el comprobante ya tenía y hace aparecer
  * CONFIRMAR y RECHAZAR. No acepta el pago: eso lo sigue decidiendo quien mira.
+ *
+ * ── El archivo caído ya NO esconde el botón (08-09-2026) ────────────────────
+ *
+ * Hasta hoy, un comprobante sin archivo salía por un `return` temprano: se
+ * pintaba "Archivo no disponible" y ahí terminaba la fila. Ni enlace, ni botón,
+ * ni nada. Mientras tanto el aviso del ticket seguía diciendo «míralo y pulsa
+ * "Usar este comprobante"» — un botón que esa misma pantalla estaba escondiendo.
+ *
+ * Es el pedido #36 del 07-09-2026. El cliente pagó Bs 18 y su comprobante se
+ * asoció bien al pedido (`single_open_qr_order`), pero la descarga del archivo
+ * falló y nunca llegaron los bytes. En el tablero quedó un pedido pagado que no
+ * se podía aceptar desde ninguna pantalla: `reviewLooseProofAction` es el único
+ * camino que existe para abrir la revisión de un comprobante suelto, y vive
+ * solo aquí. Quien estaba en la cocina, sin ningún botón que apretar, terminó
+ * borrando el ticket — y el pedido se perdió con el cliente ya pagando.
+ *
+ * El archivo NO hace falta para decidir: `openAttemptForLooseProof` comprueba
+ * que el comprobante exista, que no esté ya en revisión, que tenga pedido y que
+ * ese pedido no esté pagado. El `capture_status` no lo mira nadie. Y quien
+ * decide tiene la imagen donde el cliente la mandó, que es el chat de WhatsApp.
+ *
+ * Así que el aviso rojo se queda —hay que saber que el archivo no está— pero
+ * deja de ser una pared. Lo que sí se retira es el enlace "Ver comprobante": un
+ * archivo que no existe solo lleva a un error, y en su lugar se dice dónde
+ * mirarlo de verdad.
  */
 function ProofRow({ proof, onReviewed }: { proof: ProofView; onReviewed?: () => void }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-
-  if (!proof.isAvailable) {
-    return (
-      <li className="flex items-center gap-1.5 rounded bg-red-50 px-2 py-1">
-        <span className="text-[11px] font-bold uppercase leading-tight tracking-wide text-red-700">
-          Archivo no disponible
-        </span>
-        {proof.declaredLabel && (
-          <span className="text-[11px] font-semibold text-red-600">({proof.declaredLabel})</span>
-        )}
-      </li>
-    );
-  }
 
   const revisar = () => {
     setError(null);
@@ -344,17 +356,39 @@ function ProofRow({ proof, onReviewed }: { proof: ProofView; onReviewed?: () => 
 
   return (
     <li>
-      <a
-        href={fileUrl(proof.id)}
-        target="_blank"
-        rel="noreferrer"
-        className="flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 text-xs font-bold uppercase tracking-wide text-white active:bg-zinc-900"
-      >
-        Ver comprobante
-        {proof.isDuplicate && (
-          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px]">Duplicado</span>
-        )}
-      </a>
+      {proof.isAvailable ? (
+        <a
+          href={fileUrl(proof.id)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 text-xs font-bold uppercase tracking-wide text-white active:bg-zinc-900"
+        >
+          Ver comprobante
+          {proof.isDuplicate && (
+            <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px]">Duplicado</span>
+          )}
+        </a>
+      ) : (
+        /* El archivo no llegó. Se dice qué decía ser —un PDF que no sabemos
+           leer y una descarga caída son dos problemas distintos— y dónde está
+           la imagen de verdad, que es lo único que le sirve a quien decide. */
+        <div className="rounded-lg bg-red-50 px-2 py-1.5">
+          <p className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold uppercase leading-tight tracking-wide text-red-700">
+            Archivo no disponible
+            {proof.declaredLabel && (
+              <span className="font-semibold normal-case text-red-600">
+                ({proof.declaredLabel})
+              </span>
+            )}
+            {proof.isDuplicate && (
+              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px]">Duplicado</span>
+            )}
+          </p>
+          <p className="mt-0.5 text-[11px] font-semibold leading-tight text-red-700">
+            Míralo en el chat de WhatsApp del cliente.
+          </p>
+        </div>
+      )}
 
       {onReviewed && (
         <>
