@@ -5,6 +5,7 @@ import type { KdsAction } from '@/lib/kitchen/kds-status';
 import { formatClockTime } from '@/lib/kitchen/timer';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import { shortOrderNumber } from '@/lib/orders/order-number';
+import { collectBreakdownOf } from '@/lib/kitchen/collect-breakdown';
 import { bs, CollectChip } from './KitchenTicketCard';
 
 /**
@@ -35,34 +36,23 @@ export interface KitchenReadyPanelProps {
 /**
  * "Productos Bs 87 · Envío Bs 27" — el reparto de lo que se cobra.
  *
- * ── Por qué se calcula aquí y no viaja en el ticket ─────────────────────────
+ * Las CIFRAS las calcula `collectBreakdownOf`, que vive en `lib/kitchen` y
+ * tiene su prueba: son las dos con las que se cierra la caja de la noche, y
+ * mientras vivieron aquí dentro la única forma de comprobarlas era mirar esta
+ * pantalla con un pedido real delante. Aquí queda lo que sí es de la pantalla:
+ * cómo se leen.
  *
- * Porque ya está todo. `amountDueByQr` es la comida (en delivery, el subtotal)
- * y el chip trae la otra mitad, así que no hace falta mandar el total del
- * pedido a cocina — y no mandarlo es una regla del ticket, con su test.
- *
- *   efectivo (`todo`)   el chip lleva el TOTAL  →  envío = total − comida
- *   por QR   (`envio`)  el chip lleva el ENVÍO  →  se usa tal cual
- *   por QR   (`pagado`) no hay cifra de envío   →  se dice que está pagado
- *
- * `null` cuando no hay nada que repartir: en recojo no hay envío, y sin comida
- * conocida la resta no diría nada.
+ * `null` cuando no hay nada que repartir —en recojo no hay envío, y sin comida
+ * conocida la resta no diría nada—. Ver el módulo para los tres casos.
  */
 function desgloseDe(ticket: KitchenTicket): string | null {
-  const collect = ticket.deliveryCollect;
-  if (collect === null) return null;
+  const partes = collectBreakdownOf(ticket.deliveryCollect, ticket.amountDueByQr);
+  if (partes === null) return null;
 
-  const comida = ticket.amountDueByQr;
-  if (comida <= 0) return null;
-
-  if (collect.kind === 'pagado') return `Productos Bs ${bs(comida)} · Envío pagado`;
-
-  const envio = collect.kind === 'todo' ? collect.amount - comida : collect.amount;
-  // Una resta que sale negativa significa que las cifras no cuadran entre sí:
-  // se calla en vez de escribir un envío imposible.
-  if (envio < 0) return null;
-
-  return `Productos Bs ${bs(comida)} · Envío Bs ${bs(envio)}`;
+  const comida = `Productos Bs ${bs(partes.food)}`;
+  return partes.shipping === 'paid'
+    ? `${comida} · Envío pagado`
+    : `${comida} · Envío Bs ${bs(partes.shipping)}`;
 }
 
 export function KitchenReadyPanel({
