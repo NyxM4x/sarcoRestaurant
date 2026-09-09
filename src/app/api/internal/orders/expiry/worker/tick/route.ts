@@ -4,6 +4,7 @@ import { extractBearer, safeCompare } from '@/lib/security/auth';
 import { log } from '@/lib/log';
 import { expireUnconfirmedCashOrders } from '@/lib/orders/cash-confirm-service';
 import { expireAbandonedCarts } from '@/lib/orders/abandoned-cart-service';
+import { expireUnpaidOrders } from '@/lib/orders/unpaid-order-service';
 
 // Requiere APIs de Node (service_role, POST a Kapso) — no Edge.
 export const runtime = 'nodejs';
@@ -26,9 +27,22 @@ export const maxDuration = 60;
  *   2. El carrito que nunca llegó a cotizarse porque el cliente no mandó su
  *      ubicación, a los cuarenta y cinco (`expireAbandonedCarts`). Se cancela
  *      en silencio: a ese cliente no se le prometió nada que responder.
+ *   3. El pedido por QR ya cotizado al que nunca llegó ningún comprobante, a
+ *      las dos horas (`expireUnpaidOrders`). También en silencio.
  *
- * Los dos son limpieza, los dos son idempotentes y los dos son baratos. Por eso
- * comparten endpoint y Worker en vez de pedir uno cada uno.
+ * Los tres son limpieza, los tres son idempotentes y los tres son baratos. Por
+ * eso comparten endpoint y Worker en vez de pedir uno cada uno.
+ *
+ * ── Los tres plazos, y por qué son distintos ────────────────────────────────
+ *
+ * No son tres números arbitrarios: cada uno mide lo que le cuesta al cliente
+ * hacer lo que le falta.
+ *
+ *   20 min  contestar una palabra (CONFIRMO) con el total delante
+ *   45 min  tocar el botón de la ubicación en su teléfono
+ *    2 h    ir al banco, transferir y sacar una foto
+ *
+ * Ordenarlos al revés castigaría a quien más trabajo tiene por delante.
  *
  * ── Por qué existe esta ruta ────────────────────────────────────────────────
  *
@@ -112,10 +126,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     // ── Los DOS barridos de caducados ──────────────────────────────────────
     //
-    // Son independientes y no se solapan: uno mira pedidos ya cotizados en
-    // efectivo esperando el CONFIRMO, el otro carritos que nunca llegaron a
-    // cotizarse, sea cual sea su método de pago. Ningún pedido cumple las dos
-    // condiciones a la vez.
+    // Son independientes y no se solapan, y eso se puede comprobar de un
+    // vistazo: el del carrito solo mira `awaiting_location`, y los otros dos
+    // solo `confirmed` y con métodos de pago distintos —`cash` uno, `qr` el
+    // otro—. Ningún pedido cumple dos condiciones a la vez.
     //
     // En SERIE y no en paralelo a propósito: los dos escriben en `orders`, y
     // este tick no tiene ninguna prisa —corre cada minuto y la mayoría de las
@@ -127,13 +141,15 @@ export async function POST(request: Request): Promise<Response> {
     // no puede impedir que el otro corra.
     const efectivo = await expireUnconfirmedCashOrders();
     const carritos = await expireAbandonedCarts();
+    const impagados = await expireUnpaidOrders();
 
     // El total es lo que el Worker registra como `cancelled`; el desglose queda
     // en el log para poder responder "¿de qué murieron?" sin abrir la base.
     const result = {
-      cancelled: efectivo.cancelled + carritos.cancelled,
+      cancelled: efectivo.cancelled + carritos.cancelled + impagados.cancelled,
       cash_unconfirmed: efectivo.cancelled,
       abandoned_carts: carritos.cancelled,
+      unpaid_orders: impagados.cancelled,
     };
     // Solo recuentos: ni ids, ni números de pedido, ni teléfonos.
     log.info('order_expiry_tick', { ...result });
