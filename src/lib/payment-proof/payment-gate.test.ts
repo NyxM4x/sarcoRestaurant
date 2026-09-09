@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
-  openedAtMsOf,
   paymentDeadlineMsOf,
   paymentGateOf,
   shouldCancelForExpiry,
   PROOF_WINDOW_MS,
   REJECTION_GRACE_MS,
 } from './payment-gate';
+import { openedAtMsOf } from '@/lib/orders/opened-at';
 import type { AttemptView, PaymentView } from '@/lib/dashboard/attempt-review';
 import type { PaymentReviewStatus } from '@/types';
 
@@ -14,12 +14,13 @@ const AHORA = Date.parse('2026-09-01T02:00:00.000Z');
 const hace = (ms: number) => new Date(AHORA - ms).toISOString();
 
 /**
- * Pedido abierto hace cinco minutos: dentro de su ventana de comprobante.
+ * Pedido COTIZADO hace cinco minutos: dentro de su ventana de comprobante.
  *
- * Lo llevan los casos que NO van de esa ventana, para que sigan comprobando lo
- * suyo. La ventana tiene sus propios casos mas abajo.
+ * Es `confirmed_at`, no `created_at`: el reloj del comprobante solo corre desde
+ * que se le pidio pagar. Lo llevan los casos que NO van de esa ventana, para
+ * que sigan comprobando lo suyo; la ventana tiene sus propios casos mas abajo.
  */
-const ABIERTO_RECIEN = AHORA - 5 * 60 * 1000;
+const COTIZADO_RECIEN = AHORA - 5 * 60 * 1000;
 
 function intento(status: PaymentReviewStatus, reviewedAt: string | null = null): AttemptView {
   return {
@@ -45,33 +46,33 @@ function pago(attempts: AttemptView[]): PaymentView {
 
 describe('la puerta del pago — cuándo se puede cocinar', () => {
   it('un pago aceptado abre la plancha', () => {
-    const g = paymentGateOf('qr', pago([intento('accepted', hace(1000))]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('accepted', hace(1000))]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('accepted');
     expect(g.canStart).toBe(true);
   });
 
   it('un comprobante esperando revisión NO abre nada', () => {
     // El bug que esto corrige: se podía pulsar INICIAR sin mirar el comprobante.
-    const g = paymentGateOf('qr', pago([intento('pending_review')]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('pending_review')]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('awaiting_review');
     expect(g.canStart).toBe(false);
   });
 
   it('un comprobante RECHAZADO no abre nada', () => {
     // El caso más grave del anterior: se podía cocinar un pago ya rechazado.
-    const g = paymentGateOf('qr', pago([intento('rejected', hace(1000))]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('rejected', hace(1000))]), AHORA, COTIZADO_RECIEN);
     expect(g.canStart).toBe(false);
   });
 
   it('sin ningún comprobante todavía, no se cocina', () => {
-    expect(paymentGateOf('qr', pago([]), AHORA, ABIERTO_RECIEN).state).toBe('no_proof');
-    expect(paymentGateOf('qr', pago([]), AHORA, ABIERTO_RECIEN).canStart).toBe(false);
+    expect(paymentGateOf('qr', pago([]), AHORA, COTIZADO_RECIEN).state).toBe('no_proof');
+    expect(paymentGateOf('qr', pago([]), AHORA, COTIZADO_RECIEN).canStart).toBe(false);
   });
 
   it('efectivo y pedidos históricos entran como siempre', () => {
     // Exigirles comprobante los dejaría bloqueados para siempre.
     for (const metodo of ['cash', null] as const) {
-      const g = paymentGateOf(metodo, null, AHORA, ABIERTO_RECIEN);
+      const g = paymentGateOf(metodo, null, AHORA, COTIZADO_RECIEN);
       expect(g.state, String(metodo)).toBe('not_required');
       expect(g.canStart, String(metodo)).toBe(true);
     }
@@ -82,35 +83,35 @@ describe('la puerta del pago — ante la duda, se cocina', () => {
   it('si no se pudo consultar el pago, se permite iniciar', () => {
     // Cerrar aquí detendría el servicio entero por un fallo de la base, sin
     // ninguna forma de saltarse la puerta desde una tablet.
-    const g = paymentGateOf('qr', null, AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', null, AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('unknown');
     expect(g.canStart).toBe(true);
   });
 
   it('`unknown` NUNCA cancela un pedido', () => {
     // Abrir la puerta ante la duda y cancelar ante la duda son cosas opuestas.
-    expect(shouldCancelForExpiry('qr', null, AHORA, ABIERTO_RECIEN)).toBe(false);
+    expect(shouldCancelForExpiry('qr', null, AHORA, COTIZADO_RECIEN)).toBe(false);
   });
 });
 
 describe('la ventana de gracia tras un rechazo', () => {
   it('dentro de los 15 minutos el pedido sigue vivo, sin poder cocinarse', () => {
-    const g = paymentGateOf('qr', pago([intento('rejected', hace(5 * 60 * 1000))]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('rejected', hace(5 * 60 * 1000))]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('rejected_grace');
     expect(g.canStart).toBe(false);
     expect(g.graceEndsAtMs).toBe(AHORA - 5 * 60 * 1000 + REJECTION_GRACE_MS);
   });
 
   it('pasados los 15 minutos sin reenvío, expira', () => {
-    const g = paymentGateOf('qr', pago([intento('rejected', hace(16 * 60 * 1000))]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('rejected', hace(16 * 60 * 1000))]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('expired');
     expect(g.canStart).toBe(false);
-    expect(shouldCancelForExpiry('qr', pago([intento('rejected', hace(16 * 60 * 1000))]), AHORA, ABIERTO_RECIEN))
+    expect(shouldCancelForExpiry('qr', pago([intento('rejected', hace(16 * 60 * 1000))]), AHORA, COTIZADO_RECIEN))
       .toBe(true);
   });
 
   it('justo en el minuto 15 ya venció: el plazo prometido es el plazo', () => {
-    const g = paymentGateOf('qr', pago([intento('rejected', hace(REJECTION_GRACE_MS))]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('rejected', hace(REJECTION_GRACE_MS))]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('expired');
   });
 
@@ -118,9 +119,9 @@ describe('la ventana de gracia tras un rechazo', () => {
     // El cliente reenvió en el minuto 14. Aunque la cocina tarde otros diez en
     // abrirlo, el pedido no puede morir: cumplió su parte.
     const p = pago([intento('rejected', hace(20 * 60 * 1000)), intento('pending_review')]);
-    const g = paymentGateOf('qr', p, AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', p, AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('awaiting_review');
-    expect(shouldCancelForExpiry('qr', p, AHORA, ABIERTO_RECIEN)).toBe(false);
+    expect(shouldCancelForExpiry('qr', p, AHORA, COTIZADO_RECIEN)).toBe(false);
   });
 
   it('cada rechazo abre una ventana LIMPIA', () => {
@@ -130,12 +131,12 @@ describe('la ventana de gracia tras un rechazo', () => {
       intento('rejected', hace(60 * 60 * 1000)),
       intento('rejected', hace(2 * 60 * 1000)),
     ]);
-    expect(paymentGateOf('qr', p, AHORA, ABIERTO_RECIEN).state).toBe('rejected_grace');
+    expect(paymentGateOf('qr', p, AHORA, COTIZADO_RECIEN).state).toBe('rejected_grace');
   });
 
   it('un pago aceptado después de un rechazo manda: el pedido está pagado', () => {
     const p = pago([intento('rejected', hace(60 * 60 * 1000)), intento('accepted', hace(1000))]);
-    const g = paymentGateOf('qr', p, AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', p, AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('accepted');
     expect(g.canStart).toBe(true);
   });
@@ -144,7 +145,7 @@ describe('la ventana de gracia tras un rechazo', () => {
     // La coherencia de 0021 lo impide en la base, pero si llegara una fila así
     // no se inventa un vencimiento: cancelar por una fecha ilegible sería
     // matar un pedido por un dato roto nuestro.
-    const g = paymentGateOf('qr', pago([intento('rejected', null)]), AHORA, ABIERTO_RECIEN);
+    const g = paymentGateOf('qr', pago([intento('rejected', null)]), AHORA, COTIZADO_RECIEN);
     expect(g.state).toBe('no_proof');
     expect(g.canStart).toBe(false);
   });
@@ -243,12 +244,12 @@ describe('el plazo de pago — un solo cálculo para los dos relojes', () => {
   // distinto según por dónde se mire el pedido.
 
   it('sin nada llegado, el plazo son dos horas desde la apertura', () => {
-    expect(paymentDeadlineMsOf(pago([]), ABIERTO_RECIEN)).toBe(ABIERTO_RECIEN + PROOF_WINDOW_MS);
+    expect(paymentDeadlineMsOf(pago([]), COTIZADO_RECIEN)).toBe(COTIZADO_RECIEN + PROOF_WINDOW_MS);
   });
 
   it('tras un rechazo, el plazo son quince minutos desde ese rechazo', () => {
     const rechazado = hace(5 * 60 * 1000);
-    expect(paymentDeadlineMsOf(pago([intento('rejected', rechazado)]), ABIERTO_RECIEN)).toBe(
+    expect(paymentDeadlineMsOf(pago([intento('rejected', rechazado)]), COTIZADO_RECIEN)).toBe(
       Date.parse(rechazado) + REJECTION_GRACE_MS,
     );
   });
@@ -260,11 +261,11 @@ describe('el plazo de pago — un solo cálculo para los dos relojes', () => {
   });
 
   it('un comprobante esperando revisión NO tiene plazo: el reloj está parado', () => {
-    expect(paymentDeadlineMsOf(pago([intento('pending_review')]), ABIERTO_RECIEN)).toBe(null);
+    expect(paymentDeadlineMsOf(pago([intento('pending_review')]), COTIZADO_RECIEN)).toBe(null);
   });
 
   it('un pago aceptado NO tiene plazo: el pedido está pagado', () => {
-    expect(paymentDeadlineMsOf(pago([intento('accepted', hace(1000))]), ABIERTO_RECIEN)).toBe(null);
+    expect(paymentDeadlineMsOf(pago([intento('accepted', hace(1000))]), COTIZADO_RECIEN)).toBe(null);
   });
 
   it('sin rechazos fechados ni apertura legible no hay plazo que contar', () => {
@@ -276,8 +277,39 @@ describe('el plazo de pago — un solo cálculo para los dos relojes', () => {
     // Si estos dos se separaran, la pantalla contaría hacia un vencimiento y el
     // pedido moriría en otro.
     for (const p of [pago([]), pago([intento('rejected', hace(60 * 1000))])]) {
-      const g = paymentGateOf('qr', p, AHORA, ABIERTO_RECIEN);
-      expect(g.graceEndsAtMs).toBe(paymentDeadlineMsOf(p, ABIERTO_RECIEN));
+      const g = paymentGateOf('qr', p, AHORA, COTIZADO_RECIEN);
+      expect(g.graceEndsAtMs).toBe(paymentDeadlineMsOf(p, COTIZADO_RECIEN));
     }
+  });
+});
+
+describe('la frontera con el carrito abandonado (09-09-2026)', () => {
+  // Sin `confirmed_at` no se le pidió pagar nada. Exigirle el comprobante de un
+  // importe que nadie le dijo es una regla imposible de cumplir, así que esta
+  // ventana se abstiene y el pedido lo gobierna `isAbandonedCart`.
+
+  it('sin cotizar NO hay ventana de comprobante, por viejo que sea el pedido', () => {
+    const g = paymentGateOf('qr', pago([]), AHORA, null);
+    expect(g.state).toBe('no_proof');
+    expect(g.graceEndsAtMs).toBe(null);
+    expect(shouldCancelForExpiry('qr', pago([]), AHORA, null)).toBe(false);
+  });
+
+  it('EL CASO QUE LO DESTAPÓ: Mapbox cayó y el cliente nunca recibió su QR', () => {
+    // Mandó su ubicación, hizo todo bien, y la cotización falló. No hay
+    // `confirmed_at` porque nunca se le mandó una cifra. Cancelarle el pedido
+    // por "no mandar el comprobante" sería cobrarle nuestra avería.
+    expect(shouldCancelForExpiry('qr', pago([]), AHORA, null)).toBe(false);
+  });
+
+  it('en cuanto SÍ se le pidió pagar, el reloj corre con normalidad', () => {
+    const cotizado = AHORA - 3 * 60 * 60 * 1000;
+    expect(shouldCancelForExpiry('qr', pago([]), AHORA, cotizado)).toBe(true);
+  });
+
+  it('un rechazo SÍ vence aunque el pedido no tenga fecha de cotización', () => {
+    // Ahí sí hubo un pago: el reloj sale del rechazo, no del pedido.
+    const p = pago([intento('rejected', hace(20 * 60 * 1000))]);
+    expect(shouldCancelForExpiry('qr', p, AHORA, null)).toBe(true);
   });
 });

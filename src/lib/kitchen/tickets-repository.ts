@@ -25,11 +25,8 @@ import {
   type RawKitchenOrderRow,
 } from './ticket-view';
 import type { KitchenFailure } from './errors';
-import {
-  openedAtMsOf,
-  paymentGateOf,
-  type PaymentGateState,
-} from '@/lib/payment-proof/payment-gate';
+import { paymentGateOf, type PaymentGateState } from '@/lib/payment-proof/payment-gate';
+import { parseIsoMs } from '@/lib/orders/opened-at';
 
 export type KitchenUpdateResult = 'updated' | 'conflict' | 'not_found';
 
@@ -72,13 +69,14 @@ export interface KitchenDataSource {
     rows: KitchenPaymentRows;
     orderId: string;
     /**
-     * Cuando se abrio el pedido (`confirmed_at ?? created_at`), en ISO.
+     * Cuando se le PIDIO pagar (`confirmed_at`), en ISO.
      *
-     * Lo necesita la ventana del comprobante (`PROOF_WINDOW_MS`): sin esta
-     * fecha la puerta no puede saber si el pedido ya vencio y lo trata como
-     * `no_proof` sin reloj, que es lo que hacia antes de existir la regla.
+     * Lo necesita la ventana del comprobante (`PROOF_WINDOW_MS`). Sin esta
+     * fecha —el pedido no se ha cotizado— la puerta lo trata como `no_proof`
+     * sin reloj: no se le puede exigir el comprobante de un importe que aun no
+     * se le ha dicho.
      */
-    openedAt?: string | null;
+    quotedAt?: string | null;
   } | null>;
   updateStatus(orderNumber: string, from: OrderStatus, to: OrderStatus): Promise<KitchenUpdateResult>;
   /**
@@ -200,7 +198,7 @@ async function consultarPuerta(
       datos.paymentMethod,
       vista,
       nowMs,
-      openedAtMsOf(datos.openedAt, null),
+      parseIsoMs(datos.quotedAt),
     );
   } catch {
     return paymentGateOf('qr', null, nowMs, null);

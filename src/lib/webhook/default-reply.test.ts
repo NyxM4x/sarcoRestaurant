@@ -43,6 +43,9 @@ function pedido(over: Partial<OpenOrderSnapshot> = {}): OpenOrderSnapshot {
     status: 'confirmed',
     totalAmount: 95,
     payment: 'no_proof',
+    // Ya cotizado: los casos de este archivo van del pago y de lo que escribe
+    // el cliente, no del carrito abandonado, que tiene los suyos al final.
+    abandonedCart: false,
     ...over,
   };
 }

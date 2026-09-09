@@ -22,12 +22,19 @@
  *
  * Los dos usan la misma regla; lo único que cambia es quién llega primero.
  *
- * ── Las DOS formas de vencer ────────────────────────────────────────────────
+ * ── Las TRES formas de vencer ───────────────────────────────────────────────
  *
- * Un rechazo cuya gracia se agotó (`REJECTION_GRACE_MS`, quince minutos), y un
- * comprobante que nunca llegó (`PROOF_WINDOW_MS`, dos horas). El barrido no las
- * distingue: `shouldCancelForExpiry` responde por las dos, y para este archivo
- * las dos significan lo mismo — nadie pagó esto.
+ * Dos son del PAGO y las responde `shouldCancelForExpiry`: un rechazo cuya
+ * gracia se agotó (`REJECTION_GRACE_MS`, quince minutos) y un comprobante que
+ * nunca llegó (`PROOF_WINDOW_MS`, dos horas desde que se cotizó).
+ *
+ * La tercera es del PEDIDO y la responde `isAbandonedCart`: el carrito que
+ * nunca llegó a cotizarse (`UNQUOTED_CART_WINDOW_MS`, 45 minutos). Existe
+ * aparte porque las del pago no pueden alcanzar al pedido en efectivo —a ese la
+ * puerta le responde `not_required`— y ese carrito también hay que cerrarlo.
+ *
+ * Por eso este barrido ya NO filtra por `payment_method = 'qr'`: dejaba fuera
+ * justo los pedidos que solo la tercera regla puede cerrar.
  *
  * ── Y por qué NO toca lo que ya está en la plancha ──────────────────────────
  *
@@ -39,9 +46,11 @@
  * Es la misma regla que ya gobierna la entrada al tablero: frenar antes de
  * empezar sí, sacar algo empezado no.
  */
-import type { OrderStatus, PaymentMethod } from '@/types';
+import type { DeliveryQuoteStatus, OrderStatus, PaymentMethod } from '@/types';
 import type { PaymentView } from '@/lib/dashboard/attempt-review';
-import { openedAtMsOf, shouldCancelForExpiry } from './payment-gate';
+import { shouldCancelForExpiry } from './payment-gate';
+import { isAbandonedCart } from '@/lib/orders/abandoned-cart';
+import { parseIsoMs } from '@/lib/orders/opened-at';
 
 /**
  * Estados que el barrido puede cancelar.
@@ -70,6 +79,19 @@ export interface ExpiryCandidate {
    * cancela. Ver `paymentGateOf`.
    */
   openedAt: string | null;
+  /**
+   * `created_at` del pedido, en ISO.
+   *
+   * Viaja aparte de `openedAt` porque la regla del carrito abandonado necesita
+   * las dos fechas para elegir cuál cuenta (`openedAtMsOf`), no el resultado ya
+   * resuelto.
+   */
+  createdAt: string | null;
+  /**
+   * Cotización del envío. La mira `isAbandonedCart` para distinguir al que
+   * nunca mandó su ubicación del que sí y falló Mapbox.
+   */
+  deliveryQuoteStatus: DeliveryQuoteStatus | null;
 }
 
 /**
@@ -84,8 +106,35 @@ export function selectExpiredOrders(
   nowMs: number,
 ): ExpiryCandidate[] {
   return candidates.filter(
-    (c) =>
-      SWEEPABLE_STATUSES.includes(c.status) &&
-      shouldCancelForExpiry(c.paymentMethod, c.payment, nowMs, openedAtMsOf(c.openedAt, null)),
+    (c) => SWEEPABLE_STATUSES.includes(c.status) && debeCancelarse(c, nowMs),
   );
+}
+
+/**
+ * Las DOS razones por las que un pedido puede estar muerto.
+ *
+ * Son independientes y cualquiera basta. No se solapan por accidente: la del
+ * carrito solo mira `awaiting_location` —donde todavía no hay ni total ni QR—
+ * y la del pago gobierna todo lo que ya se cotizó. Un pedido por QR sin
+ * ubicación las cumple las dos, y ahí manda la que llegue antes, que es la del
+ * carrito (45 minutos contra 2 horas).
+ */
+function debeCancelarse(c: ExpiryCandidate, nowMs: number): boolean {
+  // El carrito que nunca llegó a cotizarse. NO mira el método de pago: por eso
+  // alcanza al pedido en efectivo, que la puerta del pago nunca puede vencer.
+  if (
+    isAbandonedCart({
+      status: c.status,
+      deliveryQuoteStatus: c.deliveryQuoteStatus,
+      confirmedAt: c.openedAt,
+      createdAt: c.createdAt,
+      nowMs,
+    })
+  ) {
+    return true;
+  }
+
+  // El pago vencido: rechazo sin reenvío, o comprobante que nunca llegó.
+  // `openedAt` es `confirmed_at` a secas: sin cotizar no hay plazo de pago.
+  return shouldCancelForExpiry(c.paymentMethod, c.payment, nowMs, parseIsoMs(c.openedAt));
 }

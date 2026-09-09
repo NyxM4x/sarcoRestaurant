@@ -33,7 +33,8 @@ import type { OrderStatus, DeliveryType, MenuCategory, PaymentMethod } from '@/t
 import type { PaymentView, ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
 import { amountDueByQrOf } from '@/lib/orders/amount-due';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
-import { openedAtMsOf, paymentGateOf, type PaymentGate } from '@/lib/payment-proof/payment-gate';
+import { paymentGateOf, type PaymentGate } from '@/lib/payment-proof/payment-gate';
+import { parseIsoMs } from '@/lib/orders/opened-at';
 
 /** Fila cruda minima de `orders` (mas `id`, solo para unir los items server-side). */
 export interface RawKitchenOrderRow {
@@ -546,9 +547,10 @@ export function toKitchenTickets(
       row.payment_method ?? null,
       pagosConsultados ? payment : null,
       nowMs,
-      // El MISMO instante con el que se mide la antiguedad en la plancha
-      // (`enteredAtOf`): el pedido se abre cuando el cliente supo cuanto pagar.
-      openedAtMsOf(row.confirmed_at, row.created_at),
+      // `confirmed_at` A SECAS: el reloj del comprobante solo corre desde que
+      // se le pidio pagar. Sin cotizar no hay cifra que exigir. Ver
+      // `PROOF_WINDOW_MS`.
+      parseIsoMs(row.confirmed_at),
     );
 
     // ── Un pago RECHAZADO saca la comanda del tablero (03-09-2026) ───────────

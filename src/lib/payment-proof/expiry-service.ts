@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import { toPaymentView } from '@/lib/dashboard/attempt-review';
 import type { ProofUiRow } from '@/lib/dashboard/proofs-data-source';
-import type { OrderStatus, PaymentAttempt, PaymentMethod } from '@/types';
+import type { DeliveryQuoteStatus, OrderStatus, PaymentAttempt, PaymentMethod } from '@/types';
 import { selectExpiredOrders, SWEEPABLE_STATUSES, type ExpiryCandidate } from './expiry-sweep';
 
 /**
@@ -49,9 +49,10 @@ export async function sweepExpiredOrders(
   try {
     const { data: orders, error } = await client
       .from('orders')
-      .select('id,order_number,status,payment_method,confirmed_at,created_at')
+      .select(
+        'id,order_number,status,payment_method,confirmed_at,created_at,delivery_quote_status',
+      )
       .in('status', [...SWEEPABLE_STATUSES])
-      .eq('payment_method', 'qr')
       .order('created_at', { ascending: false })
       .limit(MAX_SWEEP_ROWS);
     if (error || !orders) return vacio;
@@ -63,6 +64,7 @@ export async function sweepExpiredOrders(
       payment_method: PaymentMethod | null;
       confirmed_at: string | null;
       created_at: string | null;
+      delivery_quote_status: DeliveryQuoteStatus | null;
     }>;
     if (filas.length === 0) return vacio;
 
@@ -84,7 +86,9 @@ export async function sweepExpiredOrders(
       orderNumber: f.order_number,
       status: f.status,
       paymentMethod: f.payment_method,
-      openedAt: f.confirmed_at ?? f.created_at,
+      openedAt: f.confirmed_at,
+      createdAt: f.created_at,
+      deliveryQuoteStatus: f.delivery_quote_status,
       payment: toPaymentView(
         attempts.filter((a) => a.order_id === f.id),
         proofs.filter((p) => p.order_id === f.id),

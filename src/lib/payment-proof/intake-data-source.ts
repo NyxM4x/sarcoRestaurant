@@ -5,7 +5,8 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import type { OrderStatus, PaymentMethod, PaymentReviewStatus } from '@/types';
 import type { ProofCandidateOrder } from './association';
 import type { ExistingProof, ProofContentUpdate, ProofInsert } from './capture';
-import { openedAtMsOf, paymentDeadlineMsOf } from './payment-gate';
+import { paymentDeadlineMsOf } from './payment-gate';
+import { parseIsoMs } from '@/lib/orders/opened-at';
 
 /**
  * Puertos de captura sobre Supabase — server-only.
@@ -280,7 +281,7 @@ export function createSupabaseIntakeDataSource(
               reviewedAt: a.reviewed_at,
             })),
           },
-          openedAtMsOf(r.confirmed_at, r.created_at),
+          parseIsoMs(r.confirmed_at),
         );
 
         return {

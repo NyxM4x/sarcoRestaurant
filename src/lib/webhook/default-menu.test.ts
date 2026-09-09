@@ -286,6 +286,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          abandonedCart: false,
         },
       }),
     });
@@ -309,6 +310,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          abandonedCart: false,
         },
       }),
     });
@@ -331,6 +333,7 @@ describe('las excepciones, ejecutadas', () => {
           status: 'preparing',
           totalAmount: 95,
           payment: 'accepted',
+          abandonedCart: false,
         },
       }),
     });
@@ -351,6 +354,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
       status: 'confirmed',
       totalAmount: 95,
       payment: 'no_proof',
+      abandonedCart: false,
     },
     ...over,
   });
@@ -488,6 +492,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               status: 'awaiting_location',
               totalAmount: 46,
               payment: 'no_proof',
+              abandonedCart: false,
             },
           }),
         ),
@@ -550,6 +555,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               status: 'confirmed',
               totalAmount: 95,
               payment: 'awaiting_review',
+              abandonedCart: false,
             },
           }),
         ),
@@ -572,6 +578,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
             status: 'preparing',
             totalAmount: 95,
             payment: 'accepted',
+            abandonedCart: false,
           },
         }),
       ),
@@ -652,6 +659,7 @@ describe('las dos puertas, un solo filtro', () => {
           status: 'confirmed',
           totalAmount: 95,
           payment: 'no_proof',
+          abandonedCart: false,
         },
       }),
     });
@@ -757,6 +765,7 @@ describe('el pedido vencido deja de tapar el menú (09-09-2026)', () => {
       status: 'confirmed',
       totalAmount: 73,
       payment: 'expired',
+      abandonedCart: false,
     },
     ...over,
   });
@@ -836,6 +845,7 @@ describe('el pedido vencido deja de tapar el menú (09-09-2026)', () => {
             status: 'confirmed',
             totalAmount: 73,
             payment: 'no_proof',
+            abandonedCart: false,
           },
         })),
         sendProofReminder: async () => ({ ok: true }),
@@ -889,5 +899,105 @@ describe('el pedido vencido deja de tapar el menú (09-09-2026)', () => {
 
     expect(processed?.outcome).toBe('processed');
     expect(cta.enviados).toHaveLength(1);
+  });
+});
+
+describe('el carrito en EFECTIVO que nunca mandó su ubicación (09-09-2026)', () => {
+  /**
+   * El pedido que ninguna regla podía cancelar.
+   *
+   * Eligió efectivo, así que la puerta del pago le responde `not_required` y
+   * nunca puede vencerlo. Se queda en `awaiting_location`, donde el tablero de
+   * cocina no lo ve, y durante 24 h es el "pedido abierto" de ese cliente: le
+   * tapa el menú para volver a pedir. La consulta a producción del 09-09-2026
+   * encontró tres así.
+   */
+  const conCarritoEnEfectivo = (
+    over: Partial<CustomerStateSnapshot> = {},
+  ): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    openOrder: {
+      orderId: 'order-uuid-cash',
+      orderNumber: 'ORD-260907-030',
+      status: 'awaiting_location',
+      totalAmount: 0,
+      // Efectivo: la puerta del pago no espera NADA de este pedido.
+      payment: 'not_required',
+      // Y aun así está muerto. Ese es todo el punto de este campo.
+      abandonedCart: true,
+    },
+    ...over,
+  });
+
+  it('recibe el menú en vez de quedarse sin respuesta', async () => {
+    const cta = spyCta();
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'buenas' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conCarritoEnEfectivo()),
+        cancelExpiredOrder: async () => ({ cancelled: true }),
+      },
+      'idem-cash-1',
+    );
+
+    expect(cta.enviados).toHaveLength(1);
+  });
+
+  it('el carrito se cierra en la base, con `awaiting_location` como guarda', async () => {
+    const cta = spyCta();
+    const cancelados: Array<{ orderId: string; status: string }> = [];
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'Mande menu' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conCarritoEnEfectivo()),
+        cancelExpiredOrder: async (input) => {
+          cancelados.push({ orderId: input.orderId, status: input.status });
+          return { cancelled: true };
+        },
+      },
+      'idem-cash-2',
+    );
+
+    expect(cancelados).toEqual([
+      { orderId: 'order-uuid-cash', status: 'awaiting_location' },
+    ]);
+  });
+
+  it('un carrito TODAVÍA VIVO no se cancela ni pierde su camino de hoy', async () => {
+    // El cliente que está buscando su ubicación ahora mismo.
+    let cancelaciones = 0;
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'ya te mando mi ubicacion' })),
+      {
+        sendMenuCta: async () => {
+          throw new Error('el carrito vivo no recibe menú por defecto');
+        },
+        lookupCustomerState: estado(
+          conCarritoEnEfectivo({
+            openOrder: {
+              orderId: 'order-uuid-cash',
+              orderNumber: 'ORD-260907-030',
+              status: 'awaiting_location',
+              totalAmount: 0,
+              payment: 'not_required',
+              abandonedCart: false,
+            },
+          }),
+        ),
+        cancelExpiredOrder: async () => {
+          cancelaciones += 1;
+          return { cancelled: true };
+        },
+      },
+      'idem-cash-3',
+    );
+
+    expect(cancelaciones).toBe(0);
   });
 });

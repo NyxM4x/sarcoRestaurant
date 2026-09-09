@@ -39,6 +39,9 @@ const candidato = (over: Partial<ExpiryCandidate> = {}): ExpiryCandidate => ({
   // Abierto hace cinco minutos: los casos de arriba van del RECHAZO, no de la
   // ventana del comprobante, que tiene los suyos al final.
   openedAt: hace(5 * 60 * 1000),
+  createdAt: hace(5 * 60 * 1000),
+  // Ya cotizado: estos casos van del pago, no del carrito abandonado.
+  deliveryQuoteStatus: 'quoted',
   ...over,
 });
 
@@ -113,14 +116,21 @@ describe('barrido de vencidos — el comprobante que nunca llegó (09-09-2026)',
     expect(selectExpiredOrders([c], AHORA)).toEqual([]);
   });
 
-  it('también barre al que nunca mandó su ubicación', () => {
-    // `awaiting_location` cuenta desde que se creó, que es lo único que tiene.
+  it('al que nunca mandó su ubicación NO lo barre esta regla, sino la del carrito', () => {
+    // La frontera entre las dos reglas. Sin `confirmed_at` no se le pidió pagar
+    // nada, así que no hay comprobante que exigirle: la ventana del pago se
+    // abstiene. Ese pedido lo cierra `isAbandonedCart`, y a los 45 minutos —ver
+    // el describe del carrito abandonado, más abajo.
     const c = candidato({
       status: 'awaiting_location',
       payment: SIN_NADA,
-      openedAt: hace(5 * 60 * 60 * 1000),
+      openedAt: null,
+      createdAt: hace(5 * 60 * 60 * 1000),
+      // Ya cotizado: aísla esta comprobación de la regla del carrito, que de
+      // otro modo lo barrería y el test pasaría sin comprobar lo suyo.
+      deliveryQuoteStatus: 'quoted',
     });
-    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+    expect(selectExpiredOrders([c], AHORA)).toEqual([]);
   });
 
   it('sin fecha de apertura no se cancela nada', () => {
@@ -133,5 +143,60 @@ describe('barrido de vencidos — el comprobante que nunca llegó (09-09-2026)',
       const c = candidato({ status, payment: SIN_NADA, openedAt: hace(12 * 60 * 60 * 1000) });
       expect(selectExpiredOrders([c], AHORA), status).toEqual([]);
     }
+  });
+});
+
+describe('barrido de vencidos — el carrito que nunca se cotizó (09-09-2026)', () => {
+  /** Un carrito esperando la ubicación, sin pago ninguno de por medio. */
+  const carrito = (over: Partial<ExpiryCandidate> = {}) =>
+    candidato({
+      status: 'awaiting_location',
+      payment: pago([]),
+      openedAt: null,
+      createdAt: hace(2 * 60 * 60 * 1000),
+      deliveryQuoteStatus: 'pending',
+      ...over,
+    });
+
+  it('el carrito en EFECTIVO entra: es el que nada podía cancelar', () => {
+    // La puerta del pago le responde `not_required` y nunca puede vencerlo. Lo
+    // alcanza la regla del pedido, que no mira el método de pago.
+    const c = carrito({ paymentMethod: 'cash' });
+    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+  });
+
+  it('y el carrito por QR también, por la misma regla', () => {
+    const c = carrito({ paymentMethod: 'qr' });
+    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+  });
+
+  it('fuera de cobertura en efectivo: dos había en producción', () => {
+    const c = carrito({ paymentMethod: 'cash', deliveryQuoteStatus: 'out_of_coverage' });
+    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+  });
+
+  it('el fallo de Mapbox NO se barre, ni en efectivo ni por QR', () => {
+    for (const metodo of ['cash', 'qr'] as const) {
+      const c = carrito({ paymentMethod: metodo, deliveryQuoteStatus: 'failed' });
+      expect(selectExpiredOrders([c], AHORA), String(metodo)).toEqual([]);
+    }
+  });
+
+  it('dentro de los 45 minutos no se toca, aunque sea en efectivo', () => {
+    const c = carrito({ paymentMethod: 'cash', createdAt: hace(20 * 60 * 1000) });
+    expect(selectExpiredOrders([c], AHORA)).toEqual([]);
+  });
+
+  it('un pedido en efectivo YA COTIZADO nunca se barre, por viejo que sea', () => {
+    // Tiene su total y está en el tablero de cocina: cancelarlo por debajo
+    // dejaría a quien cocina sin saber qué pasó con su comanda.
+    const c = carrito({
+      paymentMethod: 'cash',
+      status: 'confirmed',
+      deliveryQuoteStatus: 'quoted',
+      openedAt: hace(12 * 60 * 60 * 1000),
+      createdAt: hace(12 * 60 * 60 * 1000),
+    });
+    expect(selectExpiredOrders([c], AHORA)).toEqual([]);
   });
 });

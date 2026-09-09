@@ -10,10 +10,11 @@ import { SWEEPABLE_STATUSES } from './expiry-sweep';
  *
  * ── Qué hace y qué NO decide ────────────────────────────────────────────────
  *
- * Escribe `cancelled` y nada más. La pregunta de si ese pedido está vencido ya
+ * Escribe `cancelled` y nada más. La pregunta de si ese pedido está muerto ya
  * la respondieron los módulos puros —`paymentGateOf` da `expired`,
- * `expiredOrderToCancel` lo selecciona— y aquí no se vuelve a hacer: si alguna
- * regla acaba escrita en este archivo, está en el sitio equivocado.
+ * `isAbandonedCart` marca el carrito sin cotizar, y `expiredOrderToCancel` los
+ * selecciona— y aquí no se vuelve a hacer: si alguna regla acaba escrita en
+ * este archivo, está en el sitio equivocado.
  *
  * ── Por qué existe además de `sweepExpiredOrders` ───────────────────────────
  *

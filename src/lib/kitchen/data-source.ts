@@ -211,9 +211,9 @@ export function createSupabaseKitchenDataSource(
       return {
         orderId: row.id,
         paymentMethod: row.payment_method,
-        // La misma preferencia de siempre: `confirmed_at` es cuando el cliente
-        // supo cuánto pagar; `created_at` solo si aquel no está sellado.
-        openedAt: row.confirmed_at ?? row.created_at,
+        // `confirmed_at` a secas: es cuando se le pidió pagar. Un pedido sin
+        // cotizar no tiene plazo de comprobante que agotar.
+        quotedAt: row.confirmed_at,
         rows: await this.listPayments!([row.id]),
       };
     },

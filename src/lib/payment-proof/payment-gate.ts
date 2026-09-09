@@ -82,14 +82,24 @@ export const REJECTION_GRACE_MS = 15 * 60 * 1000;
  * tiene que ir al banco. Unificarlos habría matado en quince minutos a quien no
  * había hecho nada malo.
  *
- * ── El reloj arranca cuando el cliente supo cuánto pagar ────────────────────
+ * ── El reloj arranca cuando se le PIDIÓ pagar, o no arranca ─────────────────
  *
- * Se cuenta desde `confirmed_at ?? created_at`, y esa preferencia importa: el
- * pedido web con delivery nace `awaiting_location` sin total ni QR, y solo sella
- * `confirmed_at` cuando la cotización lo confirma (migración 0009) — que es el
- * instante exacto en que se le manda el QR. Contar desde `created_at` en ese
- * caso le descontaría al cliente el rato que tardó en mandar su ubicación, y
- * podría matar el pedido antes de que llegara a ver la cifra.
+ * Se cuenta desde `confirmed_at` A SECAS, sin caer a `created_at`. El pedido web
+ * con delivery nace `awaiting_location` sin total ni QR y solo sella
+ * `confirmed_at` cuando la cotización lo confirma (migración 0009), que es el
+ * instante exacto en que se le manda el QR.
+ *
+ * La primera versión de esta regla sí caía a `created_at`, y era un error que un
+ * test destapó: al pedido cuya cotización falló (Mapbox caído) nunca se le mandó
+ * un QR ni una cifra, y aun así el reloj le corría desde que armó el carrito. A
+ * las dos horas se le cancelaba el pedido por no mandar el comprobante de un
+ * importe que nadie le había dicho. Exigirle un pago a quien no sabe cuánto debe
+ * es una regla que no se puede cumplir.
+ *
+ * Sin `confirmed_at`, esta regla se abstiene. El pedido que nunca llegó a
+ * cotizarse no queda huérfano: lo gobierna `isAbandonedCart`, que es la regla
+ * del PEDIDO y sí cuenta desde `created_at` — porque abandonar un carrito sí es
+ * algo que el cliente hizo.
  */
 export const PROOF_WINDOW_MS = 2 * 60 * 60 * 1000;
 
@@ -151,30 +161,6 @@ function abre(state: PaymentGateState): boolean {
 }
 
 /**
- * El instante desde el que corre `PROOF_WINDOW_MS`, en ms.
- *
- * `confirmed_at` primero y `created_at` de respaldo: es la MISMA semántica de
- * "apertura del pedido" que ya usan el intake (`ProofCandidateOrder.openedAt`)
- * y la antigüedad del KDS (`enteredAtOf`). Vive aquí, junto a la regla que la
- * consume, porque tres sitios calculando lo mismo por su cuenta es la forma en
- * que dos de ellos acaban discrepando.
- *
- * `null` cuando no hay ninguna fecha legible. Ver `paymentGateOf`: sin fecha no
- * se inventa un vencimiento.
- */
-export function openedAtMsOf(
-  confirmedAt: string | null | undefined,
-  createdAt: string | null | undefined,
-): number | null {
-  for (const iso of [confirmedAt, createdAt]) {
-    if (typeof iso !== 'string') continue;
-    const ms = Date.parse(iso);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  return null;
-}
-
-/**
  * Cuándo deja este pedido de admitir un pago (ms), o `null` si no hay ninguna
  * cuenta atrás corriendo.
  *
@@ -194,7 +180,7 @@ export function openedAtMsOf(
  */
 export function paymentDeadlineMsOf(
   payment: PaymentAttemptsSnapshot,
-  openedAtMs: number | null,
+  quotedAtMs: number | null,
 ): number | null {
   if (payment.attempts.some((a) => a.status === 'accepted')) return null;
   if (payment.attempts.some((a) => a.status === 'pending_review')) return null;
@@ -208,8 +194,9 @@ export function paymentDeadlineMsOf(
     .filter((ms) => !Number.isNaN(ms));
   if (rechazos.length > 0) return Math.max(...rechazos) + REJECTION_GRACE_MS;
 
-  // Nunca llegó nada: el reloj es el del propio pedido.
-  return openedAtMs === null || Number.isNaN(openedAtMs) ? null : openedAtMs + PROOF_WINDOW_MS;
+  // Nunca llegó nada: el reloj corre desde que se le pidió pagar. Si no se le
+  // ha pedido todavía, no hay plazo — ver `PROOF_WINDOW_MS`.
+  return quotedAtMs === null || Number.isNaN(quotedAtMs) ? null : quotedAtMs + PROOF_WINDOW_MS;
 }
 
 /**
@@ -232,8 +219,8 @@ function hayRechazoFechado(payment: PaymentAttemptsSnapshot): boolean {
  * @param paymentMethod  Cómo se cobra. `'qr'` es el único que espera algo.
  * @param payment        Intentos y comprobantes. `null` = no se pudo consultar.
  * @param nowMs          Reloj inyectado: la expiración se DERIVA al leer.
- * @param openedAtMs     Cuándo supo el cliente cuánto pagar (`confirmed_at ??
- *                       created_at`, en ms). `null` = no se pudo saber, y
+ * @param quotedAtMs     Cuándo se le PIDIÓ pagar (`confirmed_at` en ms, sin
+ *                       respaldo). `null` = todavía no se le ha pedido nada, y
  *                       entonces el pedido no vence por falta de comprobante:
  *                       ver `PROOF_WINDOW_MS`. Es OBLIGATORIO a propósito —
  *                       opcional, cualquier llamador nuevo se saltaría la regla
@@ -243,7 +230,7 @@ export function paymentGateOf(
   paymentMethod: PaymentMethod | null,
   payment: PaymentAttemptsSnapshot | null,
   nowMs: number,
-  openedAtMs: number | null,
+  quotedAtMs: number | null,
 ): PaymentGate {
   const gate = (state: PaymentGateState, graceEndsAtMs: number | null = null): PaymentGate => ({
     state,
@@ -283,7 +270,7 @@ export function paymentGateOf(
   // —quince minutos desde el rechazo, o dos horas desde que se abrió el
   // pedido—, y esta función no vuelve a decidir cuál corre: el intake mira ese
   // mismo número, y dos cálculos separados acabarían discrepando.
-  const vence = paymentDeadlineMsOf(payment, openedAtMs);
+  const vence = paymentDeadlineMsOf(payment, quotedAtMs);
 
   // Sin plazo no se inventa un vencimiento: una fecha que no se pudo leer es lo
   // mismo que un pago que no se pudo consultar, y ninguna de las dos cosas puede
@@ -309,7 +296,7 @@ export function shouldCancelForExpiry(
   paymentMethod: PaymentMethod | null,
   payment: PaymentAttemptsSnapshot | null,
   nowMs: number,
-  openedAtMs: number | null,
+  quotedAtMs: number | null,
 ): boolean {
-  return paymentGateOf(paymentMethod, payment, nowMs, openedAtMs).state === 'expired';
+  return paymentGateOf(paymentMethod, payment, nowMs, quotedAtMs).state === 'expired';
 }

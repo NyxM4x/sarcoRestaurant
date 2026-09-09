@@ -54,12 +54,22 @@ import { isPickupSwitchRequest } from './pickup-switch-intent';
  *
  * Todo lo demás recibe el botón, escriba lo que escriba.
  *
- * ── Y la que NO es una excepción: el pedido vencido (09-09-2026) ────────────
+ * ── Y la que NO es una excepción: el pedido MUERTO (09-09-2026) ────────────
  *
- * Un pedido cuya ventana de pago se agotó (`PROOF_WINDOW_MS`) no entra en
- * ninguna de las siete: recibe el botón como si no tuviera nada, porque es lo
- * que tiene. Se enumera aquí porque durante meses fue lo contrario — ese pedido
- * seguía siendo "el pedido abierto" del cliente y le tapaba el menú.
+ * Un pedido que ya no va a llegar no entra en ninguna de las siete: recibe el
+ * botón como si el cliente no tuviera nada, porque es lo que tiene. Se enumera
+ * aquí porque durante meses fue lo contrario — ese pedido seguía siendo "el
+ * pedido abierto" del cliente y le tapaba el menú.
+ *
+ * Muere de DOS formas, y `estaMuerto` las mira las dos:
+ *
+ *   · el pago se agotó (`PROOF_WINDOW_MS`, o la gracia tras un rechazo);
+ *   · el carrito nunca llegó a cotizarse (`isAbandonedCart`).
+ *
+ * La segunda hace falta porque la primera no puede alcanzar al pedido en
+ * EFECTIVO: a ese la puerta del pago le responde `not_required` —no espera
+ * ningún comprobante, y debe seguir siendo así— así que sin ella se quedaba
+ * flotando para siempre. Producción tenía tres el 09-09-2026.
  */
 
 /**
@@ -142,6 +152,15 @@ export interface OpenOrderSnapshot {
   totalAmount: number;
   /** Situación del pago, calculada con `paymentGateOf`: una sola regla. */
   payment: PaymentGateState;
+  /**
+   * ¿Es un carrito abandonado que ya venció? Lo calcula `isAbandonedCart`.
+   *
+   * Viaja aparte de `payment` porque es un hecho del PEDIDO y no del pago: el
+   * carrito en efectivo que nunca mandó su ubicación tiene `payment` en
+   * `not_required` —correctamente, no espera ningún comprobante— y aun así está
+   * muerto. Aplastar los dos en un solo campo dejaría fuera justo ese caso.
+   */
+  abandonedCart: boolean;
 }
 
 /**
@@ -255,6 +274,18 @@ export interface DefaultReplyInput {
 }
 
 /**
+ * ¿Este pedido ya no va a llegar?
+ *
+ * Las dos formas de morir, en un solo sitio: el pago vencido —rechazo sin
+ * reenvío, o comprobante que nunca llegó— y el carrito que nunca se cotizó.
+ * Las miran las dos preguntas de este módulo, y tenerlas escritas aquí es lo
+ * que impide que una de ellas se olvide de una.
+ */
+function estaMuerto(order: OpenOrderSnapshot): boolean {
+  return order.payment === 'expired' || order.abandonedCart;
+}
+
+/**
  * El pedido vencido que hay que cerrar en la base, si lo hay (09-09-2026).
  *
  * ── Por qué esto no es parte de `decideDefaultReply` ────────────────────────
@@ -286,7 +317,7 @@ export function expiredOrderToCancel(
 ): OpenOrderSnapshot | null {
   if (state === null || state.paused) return null;
   const order = state.openOrder;
-  if (order === null || order.payment !== 'expired') return null;
+  if (order === null || !estaMuerto(order)) return null;
   return order;
 }
 
@@ -340,11 +371,15 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // El cliente escribió "Mande menu" y recibió el recordatorio de un pedido
     // de doce horas antes.
     //
+    // Cubre las DOS formas de morir —el pago vencido y el carrito que nunca se
+    // cotizó— porque para el cliente que escribe son la misma cosa: un pedido
+    // suyo que ya no va a llegar.
+    //
     // Recibe el menú COMO SI NO TUVIERA NADA, que es la verdad: su pedido
     // anterior ya no se va a cocinar y el que quiera comer tiene que armar uno
     // nuevo. Es el mismo trato que reciben `delivered` y `cancelled`, y por el
     // mismo motivo — ver `OPEN_ORDER_STATUSES`.
-    if (order.payment === 'expired') return { action: 'menu' };
+    if (estaMuerto(order)) return { action: 'menu' };
 
     // ── "Paso yo a recogerlo" ──────────────────────────────────────────────
     //

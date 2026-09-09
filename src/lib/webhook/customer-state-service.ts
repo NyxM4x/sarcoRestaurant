@@ -2,8 +2,15 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
-import type { OrderStatus, PaymentMethod, PaymentReviewStatus } from '@/types';
-import { openedAtMsOf, paymentGateOf } from '@/lib/payment-proof/payment-gate';
+import type {
+  DeliveryQuoteStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentReviewStatus,
+} from '@/types';
+import { isAbandonedCart } from '@/lib/orders/abandoned-cart';
+import { paymentGateOf } from '@/lib/payment-proof/payment-gate';
+import { parseIsoMs } from '@/lib/orders/opened-at';
 import { isPauseActive } from '@/lib/agent/control/pause-gate';
 import { createAgentStore } from '@/lib/agent/memory/repository';
 import {
@@ -55,6 +62,8 @@ interface FilaPedido {
   /** El reloj de la ventana del comprobante. Ver `openedAtMsOf`. */
   confirmed_at: string | null;
   created_at: string | null;
+  /** Cotización del envío. La mira `isAbandonedCart`. */
+  delivery_quote_status: DeliveryQuoteStatus | null;
 }
 
 /**
@@ -71,7 +80,9 @@ async function pedidoAbierto(
 
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, status, total_amount, payment_method, confirmed_at, created_at')
+    .select(
+      'id, order_number, status, total_amount, payment_method, confirmed_at, created_at, delivery_quote_status',
+    )
     .eq('customer_phone', customerPhone)
     .in('status', [...OPEN_ORDER_STATUSES])
     .gte('created_at', desde)
@@ -194,7 +205,8 @@ export async function lookupCustomerState(
       pedido.payment_method,
       pago,
       Date.now(),
-      openedAtMsOf(pedido.confirmed_at, pedido.created_at),
+      // `confirmed_at` a secas: ver `PROOF_WINDOW_MS`.
+      parseIsoMs(pedido.confirmed_at),
     );
 
     const openOrder: OpenOrderSnapshot = {
@@ -203,6 +215,16 @@ export async function lookupCustomerState(
       status: pedido.status,
       totalAmount: Number(pedido.total_amount),
       payment: gate.state,
+      // El carrito abandonado NO mira el método de pago, y por eso se pregunta
+      // aparte: es la única forma de alcanzar al pedido en efectivo que se
+      // quedó esperando una ubicación que nunca llegó.
+      abandonedCart: isAbandonedCart({
+        status: pedido.status,
+        deliveryQuoteStatus: pedido.delivery_quote_status,
+        confirmedAt: pedido.confirmed_at,
+        createdAt: pedido.created_at,
+        nowMs: Date.now(),
+      }),
     };
 
     // 3. El cooldown solo interesa cuando de verdad se va a recordar algo.
