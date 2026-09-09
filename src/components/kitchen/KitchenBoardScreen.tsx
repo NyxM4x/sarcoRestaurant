@@ -10,12 +10,6 @@ import {
   summarizeProducts,
 } from '@/lib/kitchen/summary';
 import { useKitchenChime } from '@/lib/kitchen/use-kitchen-chime';
-import {
-  EMPTY_MESSAGES,
-  canAdvanceStage,
-  ticketsForView,
-  type BoardView,
-} from '@/lib/kitchen/board-view';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import type { KitchenBoard } from '@/lib/kitchen/tickets-repository';
 import { kitchenStageAction, kitchenLogoutAction } from '@/app/cocina/actions';
@@ -55,22 +49,11 @@ const QUESTIONS: Partial<Record<KdsAction, { question: string; tone: 'green' | '
 export function KitchenBoardScreen({
   initial,
   serverNow,
-  view = 'full',
 }: {
   initial: KitchenBoard;
   serverNow: number;
-  /**
-   * Qué pantalla es esta (07-09-2026). Ver `board-view`.
-   *
-   * `'full'` por defecto Y a propósito: es lo que hay hoy en producción con una
-   * sola laptop, y el default hace que ese camino no cambie ni una línea. Las
-   * pantallas partidas son rutas nuevas que pasan su vista; el día que el local
-   * tenga las dos laptops se abre una en cada una y `/cocina` sigue existiendo
-   * para cuando solo haya una.
-   */
-  view?: BoardView;
 }) {
-  const [todos, setTodos] = useState<KitchenTicket[]>(initial.tickets);
+  const [tickets, setTickets] = useState<KitchenTicket[]>(initial.tickets);
   // Arranca con el reloj del SERVIDOR para no provocar desajuste de hidratacion.
   const [nowMs, setNowMs] = useState<number>(serverNow);
   const [busyOrder, setBusyOrder] = useState<string | null>(null);
@@ -96,20 +79,6 @@ export function KitchenBoardScreen({
     busyRef.current = busyOrder;
   }, [busyOrder]);
 
-  /**
-   * Lo que le toca a ESTA pantalla, y el único sitio donde se decide.
-   *
-   * El filtro va aquí arriba, antes que nada, para que TODO lo de abajo —los
-   * contadores, el resumen del planchero, la rejilla, el panel de listos y la
-   * campana— salga correcto por construcción en vez de tener que filtrarse en
-   * cada sitio. Una pantalla de caja que sonara por un pedido de la plancha
-   * sería exactamente el ruido que esta separación viene a quitar.
-   *
-   * En `'full'` devuelve la lista entera, así que el KDS de siempre no pasa por
-   * ningún filtro nuevo. Ver `ticketsForView`.
-   */
-  const tickets = useMemo(() => ticketsForView(todos, view), [todos, view]);
-
   // ── Contadores y resumen: derivados, nunca guardados aparte ───────────────
   const counters = useMemo(() => countersFrom(tickets), [tickets]);
   const summary = useMemo(() => summarizeProducts(tickets), [tickets]);
@@ -133,7 +102,7 @@ export function KitchenBoardScreen({
         return;
       }
       const board = (await res.json()) as KitchenBoard;
-      setTodos(board.tickets);
+      setTickets(board.tickets);
       setPaymentsAvailable(board.paymentsAvailable);
       setOffline(false);
     } catch {
@@ -193,7 +162,7 @@ export function KitchenBoardScreen({
 
   /** Aplica la transicion en local para que la tablet responda al instante. */
   const applyOptimistic = useCallback((orderNumber: string, action: KdsAction) => {
-    setTodos((prev) =>
+    setTickets((prev) =>
       prev.map((t) => {
         if (t.orderNumber !== orderNumber) return t;
         const target = nextStage(t.stage, action);
@@ -235,7 +204,7 @@ export function KitchenBoardScreen({
   const handleAction = useCallback(
     (orderNumber: string, action: KdsAction) => {
       if (busyOrder !== null) return;
-      const ticket = todos.find((t) => t.orderNumber === orderNumber);
+      const ticket = tickets.find((t) => t.orderNumber === orderNumber);
       if (!ticket) return;
       // La accion debe existir para la etapa actual: doble toque = sin efecto.
       const button = buttonsForStage(ticket.stage).find((b) => b.action === action);
@@ -247,7 +216,7 @@ export function KitchenBoardScreen({
       }
       run(orderNumber, action);
     },
-    [busyOrder, run, todos],
+    [busyOrder, run, tickets],
   );
 
   const confirm = useCallback(() => {
@@ -297,8 +266,10 @@ export function KitchenBoardScreen({
           {grid.length === 0 ? (
             <div className="grid h-full place-items-center">
               <div className="text-center">
-                <p className="text-2xl font-bold text-zinc-400">{EMPTY_MESSAGES[view].title}</p>
-                <p className="mt-1 text-sm text-zinc-400">{EMPTY_MESSAGES[view].hint}</p>
+                <p className="text-2xl font-bold text-zinc-400">No hay pedidos en cocina</p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Los pedidos confirmados aparecerán aquí automáticamente.
+                </p>
               </div>
             </div>
           ) : (
@@ -340,7 +311,6 @@ export function KitchenBoardScreen({
                   nowMs={nowMs}
                   busy={busyOrder !== null}
                   onAction={handleAction}
-                  showStageActions={canAdvanceStage(view)}
                   // Tras decidir un pago se recarga el tablero: el estado real
                   // lo tiene el servidor, y puede que el encargado haya decidido
                   // desde su panel un segundo antes.

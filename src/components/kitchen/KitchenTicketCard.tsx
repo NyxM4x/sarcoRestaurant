@@ -47,15 +47,6 @@ export interface KitchenTicketCardProps {
   busy: boolean;
   onAction: (orderNumber: string, action: KdsAction) => void;
   /**
-   * ¿Se pintan los botones que mueven el pedido por la cocina? (07-09-2026)
-   *
-   * `true` por defecto: es la tarjeta de siempre. La pantalla de CAJA la pasa en
-   * `false` porque ahí la única decisión es sobre el pago — enseñarle además
-   * INICIAR y CANCELAR le daría dos trabajos y la posibilidad de tirar un pedido
-   * que en la plancha nadie ha visto todavía. Ver `canAdvanceStage`.
-   */
-  showStageActions?: boolean;
-  /**
    * Recarga el tablero tras decidir un pago. Opcional: sin él la tarjeta se
    * comporta igual, solo que el estado del pago espera al siguiente refresco.
    */
@@ -72,7 +63,6 @@ export function KitchenTicketCard({
   nowMs,
   busy,
   onAction,
-  showStageActions = true,
   onPaymentDecided,
 }: KitchenTicketCardProps) {
   // La alerta de atraso solo tiene sentido mientras el plato esta en la plancha.
@@ -84,8 +74,7 @@ export function KitchenTicketCard({
         ? 'bg-blue-600 text-white'
         : 'bg-amber-300 text-zinc-900';
 
-  // En caja no hay botones de etapa: su trabajo empieza y acaba en el pago.
-  const buttons = showStageActions ? buttonsForStage(ticket.stage) : [];
+  const buttons = buttonsForStage(ticket.stage);
 
   /**
    * Aviso del análisis automático del comprobante.
