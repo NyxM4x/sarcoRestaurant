@@ -3,6 +3,7 @@ import { getServerEnv } from '@/lib/env/env';
 import { extractBearer, safeCompare } from '@/lib/security/auth';
 import { log } from '@/lib/log';
 import { expireUnconfirmedCashOrders } from '@/lib/orders/cash-confirm-service';
+import { expireAbandonedCarts } from '@/lib/orders/abandoned-cart-service';
 
 // Requiere APIs de Node (service_role, POST a Kapso) — no Edge.
 export const runtime = 'nodejs';
@@ -16,7 +17,18 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**
- * `POST /api/internal/orders/expiry/worker/tick` — el barrido de caducados.
+ * `POST /api/internal/orders/expiry/worker/tick` — los barridos de caducados.
+ *
+ * ── Qué cierra ──────────────────────────────────────────────────────────────
+ *
+ *   1. El pedido en EFECTIVO ya cotizado que nadie confirmó en veinte minutos
+ *      (`expireUnconfirmedCashOrders`). Se cancela y se le avisa al cliente.
+ *   2. El carrito que nunca llegó a cotizarse porque el cliente no mandó su
+ *      ubicación, a los cuarenta y cinco (`expireAbandonedCarts`). Se cancela
+ *      en silencio: a ese cliente no se le prometió nada que responder.
+ *
+ * Los dos son limpieza, los dos son idempotentes y los dos son baratos. Por eso
+ * comparten endpoint y Worker en vez de pedir uno cada uno.
  *
  * ── Por qué existe esta ruta ────────────────────────────────────────────────
  *
@@ -98,7 +110,31 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const result = await expireUnconfirmedCashOrders();
+    // ── Los DOS barridos de caducados ──────────────────────────────────────
+    //
+    // Son independientes y no se solapan: uno mira pedidos ya cotizados en
+    // efectivo esperando el CONFIRMO, el otro carritos que nunca llegaron a
+    // cotizarse, sea cual sea su método de pago. Ningún pedido cumple las dos
+    // condiciones a la vez.
+    //
+    // En SERIE y no en paralelo a propósito: los dos escriben en `orders`, y
+    // este tick no tiene ninguna prisa —corre cada minuto y la mayoría de las
+    // veces no encuentra nada—. Encadenarlos mantiene los recuentos exactos y
+    // el peor caso holgado dentro del presupuesto.
+    //
+    // Ninguno de los dos lanza: los dos devuelven `{ cancelled: 0 }` ante
+    // cualquier fallo y lo dicen en su propio log. Que uno no encuentre nada
+    // no puede impedir que el otro corra.
+    const efectivo = await expireUnconfirmedCashOrders();
+    const carritos = await expireAbandonedCarts();
+
+    // El total es lo que el Worker registra como `cancelled`; el desglose queda
+    // en el log para poder responder "¿de qué murieron?" sin abrir la base.
+    const result = {
+      cancelled: efectivo.cancelled + carritos.cancelled,
+      cash_unconfirmed: efectivo.cancelled,
+      abandoned_carts: carritos.cancelled,
+    };
     // Solo recuentos: ni ids, ni números de pedido, ni teléfonos.
     log.info('order_expiry_tick', { ...result });
     return json(200, result);

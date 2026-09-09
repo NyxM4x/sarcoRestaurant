@@ -5,6 +5,7 @@ import { POST as tickWebhookInbox } from '../../webhook-events/worker/tick/route
 import { POST as tickNotifications } from '../../order-notifications/worker/tick/route';
 import { POST as tickTelegramAlerts } from '../../telegram-alerts/worker/tick/route';
 import { expireUnconfirmedCashOrders } from '@/lib/orders/cash-confirm-service';
+import { expireAbandonedCarts } from '@/lib/orders/abandoned-cart-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -139,6 +140,9 @@ export async function GET(request: Request): Promise<Response> {
    * lo dice en su propio log.
    */
   const caducados = await expireUnconfirmedCashOrders();
+  // El MISMO par que el worker dedicado. Un fallback que ejecuta menos que el
+  // camino principal es la divergencia que ya costó tres días de barrido muerto.
+  const carritos = await expireAbandonedCarts();
 
   /**
    * Estado de UN worker, saneado.
@@ -173,6 +177,7 @@ export async function GET(request: Request): Promise<Response> {
     notifications: estado(notifications),
     alerts: estado(alerts),
     cash_expired: caducados.cancelled,
+    abandoned_carts: carritos.cancelled,
   });
 
   // ── 200 solo si los DOS se ejecutaron; 503 si alguno no ────────────────────
