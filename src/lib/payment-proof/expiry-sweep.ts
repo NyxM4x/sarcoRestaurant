@@ -10,11 +10,24 @@
  * La expiración se DERIVA al leer: la puerta del KDS, el enrutado del intake y
  * este barrido aplican la misma regla sobre los mismos datos, así que nadie ve
  * un pedido vivo que ya venció aunque su `orders.status` todavía diga
- * `confirmed`. Materializar la cancelación es un acto aparte y explícito, y lo
- * pulsa una persona.
+ * `confirmed`.
  *
- * Eso evita que un proceso automático cancele pedidos a las tres de la mañana
- * sin nadie mirando, y evita también depender de un servicio externo más.
+ * Materializar la cancelación es un acto aparte, y hay exactamente dos caminos
+ * —ninguno de ellos un proceso que despierte solo a las tres de la mañana—:
+ *
+ *   1. Este barrido, cuando el encargado pulsa "Limpiar expirados".
+ *   2. El webhook, cuando el cliente vuelve a escribir y el sistema ya tiene su
+ *      pedido delante (`cancel-expired-service.ts`). Ese es el que cierra la
+ *      mayoría, porque el cliente que abandonó un pago casi siempre vuelve.
+ *
+ * Los dos usan la misma regla; lo único que cambia es quién llega primero.
+ *
+ * ── Las DOS formas de vencer ────────────────────────────────────────────────
+ *
+ * Un rechazo cuya gracia se agotó (`REJECTION_GRACE_MS`, quince minutos), y un
+ * comprobante que nunca llegó (`PROOF_WINDOW_MS`, dos horas). El barrido no las
+ * distingue: `shouldCancelForExpiry` responde por las dos, y para este archivo
+ * las dos significan lo mismo — nadie pagó esto.
  *
  * ── Y por qué NO toca lo que ya está en la plancha ──────────────────────────
  *
@@ -28,14 +41,16 @@
  */
 import type { OrderStatus, PaymentMethod } from '@/types';
 import type { PaymentView } from '@/lib/dashboard/attempt-review';
-import { shouldCancelForExpiry } from './payment-gate';
+import { openedAtMsOf, shouldCancelForExpiry } from './payment-gate';
 
 /**
  * Estados que el barrido puede cancelar.
  *
  * `confirmed` es el pedido esperando cocina; `awaiting_location` no llegó ni a
- * cotizarse. `preparing` y `ready` quedan fuera a propósito —ver la cabecera— y
- * `on_the_way`, `delivered` y `cancelled` ni se plantean.
+ * cotizarse —y desde el 09-09-2026 también vence, contando desde que se creó,
+ * porque un carrito abandonado sin ubicación le tapa el menú al cliente igual
+ * que uno sin comprobante—. `preparing` y `ready` quedan fuera a propósito —ver
+ * la cabecera— y `on_the_way`, `delivered` y `cancelled` ni se plantean.
  */
 export const SWEEPABLE_STATUSES: readonly OrderStatus[] = ['confirmed', 'awaiting_location'];
 
@@ -47,6 +62,14 @@ export interface ExpiryCandidate {
   paymentMethod: PaymentMethod | null;
   /** Su pago. `null` = no se pudo leer, y entonces NO se cancela. */
   payment: PaymentView | null;
+  /**
+   * Cuándo se abrió el pedido (`confirmed_at ?? created_at`), en ISO.
+   *
+   * Es el reloj de la ventana del comprobante (`PROOF_WINDOW_MS`), y una fecha
+   * ausente o ilegible se comporta como un pago que no se pudo consultar: no
+   * cancela. Ver `paymentGateOf`.
+   */
+  openedAt: string | null;
 }
 
 /**
@@ -63,6 +86,6 @@ export function selectExpiredOrders(
   return candidates.filter(
     (c) =>
       SWEEPABLE_STATUSES.includes(c.status) &&
-      shouldCancelForExpiry(c.paymentMethod, c.payment, nowMs),
+      shouldCancelForExpiry(c.paymentMethod, c.payment, nowMs, openedAtMsOf(c.openedAt, null)),
   );
 }

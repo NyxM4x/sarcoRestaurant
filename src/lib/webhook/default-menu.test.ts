@@ -733,3 +733,161 @@ describe('lo que el default NO toca', () => {
     expect(cta.enviados).toHaveLength(0);
   });
 });
+
+describe('el pedido vencido deja de tapar el menú (09-09-2026)', () => {
+  /**
+   * EL CASO REAL que trajo esta regla.
+   *
+   * Pedido #21 por QR, cotizado a las 00:32 con su total y su QR. El cliente
+   * nunca mandó el comprobante. A las 12:17 del día siguiente escribió "Mande
+   * menu" y recibió: "Tu pedido #21 está guardado por Bs. 73 🙌 Falta que nos
+   * mandes la foto del comprobante" — doce horas después.
+   *
+   * `payment: 'expired'` es lo que ahora devuelve la puerta para ese pedido, y
+   * lo calcula `paymentGateOf` con la ventana de dos horas (`PROOF_WINDOW_MS`).
+   */
+  const conPedidoVencido = (
+    over: Partial<CustomerStateSnapshot> = {},
+  ): CustomerStateSnapshot => ({
+    paused: false,
+    proofRemindedRecently: false,
+    openOrder: {
+      orderId: 'order-uuid-21',
+      orderNumber: 'ORD-260908-021',
+      status: 'confirmed',
+      totalAmount: 73,
+      payment: 'expired',
+    },
+    ...over,
+  });
+
+  it('recibe el MENÚ, no el recordatorio del comprobante', async () => {
+    const cta = spyCta();
+    let recordado = 0;
+
+    const { processed } = await deliver(JSON.stringify(envelope({ text: 'Mande menu' })), {
+      sendMenuCta: cta.sendMenuCta,
+      lookupCustomerState: estado(conPedidoVencido()),
+      sendProofReminder: async () => {
+        recordado += 1;
+        return { ok: true };
+      },
+      cancelExpiredOrder: async () => ({ cancelled: true }),
+    });
+
+    expect(processed?.outcome).toBe('processed');
+    expect(recordado).toBe(0);
+    expect(cta.enviados).toHaveLength(1);
+  });
+
+  it('también al que escribe cualquier cosa: su pedido ya no es un pedido abierto', async () => {
+    // Sin petición explícita. Antes caía en `open_order` y no recibía nada.
+    const cta = spyCta();
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'buenas' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conPedidoVencido()),
+        sendProofReminder: async () => {
+          throw new Error('no debía recordarse nada');
+        },
+        cancelExpiredOrder: async () => ({ cancelled: true }),
+      },
+      'idem-vencido-2',
+    );
+
+    expect(cta.enviados).toHaveLength(1);
+  });
+
+  it('el pedido se cierra en la base, con el estado que se leyó como guarda', async () => {
+    const cta = spyCta();
+    const cancelados: Array<{ orderId: string; status: string }> = [];
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'Mande menu' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conPedidoVencido()),
+        cancelExpiredOrder: async (input) => {
+          cancelados.push({ orderId: input.orderId, status: input.status });
+          return { cancelled: true };
+        },
+      },
+      'idem-vencido-3',
+    );
+
+    expect(cancelados).toEqual([{ orderId: 'order-uuid-21', status: 'confirmed' }]);
+  });
+
+  it('un pedido que SÍ está esperando su comprobante no se cancela', async () => {
+    // La regla no puede tocar al cliente que está dentro de su plazo.
+    const cta = spyCta();
+    let cancelaciones = 0;
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'hola' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conPedidoVencido({
+          openOrder: {
+            orderId: 'order-uuid-22',
+            orderNumber: 'ORD-260908-022',
+            status: 'confirmed',
+            totalAmount: 73,
+            payment: 'no_proof',
+          },
+        })),
+        sendProofReminder: async () => ({ ok: true }),
+        cancelExpiredOrder: async () => {
+          cancelaciones += 1;
+          return { cancelled: true };
+        },
+      },
+      'idem-vencido-4',
+    );
+
+    expect(cancelaciones).toBe(0);
+  });
+
+  it('con una persona atendiendo NO se cancela nada por debajo', async () => {
+    // Puede estar arreglando ese mismo pago ahora mismo.
+    let cancelaciones = 0;
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'Mande menu' })),
+      {
+        sendMenuCta: async () => {
+          throw new Error('con pausa no sale ningún CTA');
+        },
+        lookupCustomerState: estado(conPedidoVencido({ paused: true })),
+        cancelExpiredOrder: async () => {
+          cancelaciones += 1;
+          return { cancelled: true };
+        },
+      },
+      'idem-vencido-5',
+    );
+
+    expect(cancelaciones).toBe(0);
+  });
+
+  it('si la cancelación falla, el cliente recibe su menú igual', async () => {
+    // La higiene de la base no puede costarle la respuesta al cliente: lo que
+    // no se pudo cerrar aquí lo cierra el botón del panel.
+    const cta = spyCta();
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'Mande menu' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(conPedidoVencido()),
+        cancelExpiredOrder: async () => ({ cancelled: false }),
+      },
+      'idem-vencido-6',
+    );
+
+    expect(processed?.outcome).toBe('processed');
+    expect(cta.enviados).toHaveLength(1);
+  });
+});

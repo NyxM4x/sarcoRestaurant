@@ -33,7 +33,7 @@ import type { OrderStatus, DeliveryType, MenuCategory, PaymentMethod } from '@/t
 import type { PaymentView, ProofAmountLabelView } from '@/lib/dashboard/attempt-review';
 import { amountDueByQrOf } from '@/lib/orders/amount-due';
 import { stageFromOrderStatus, type KdsStage } from './kds-status';
-import { paymentGateOf, type PaymentGate } from '@/lib/payment-proof/payment-gate';
+import { openedAtMsOf, paymentGateOf, type PaymentGate } from '@/lib/payment-proof/payment-gate';
 
 /** Fila cruda minima de `orders` (mas `id`, solo para unir los items server-side). */
 export interface RawKitchenOrderRow {
@@ -542,7 +542,14 @@ export function toKitchenTickets(
     // Sin haber podido consultar los pagos se pasa `null`, que la puerta lee
     // como `unknown`: abre y lo dice. Pasar la vista vacía diría "este pedido
     // no ha pagado nada", que es una afirmación que nadie comprobó.
-    const gate = paymentGateOf(row.payment_method ?? null, pagosConsultados ? payment : null, nowMs);
+    const gate = paymentGateOf(
+      row.payment_method ?? null,
+      pagosConsultados ? payment : null,
+      nowMs,
+      // El MISMO instante con el que se mide la antiguedad en la plancha
+      // (`enteredAtOf`): el pedido se abre cuando el cliente supo cuanto pagar.
+      openedAtMsOf(row.confirmed_at, row.created_at),
+    );
 
     // ── Un pago RECHAZADO saca la comanda del tablero (03-09-2026) ───────────
     //

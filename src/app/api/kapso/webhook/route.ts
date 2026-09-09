@@ -22,6 +22,7 @@ import { expandMapsLink } from '@/lib/delivery/maps-link-service';
 import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
+import { cancelExpiredOrder } from '@/lib/payment-proof/cancel-expired-service';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { switchOrderToPickup } from '@/lib/orders/pickup-switch-service';
 import { createSupabaseWebhookStore } from '@/lib/webhook/store';
@@ -104,6 +105,11 @@ export async function POST(request: Request): Promise<Response> {
       // que es el comportamiento anterior. Ver `webhook/default-reply.ts`.
       lookupCustomerState: (phone) => lookupCustomerState(phone),
       sendProofReminder: (input) => sendProofReminder(input),
+      // 09-09-2026: el pedido cuya ventana de pago se agoto se cierra aqui
+      // mismo, aprovechando que el estado del cliente ya se acaba de leer. Sin
+      // este puerto el pedido se comporta como vencido para el cliente y para
+      // cocina, pero su fila espera al boton del panel.
+      cancelExpiredOrder: (input) => cancelExpiredOrder(input.orderId, input.status),
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),

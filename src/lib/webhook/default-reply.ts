@@ -53,6 +53,13 @@ import { isPickupSwitchRequest } from './pickup-switch-intent';
  *   7. Tiene cualquier otro pedido ABIERTO      → nada; sigue el camino de hoy.
  *
  * Todo lo demás recibe el botón, escriba lo que escriba.
+ *
+ * ── Y la que NO es una excepción: el pedido vencido (09-09-2026) ────────────
+ *
+ * Un pedido cuya ventana de pago se agotó (`PROOF_WINDOW_MS`) no entra en
+ * ninguna de las siete: recibe el botón como si no tuviera nada, porque es lo
+ * que tiene. Se enumera aquí porque durante meses fue lo contrario — ese pedido
+ * seguía siendo "el pedido abierto" del cliente y le tapaba el menú.
  */
 
 /**
@@ -248,6 +255,42 @@ export interface DefaultReplyInput {
 }
 
 /**
+ * El pedido vencido que hay que cerrar en la base, si lo hay (09-09-2026).
+ *
+ * ── Por qué esto no es parte de `decideDefaultReply` ────────────────────────
+ *
+ * Son dos preguntas distintas y con dos destinatarios distintos: aquella decide
+ * QUÉ RECIBE EL CLIENTE, y esta decide QUÉ SE ESCRIBE EN LA BASE. Meterlas en
+ * el mismo tipo obligaría a cada rama de la decisión a arrastrar un pedido que
+ * casi nunca hay, y a que el webhook se acordara de mirarlo en todas.
+ *
+ * ── Por qué se cancela cuando el cliente escribe ────────────────────────────
+ *
+ * La expiración se DERIVA al leer: en cuanto la ventana vence, el pedido deja
+ * de existir para el cliente y para la cocina aunque `orders.status` siga
+ * diciendo `confirmed`. Eso arregla la conversación, pero deja el listado del
+ * panel afirmando que hay un pedido esperando cocina que ya nadie va a cocinar.
+ *
+ * Aquí el sistema YA está leyendo ese pedido para decidir qué contestarle: es
+ * el momento más barato para cerrarlo, y no hace falta ningún proceso nuevo que
+ * despertar. Lo que este camino no cubre —el pedido del cliente que no vuelve a
+ * escribir nunca— lo sigue cerrando el botón "Limpiar expirados" del panel, que
+ * usa la misma regla (`shouldCancelForExpiry`).
+ *
+ * Con una pausa activa devuelve `null`, como todo lo demás: si hay una persona
+ * del equipo dentro de esa conversación, puede estar arreglando justamente ese
+ * pago, y cancelarle el pedido por debajo sería pisarla.
+ */
+export function expiredOrderToCancel(
+  state: CustomerStateSnapshot | null,
+): OpenOrderSnapshot | null {
+  if (state === null || state.paused) return null;
+  const order = state.openOrder;
+  if (order === null || order.payment !== 'expired') return null;
+  return order;
+}
+
+/**
  * ¿Qué le sale a este cliente por defecto?
  *
  * El orden de las guardas es el argumento entero, y va de lo que más daño hace
@@ -285,6 +328,24 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
 
   const order = state.openOrder;
   if (order !== null) {
+    // ── El pedido que venció ya no es SU pedido (09-09-2026) ───────────────
+    //
+    // Va antes que todas las demás excepciones porque las invalida a todas: no
+    // tiene sentido pasar a recojo, anotar "sin cebolla" ni ofrecer rearmar un
+    // pedido que está muerto. Y desde luego no tiene sentido pedirle el
+    // comprobante — que es exactamente lo que pasaba antes de esta guarda.
+    //
+    // El caso que la trajo: un pedido de las 00:32 sin comprobante seguía
+    // contestando "falta que nos mandes la foto" a las 12:17 del día siguiente.
+    // El cliente escribió "Mande menu" y recibió el recordatorio de un pedido
+    // de doce horas antes.
+    //
+    // Recibe el menú COMO SI NO TUVIERA NADA, que es la verdad: su pedido
+    // anterior ya no se va a cocinar y el que quiera comer tiene que armar uno
+    // nuevo. Es el mismo trato que reciben `delivered` y `cancelled`, y por el
+    // mismo motivo — ver `OPEN_ORDER_STATUSES`.
+    if (order.payment === 'expired') return { action: 'menu' };
+
     // ── "Paso yo a recogerlo" ──────────────────────────────────────────────
     //
     // Va ANTES que todo lo demás porque es lo más específico que puede traer un

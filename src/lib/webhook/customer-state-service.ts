@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { log } from '@/lib/log';
 import type { OrderStatus, PaymentMethod, PaymentReviewStatus } from '@/types';
-import { paymentGateOf } from '@/lib/payment-proof/payment-gate';
+import { openedAtMsOf, paymentGateOf } from '@/lib/payment-proof/payment-gate';
 import { isPauseActive } from '@/lib/agent/control/pause-gate';
 import { createAgentStore } from '@/lib/agent/memory/repository';
 import {
@@ -52,6 +52,9 @@ interface FilaPedido {
   status: OrderStatus;
   total_amount: number;
   payment_method: PaymentMethod | null;
+  /** El reloj de la ventana del comprobante. Ver `openedAtMsOf`. */
+  confirmed_at: string | null;
+  created_at: string | null;
 }
 
 /**
@@ -68,7 +71,7 @@ async function pedidoAbierto(
 
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, status, total_amount, payment_method')
+    .select('id, order_number, status, total_amount, payment_method, confirmed_at, created_at')
     .eq('customer_phone', customerPhone)
     .in('status', [...OPEN_ORDER_STATUSES])
     .gte('created_at', desde)
@@ -187,7 +190,12 @@ export async function lookupCustomerState(
     }
 
     const pago = await intentosDePago(supabase, pedido.id);
-    const gate = paymentGateOf(pedido.payment_method, pago, Date.now());
+    const gate = paymentGateOf(
+      pedido.payment_method,
+      pago,
+      Date.now(),
+      openedAtMsOf(pedido.confirmed_at, pedido.created_at),
+    );
 
     const openOrder: OpenOrderSnapshot = {
       orderId: pedido.id,

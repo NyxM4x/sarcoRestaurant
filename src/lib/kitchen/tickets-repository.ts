@@ -25,7 +25,11 @@ import {
   type RawKitchenOrderRow,
 } from './ticket-view';
 import type { KitchenFailure } from './errors';
-import { paymentGateOf, type PaymentGateState } from '@/lib/payment-proof/payment-gate';
+import {
+  openedAtMsOf,
+  paymentGateOf,
+  type PaymentGateState,
+} from '@/lib/payment-proof/payment-gate';
 
 export type KitchenUpdateResult = 'updated' | 'conflict' | 'not_found';
 
@@ -67,6 +71,14 @@ export interface KitchenDataSource {
     paymentMethod: PaymentMethod | null;
     rows: KitchenPaymentRows;
     orderId: string;
+    /**
+     * Cuando se abrio el pedido (`confirmed_at ?? created_at`), en ISO.
+     *
+     * Lo necesita la ventana del comprobante (`PROOF_WINDOW_MS`): sin esta
+     * fecha la puerta no puede saber si el pedido ya vencio y lo trata como
+     * `no_proof` sin reloj, que es lo que hacia antes de existir la regla.
+     */
+    openedAt?: string | null;
   } | null>;
   updateStatus(orderNumber: string, from: OrderStatus, to: OrderStatus): Promise<KitchenUpdateResult>;
   /**
@@ -177,16 +189,21 @@ async function consultarPuerta(
   orderNumber: string,
   nowMs: number,
 ) {
-  if (!source.paymentFor) return paymentGateOf(null, null, nowMs);
+  if (!source.paymentFor) return paymentGateOf(null, null, nowMs, null);
   try {
     const datos = await source.paymentFor(orderNumber);
     // El pedido existe —`getStatus` acaba de encontrarlo— así que un `null`
     // aquí es un fallo de esta consulta, no un pedido ausente.
-    if (datos === null) return paymentGateOf('qr', null, nowMs);
+    if (datos === null) return paymentGateOf('qr', null, nowMs, null);
     const vista = agruparPagos(datos.rows)[datos.orderId] ?? EMPTY_PAYMENT_VIEW;
-    return paymentGateOf(datos.paymentMethod, vista, nowMs);
+    return paymentGateOf(
+      datos.paymentMethod,
+      vista,
+      nowMs,
+      openedAtMsOf(datos.openedAt, null),
+    );
   } catch {
-    return paymentGateOf('qr', null, nowMs);
+    return paymentGateOf('qr', null, nowMs, null);
   }
 }
 

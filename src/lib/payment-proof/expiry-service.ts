@@ -49,7 +49,7 @@ export async function sweepExpiredOrders(
   try {
     const { data: orders, error } = await client
       .from('orders')
-      .select('id,order_number,status,payment_method')
+      .select('id,order_number,status,payment_method,confirmed_at,created_at')
       .in('status', [...SWEEPABLE_STATUSES])
       .eq('payment_method', 'qr')
       .order('created_at', { ascending: false })
@@ -61,6 +61,8 @@ export async function sweepExpiredOrders(
       order_number: string;
       status: OrderStatus;
       payment_method: PaymentMethod | null;
+      confirmed_at: string | null;
+      created_at: string | null;
     }>;
     if (filas.length === 0) return vacio;
 
@@ -82,6 +84,7 @@ export async function sweepExpiredOrders(
       orderNumber: f.order_number,
       status: f.status,
       paymentMethod: f.payment_method,
+      openedAt: f.confirmed_at ?? f.created_at,
       payment: toPaymentView(
         attempts.filter((a) => a.order_id === f.id),
         proofs.filter((p) => p.order_id === f.id),

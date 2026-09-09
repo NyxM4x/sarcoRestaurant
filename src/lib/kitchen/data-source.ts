@@ -189,7 +189,9 @@ export function createSupabaseKitchenDataSource(
       // otro puede haber aceptado o rechazado ese mismo comprobante.
       const { data, error } = await client
         .from('orders')
-        .select('id,payment_method')
+        // Las fechas viajan porque la puerta las necesita: sin ellas no puede
+        // saber si la ventana del comprobante ya venció (`PROOF_WINDOW_MS`).
+        .select('id,payment_method,confirmed_at,created_at')
         .eq('order_number', orderNumber)
         .limit(1);
       // Se propaga: el repositorio lo traduce a `unknown` —puerta abierta y
@@ -197,13 +199,21 @@ export function createSupabaseKitchenDataSource(
       if (error) throw new Error('kitchen_payment_lookup_failed');
 
       const row = (data ?? [])[0] as
-        | { id: string; payment_method: PaymentMethod | null }
+        | {
+            id: string;
+            payment_method: PaymentMethod | null;
+            confirmed_at: string | null;
+            created_at: string | null;
+          }
         | undefined;
       if (!row) return null;
 
       return {
         orderId: row.id,
         paymentMethod: row.payment_method,
+        // La misma preferencia de siempre: `confirmed_at` es cuando el cliente
+        // supo cuánto pagar; `created_at` solo si aquel no está sellado.
+        openedAt: row.confirmed_at ?? row.created_at,
         rows: await this.listPayments!([row.id]),
       };
     },

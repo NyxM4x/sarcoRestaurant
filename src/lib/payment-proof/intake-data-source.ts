@@ -2,10 +2,10 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import type { OrderStatus, PaymentMethod } from '@/types';
+import type { OrderStatus, PaymentMethod, PaymentReviewStatus } from '@/types';
 import type { ProofCandidateOrder } from './association';
 import type { ExistingProof, ProofContentUpdate, ProofInsert } from './capture';
-import { REJECTION_GRACE_MS } from './payment-gate';
+import { openedAtMsOf, paymentDeadlineMsOf } from './payment-gate';
 
 /**
  * Puertos de captura sobre Supabase — server-only.
@@ -258,22 +258,30 @@ export function createSupabaseIntakeDataSource(
       return rows.map((r) => {
         const suyos = porPedido.get(r.id) ?? [];
         const aceptado = suyos.some((a) => a.review_status === 'accepted');
-        const esperando = suyos.some((a) => a.review_status === 'pending_review');
 
-        // El reloj corre SOLO si hay un rechazo sin nada posterior. Un intento
-        // esperando revisión significa que el cliente ya reenvió y cumplió su
-        // parte: a partir de ahí el pedido no puede morir por una demora
-        // nuestra en mirarlo.
-        let graceEnds: number | null = null;
-        if (!aceptado && !esperando) {
-          const rechazos = suyos
-            .filter((a) => a.review_status === 'rejected')
-            .map((a) => (a.reviewed_at === null ? NaN : Date.parse(a.reviewed_at)))
-            .filter((ms) => !Number.isNaN(ms));
-          // El MÁS RECIENTE: cada rechazo trae su propio aviso al cliente
-          // prometiéndole el plazo entero, así que abre una ventana limpia.
-          if (rechazos.length > 0) graceEnds = Math.max(...rechazos) + REJECTION_GRACE_MS;
-        }
+        // ── El plazo lo calcula la REGLA, no este adaptador ────────────────
+        //
+        // `paymentDeadlineMsOf` es la misma función que usa la puerta del KDS,
+        // y esa es toda la razón de llamarla desde aquí: cubre los dos relojes
+        // —los quince minutos tras un rechazo y las dos horas del primer
+        // comprobante— y decide cuál corre. Antes este archivo tenía su propia
+        // copia del cálculo, que es la forma en que dos caminos acaban dando
+        // dos desenlaces para el mismo pedido.
+        //
+        // Lo que cambia con el reloj del primer comprobante (09-09-2026): un
+        // archivo que llega pasadas las dos horas ya no abre un intento. NO se
+        // pierde —se registra igual y cae en `expired_target`— pero lo resuelve
+        // una persona, y da lo mismo si alguien pulsó "Limpiar expirados" antes
+        // o después de que el cliente sacara la foto.
+        const vence = paymentDeadlineMsOf(
+          {
+            attempts: suyos.map((a) => ({
+              status: a.review_status as PaymentReviewStatus,
+              reviewedAt: a.reviewed_at,
+            })),
+          },
+          openedAtMsOf(r.confirmed_at, r.created_at),
+        );
 
         return {
           orderId: r.id,
@@ -281,7 +289,7 @@ export function createSupabaseIntakeDataSource(
           paymentMethod: r.payment_method,
           openedAt: r.confirmed_at ?? r.created_at,
           hasAcceptedPayment: aceptado,
-          rejectionGraceEndsAtMs: graceEnds,
+          paymentDeadlineMs: vence,
         };
       });
     },

@@ -36,6 +36,9 @@ const candidato = (over: Partial<ExpiryCandidate> = {}): ExpiryCandidate => ({
   status: 'confirmed',
   paymentMethod: 'qr',
   payment: VENCIDO,
+  // Abierto hace cinco minutos: los casos de arriba van del RECHAZO, no de la
+  // ventana del comprobante, que tiene los suyos al final.
+  openedAt: hace(5 * 60 * 1000),
   ...over,
 });
 
@@ -93,5 +96,42 @@ describe('barrido de vencidos — qué NO se toca nunca', () => {
 
   it('los estados barribles son solo los dos que no entraron en cocina', () => {
     expect([...SWEEPABLE_STATUSES].sort()).toEqual(['awaiting_location', 'confirmed']);
+  });
+});
+
+describe('barrido de vencidos — el comprobante que nunca llegó (09-09-2026)', () => {
+  /** Sin ningún intento: el pedido al que no le llegó nada. */
+  const SIN_NADA = pago([]);
+
+  it('un pedido de hace doce horas sin comprobante entra en el barrido', () => {
+    const c = candidato({ payment: SIN_NADA, openedAt: hace(12 * 60 * 60 * 1000) });
+    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+  });
+
+  it('dentro de las dos horas NO se toca: el cliente aún puede pagar', () => {
+    const c = candidato({ payment: SIN_NADA, openedAt: hace(90 * 60 * 1000) });
+    expect(selectExpiredOrders([c], AHORA)).toEqual([]);
+  });
+
+  it('también barre al que nunca mandó su ubicación', () => {
+    // `awaiting_location` cuenta desde que se creó, que es lo único que tiene.
+    const c = candidato({
+      status: 'awaiting_location',
+      payment: SIN_NADA,
+      openedAt: hace(5 * 60 * 60 * 1000),
+    });
+    expect(selectExpiredOrders([c], AHORA).map((x) => x.orderId)).toEqual(['ord-1']);
+  });
+
+  it('sin fecha de apertura no se cancela nada', () => {
+    const c = candidato({ payment: SIN_NADA, openedAt: null });
+    expect(selectExpiredOrders([c], AHORA)).toEqual([]);
+  });
+
+  it('lo que ya está en la plancha sigue intocable, por viejo que sea', () => {
+    for (const status of ['preparing', 'ready', 'on_the_way'] as OrderStatus[]) {
+      const c = candidato({ status, payment: SIN_NADA, openedAt: hace(12 * 60 * 60 * 1000) });
+      expect(selectExpiredOrders([c], AHORA), status).toEqual([]);
+    }
   });
 });

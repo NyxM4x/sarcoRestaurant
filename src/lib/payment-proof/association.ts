@@ -59,8 +59,14 @@ export interface ProofCandidateOrder {
   /** ¿Este pedido ya tiene un intento de pago aceptado? */
   hasAcceptedPayment: boolean;
   /**
-   * Cuándo vence la ventana de gracia de este pedido (ms), o `null` si no tiene
-   * una corriendo (0028).
+   * Cuándo deja este pedido de admitir un pago (ms), o `null` si no tiene
+   * ninguna cuenta atrás corriendo (0028).
+   *
+   * Son DOS relojes con el mismo desenlace, y quien construye el candidato
+   * elige cuál corre: la gracia del rechazo (`REJECTION_GRACE_MS`) si el
+   * cliente ya pagó una vez y se le rechazó, y la ventana del primer
+   * comprobante (`PROOF_WINDOW_MS`) si nunca llegó nada. Aquí abajo da igual
+   * cuál sea: los dos significan que el pedido está muerto.
    *
    * ── Por qué el intake comparte este reloj ─────────────────────────────────
    *
@@ -74,7 +80,7 @@ export interface ProofCandidateOrder {
    * Mirándolo aquí, el comprobante tardío se REGISTRA igual —nunca se pierde—
    * pero cae en `expired_target` y no abre intento: lo resuelve una persona.
    */
-  rejectionGraceEndsAtMs: number | null;
+  paymentDeadlineMs: number | null;
 }
 
 export interface AssociationInput {
@@ -127,10 +133,10 @@ function exceptionFor(
   if (order.hasAcceptedPayment) return 'payment_already_accepted';
   if (isClosed(order)) return 'closed_order';
   if (isExpired(order, nowMs, ttlMs)) return 'expired_target';
-  // La ventana de gracia vencida: el pedido está muerto aunque su `status`
-  // todavía no lo diga. Va después de `closed_order` porque un pedido ya
-  // cancelado explica mejor lo mismo.
-  if (order.rejectionGraceEndsAtMs !== null && nowMs >= order.rejectionGraceEndsAtMs) {
+  // El plazo de pago agotado: el pedido está muerto aunque su `status` todavía
+  // no lo diga. Va después de `closed_order` porque un pedido ya cancelado
+  // explica mejor lo mismo.
+  if (order.paymentDeadlineMs !== null && nowMs >= order.paymentDeadlineMs) {
     return 'expired_target';
   }
   return null;

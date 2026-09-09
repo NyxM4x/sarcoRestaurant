@@ -44,7 +44,7 @@ function pedido(orderId: string, over: Partial<ProofCandidateOrder> = {}): Proof
     openedAt: hace(10 * 60_000),
     hasAcceptedPayment: false,
     // Sin ventana de gracia corriendo: el caso normal.
-    rejectionGraceEndsAtMs: null,
+    paymentDeadlineMs: null,
     ...over,
   };
 }

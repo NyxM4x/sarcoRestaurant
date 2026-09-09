@@ -20,7 +20,7 @@ function order(
     openedAt: hace(10 * 60_000),
     hasAcceptedPayment: false,
     // Sin ventana de gracia corriendo: el caso normal.
-    rejectionGraceEndsAtMs: null,
+    paymentDeadlineMs: null,
     ...over,
   };
 }
@@ -293,7 +293,7 @@ describe('asociación — ventana de gracia vencida', () => {
   it('un comprobante que llega DESPUÉS del plazo no abre intento', () => {
     const d = decideAssociation({
       ...base,
-      candidates: [order('A', { rejectionGraceEndsAtMs: NOW - 1 })],
+      candidates: [order('A', { paymentDeadlineMs: NOW - 1 })],
     });
     expect(d.routingException).toBe('expired_target');
     expect(d.attemptEligible).toBe(false);
@@ -304,7 +304,7 @@ describe('asociación — ventana de gracia vencida', () => {
     // panel y una persona decide. Lo único que no ocurre es el intento nuevo.
     const d = decideAssociation({
       ...base,
-      candidates: [order('A', { rejectionGraceEndsAtMs: NOW - 1 })],
+      candidates: [order('A', { paymentDeadlineMs: NOW - 1 })],
     });
     expect(d.orderId).toBe('A');
   });
@@ -312,7 +312,7 @@ describe('asociación — ventana de gracia vencida', () => {
   it('dentro del plazo, el comprobante entra con normalidad', () => {
     const d = decideAssociation({
       ...base,
-      candidates: [order('A', { rejectionGraceEndsAtMs: NOW + 60_000 })],
+      candidates: [order('A', { paymentDeadlineMs: NOW + 60_000 })],
     });
     expect(d.routingException).toBeNull();
     expect(d.attemptEligible).toBe(true);
@@ -321,7 +321,7 @@ describe('asociación — ventana de gracia vencida', () => {
   it('justo al vencer ya está fuera: el plazo prometido es el plazo', () => {
     const d = decideAssociation({
       ...base,
-      candidates: [order('A', { rejectionGraceEndsAtMs: NOW })],
+      candidates: [order('A', { paymentDeadlineMs: NOW })],
     });
     expect(d.routingException).toBe('expired_target');
   });
@@ -330,7 +330,7 @@ describe('asociación — ventana de gracia vencida', () => {
     // El orden de las excepciones importa: se informa la razón MÁS específica.
     const d = decideAssociation({
       ...base,
-      candidates: [order('A', { hasAcceptedPayment: true, rejectionGraceEndsAtMs: NOW - 1 })],
+      candidates: [order('A', { hasAcceptedPayment: true, paymentDeadlineMs: NOW - 1 })],
     });
     expect(d.routingException).toBe('payment_already_accepted');
   });

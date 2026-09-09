@@ -140,6 +140,15 @@ describe('ticket — qué entra y qué no', () => {
 
 describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
   /**
+   * Media hora despues de confirmarse el pedido: dentro de su ventana de pago.
+   *
+   * Va explicito porque estos casos van de QUIEN ENTRA al tablero, no de
+   * vencimientos: sin fijar el reloj se medirian contra `Date.now()` y todos
+   * saldrian vencidos (`PROOF_WINDOW_MS`), pasando por la razon equivocada.
+   */
+  const AHORA = Date.parse('2026-08-27T20:30:00.000Z');
+
+  /**
    * Antes entraba al cotizar, que es cuando se le manda el QR al cliente. La
    * comanda aparecía vacía —sin nada que revisar— y quien cocinaba tenía delante
    * un pedido que nadie había pagado todavía. El aviso al reparto salía en ese
@@ -182,11 +191,17 @@ describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
   } as never;
 
   it('sin comprobante NO aparece: el QR enviado no es un pago', () => {
-    expect(toKitchenTickets([pedido()], [], {}, true)).toEqual([]);
+    expect(toKitchenTickets([pedido()], [], {}, true, AHORA)).toEqual([]);
   });
 
   it('con comprobante aparece, y ya trae qué revisar', () => {
-    const tickets = toKitchenTickets([pedido()], [], { 'order-1': CON_COMPROBANTE }, true);
+    const tickets = toKitchenTickets(
+      [pedido()],
+      [],
+      { 'order-1': CON_COMPROBANTE },
+      true,
+      AHORA,
+    );
     expect(tickets).toHaveLength(1);
     expect(tickets[0].payment).not.toBeNull();
   });
@@ -199,22 +214,28 @@ describe('el pedido entra a cocina con el COMPROBANTE, no con el QR', () => {
       unlinkedProofs: [{ id: 'p1', isAvailable: false }],
       hasPendingReview: false,
     } as never;
-    expect(toKitchenTickets([pedido()], [], { 'order-1': sinArchivo }, true)).toHaveLength(1);
+    expect(
+      toKitchenTickets([pedido()], [], { 'order-1': sinArchivo }, true, AHORA),
+    ).toHaveLength(1);
   });
 
   it('ya empezado, se queda aunque el pago se rechace después', () => {
     // La regla frena la ENTRADA, no saca de la pantalla lo que ya está en la
     // plancha: hacerlo desaparecer no devuelve la hamburguesa al refrigerador.
     for (const status of ['preparing', 'ready'] as const) {
-      const tickets = toKitchenTickets([pedido({ status })], [], {}, true);
+      const tickets = toKitchenTickets([pedido({ status })], [], {}, true, AHORA);
       expect(tickets, status).toHaveLength(1);
     }
   });
 
   it('los históricos en efectivo entran como siempre', () => {
     // No tienen comprobante que esperar; exigirles uno los dejaría invisibles.
-    expect(toKitchenTickets([pedido({ payment_method: 'cash' })], [], {}, true)).toHaveLength(1);
-    expect(toKitchenTickets([pedido({ payment_method: null })], [], {}, true)).toHaveLength(1);
+    expect(
+      toKitchenTickets([pedido({ payment_method: 'cash' })], [], {}, true, AHORA),
+    ).toHaveLength(1);
+    expect(
+      toKitchenTickets([pedido({ payment_method: null })], [], {}, true, AHORA),
+    ).toHaveLength(1);
   });
 });
 
@@ -602,8 +623,16 @@ describe('ticket — la instrucción de cobro se congela al aceptar el pago (03-
     }) as never;
 
   const cobro = (status: string, over: Partial<RawKitchenOrderRow> = {}, consultados = true) =>
-    toKitchenTickets([pedido(over)], [], { 'order-1': pago(status) }, consultados)[0]
-      .deliveryCollect;
+    // El reloj va fijado media hora despues de que nazca el pedido: estos casos
+    // van de la INSTRUCCION DE COBRO, y con `Date.now()` el ticket saldria del
+    // tablero por vencimiento (`PROOF_WINDOW_MS`) antes de poder mirarla.
+    toKitchenTickets(
+      [pedido(over)],
+      [],
+      { 'order-1': pago(status) },
+      consultados,
+      BASE + 30 * 60_000,
+    )[0].deliveryCollect;
 
   it('con el comprobante en revisión todavía se puede marcar', () => {
     expect(cobro('pending_review')).toEqual({

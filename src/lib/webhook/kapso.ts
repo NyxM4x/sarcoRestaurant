@@ -16,7 +16,12 @@ import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-cont
 import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/messages';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isGreetingOnly, isMenuIntent } from './menu-intent';
-import { decideDefaultReply, type CustomerStateSnapshot } from './default-reply';
+import {
+  decideDefaultReply,
+  expiredOrderToCancel,
+  type CustomerStateSnapshot,
+} from './default-reply';
+import type { OrderStatus } from '@/types';
 import { isExplicitMenuRequest } from '@/lib/agent/business/menu-request';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
 import {
@@ -217,6 +222,24 @@ export type AskLocationForQuote = (input: {
 export type LookupCustomerState = (
   customerPhone: string,
 ) => Promise<CustomerStateSnapshot | null>;
+
+/**
+ * Cerrar el pedido cuya ventana de pago se agoto (09-09-2026).
+ *
+ * Se invoca cuando el estado que se acaba de consultar dice que el pedido
+ * abierto del cliente ya vencio. No es una respuesta al cliente -el recibe el
+ * menu por el camino normal- sino higiene: sin esto el pedido seguiria diciendo
+ * `confirmed` en el panel para siempre. Ver `expiredOrderToCancel`.
+ *
+ * NUNCA lanza. Opcional: sin ella el pedido se comporta como vencido para todo
+ * el mundo pero su fila no cambia hasta que alguien pulse "Limpiar expirados",
+ * que es exactamente el comportamiento anterior a esta regla.
+ */
+export type CancelExpiredOrder = (input: {
+  orderId: string;
+  /** El estado que se LEYO. Es la guarda optimista del UPDATE. */
+  status: OrderStatus;
+}) => Promise<{ cancelled: boolean }>;
 
 /**
  * Recordatorio del comprobante para el cliente que ya tiene su QR (03-09-2026).
@@ -447,6 +470,12 @@ export interface HandleKapsoWebhookParams {
    */
   lookupCustomerState?: LookupCustomerState;
   /**
+   * Cierra el pedido vencido en el momento en que el cliente vuelve a escribir
+   * (09-09-2026). Sin este puerto el pedido se comporta como vencido para todos
+   * pero su fila espera al boton del panel. Ver `expiredOrderToCancel`.
+   */
+  cancelExpiredOrder?: CancelExpiredOrder;
+  /**
    * Recordatorio del comprobante para quien ya tiene su QR (03-09-2026). Sin
    * este puerto ese cliente no recibe nada, que es lo que pasaba antes.
    */
@@ -638,6 +667,7 @@ async function responderPorDefecto(
   deps: {
     sendMenuCta: SendMenuCta;
     lookupCustomerState?: LookupCustomerState;
+    cancelExpiredOrder?: CancelExpiredOrder;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
@@ -680,6 +710,21 @@ async function responderPorDefecto(
       : deps.lookupCustomerState
         ? await deps.lookupCustomerState(phoneDigits || toDigits)
         : null;
+
+  // ── Higiene: cerrar el pedido que venció mientras nadie miraba ────────────
+  //
+  // Va ANTES de decidir la respuesta y no después, para que el orden sea el
+  // mismo pase lo que pase: `decideDefaultReply` puede salir por seis ramas
+  // distintas, y colgar esto de una de ellas —o de todas— sería seis sitios
+  // donde acordarse. Aquí es uno.
+  //
+  // No cambia lo que recibe el cliente: la decisión mira `payment === 'expired'`,
+  // que ya venía calculado en el estado, no la fila. Si el UPDATE falla, el
+  // cliente recibe su menú igual y el pedido espera al botón del panel.
+  const vencido = expiredOrderToCancel(state);
+  if (vencido !== null && deps.cancelExpiredOrder) {
+    await deps.cancelExpiredOrder({ orderId: vencido.orderId, status: vencido.status });
+  }
 
   const decision = decideDefaultReply({
     text: texto,
@@ -867,6 +912,7 @@ async function processMessage(
     expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
+    cancelExpiredOrder?: CancelExpiredOrder;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
@@ -1498,6 +1544,7 @@ async function processEnvelopes(
     expandMapsLink?: ExpandMapsLink;
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
+    cancelExpiredOrder?: CancelExpiredOrder;
     sendProofReminder?: SendProofReminder;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
@@ -2155,6 +2202,7 @@ async function runBusiness(
       expandMapsLink: params.expandMapsLink,
       askLocationForQuote: params.askLocationForQuote,
       lookupCustomerState: params.lookupCustomerState,
+      cancelExpiredOrder: params.cancelExpiredOrder,
       sendProofReminder: params.sendProofReminder,
       appendKitchenNote: params.appendKitchenNote,
       switchToPickup: params.switchToPickup,
