@@ -116,9 +116,21 @@ export async function GET(request: Request): Promise<Response> {
   /**
    * Y los pedidos en efectivo que nadie confirmó (05-09-2026).
    *
-   * No es un worker con su propia ruta: es una consulta acotada por un índice
-   * parcial y un puñado de UPDATEs, así que no necesita lease, ni reintentos, ni
-   * observabilidad propia. Lo que necesita es correr de vez en cuando.
+   * ── Ya NO es el único camino, y esa era la avería ─────────────────────────
+   *
+   * Esto vivió aquí solo, con el argumento de que una consulta por índice
+   * parcial y un puñado de UPDATEs no necesita worker propio. El argumento era
+   * bueno y la conclusión falsa: esta ruta es el FALLBACK, y el fallback no lo
+   * despierta nadie —el plan de Vercel no admite crons—, así que el barrido no
+   * se ejecutó JAMÁS. El 09-09-2026 había once pedidos sin confirmar, el más
+   * antiguo de hacía tres días, y once clientes sin su aviso.
+   *
+   * Desde entonces el camino oficial es `sarco-order-expiry-cron`, que llama a
+   * `POST /api/internal/orders/expiry/worker/tick`. Aquí se conserva por lo
+   * mismo que los tres workers de arriba: un fallback que ejecuta MENOS que el
+   * camino principal es una divergencia que no se nota hasta que hace falta. El
+   * barrido es idempotente —su UPDATE lleva guarda sobre `cash_confirmed_at is
+   * null`— así que los dos caminos a la vez no se pisan.
    *
    * Va FUERA del `allSettled` de arriba a propósito: los tres workers son la
    * recuperación —lo que decide si este latido fue bien— y esto es limpieza.

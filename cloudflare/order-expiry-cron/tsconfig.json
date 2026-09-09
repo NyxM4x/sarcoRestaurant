@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "WebWorker"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // El typecheck cubre el WORKER (runtime Cloudflare, sin APIs de Node). Los
+  // tests se validan con vitest (transpila con esbuild, entorno node).
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

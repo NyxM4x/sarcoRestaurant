@@ -28,7 +28,8 @@ los llama, y de eso va este documento.
 | Observabilidad | separada por worker | un solo log |
 | Depende de | Cloudflare | el cron de Vercel |
 
-**El camino oficial son los dos Cloudflare Workers.** Son dos despliegues
+**El camino oficial son los Cloudflare Workers** (hoy cuatro: inbox de
+webhooks, notificaciones, alertas de Telegram y barrido de caducados). Son dos despliegues
 independientes a propósito: un evento del inbox puede llevar un turno completo
 del agente —11–12 s medidos en Production—, así que encadenar los dos recoveries
 en una sola invocación significa que uno le come el presupuesto al otro, y que
@@ -44,6 +45,33 @@ los leases lo resuelven), pero duplican el consumo sin añadir cobertura.
 
 > El plan de Vercel actual no admite crons (ver commit `a3bd210`), así que hoy
 > ese fallback no está programado. La ruta sigue existiendo y sigue protegida.
+
+## Lo que costó dar por hecho que el fallback corría (09-09-2026)
+
+Ese aviso de arriba lleva escrito desde el principio, y aun así el 05-09-2026 se
+metió un barrido nuevo —cancelar los pedidos en efectivo que nadie confirma en
+veinte minutos— **solo** dentro de `GET /api/internal/cron/tick`, con el
+argumento de que era demasiado pequeño para merecer un Worker propio.
+
+El argumento era razonable. La conclusión era falsa: si el fallback no lo
+despierta nadie, lo que vive solo ahí **no se ejecuta nunca**.
+
+Cuatro días después, en producción:
+
+```
+sin_confirmar | mas_antiguo            | mas_reciente
+           11 | 2026-09-06 00:58:23+00 | 2026-09-09 07:38:58+00
+```
+
+Once clientes sin el aviso de que su pedido se canceló, cada uno con un pedido
+fantasma tapándole el menú 24 horas. Ningún error en ningún log: un despertador
+que no suena es silencioso por definición.
+
+**La regla que sale de aquí:** todo trabajo periódico necesita su propio Worker
+que lo despierte. Esta ruta ejecuta lo mismo que ellos, pero como SEGUNDA cuerda
+— nunca como la única. Si algo solo cuelga de aquí, no corre.
+
+El barrido tiene desde entonces su Worker: `sarco-order-expiry-cron`.
 
 ## Estado HTTP del fallback
 
