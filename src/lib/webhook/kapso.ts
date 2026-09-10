@@ -229,6 +229,23 @@ export type LookupCustomerState = (
  * NUNCA lanza. Opcional: sin ella ese cliente no recibe nada, que es lo que
  * pasaba antes de esta política.
  */
+/**
+ * La dirección del LOCAL, para quien pregunta dónde queda (09-09-2026).
+ *
+ * El texto lo construye el canal (`localAddressText`) y no depende de nada del
+ * cliente: aquí solo viaja a quién se le manda. Ver
+ * `webhook/local-address-intent.ts`.
+ *
+ * NUNCA lanza. Opcional: sin ella ese cliente recibe el botón del menú, que es
+ * exactamente lo que pasaba antes de esta puerta.
+ */
+export type SendLocalAddress = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
+  sourceMessageId: string;
+}) => Promise<{ ok: boolean }>;
+
 export type SendProofReminder = (input: {
   toDigits: string;
   phoneNumberId: string | null;
@@ -517,6 +534,11 @@ export interface HandleKapsoWebhookParams {
    * este puerto ese cliente no recibe nada, que es lo que pasaba antes.
    */
   sendProofReminder?: SendProofReminder;
+  /**
+   * Contesta dónde queda el local. Sin este puerto, quien lo pregunta recibe el
+   * botón del menú — el comportamiento anterior a esta puerta.
+   */
+  sendLocalAddress?: SendLocalAddress;
   sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -710,6 +732,7 @@ async function responderPorDefecto(
     sendMenuCta: SendMenuCta;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendLocalAddress?: SendLocalAddress;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -895,6 +918,26 @@ async function responderPorDefecto(
     return { ok: true, handled: 'order_change', result: sent.result };
   }
 
+  if (decision.action === 'local_address') {
+    // Sin puerto no se improvisa con el menú: mandarle la carta a quien
+    // preguntó dónde queda el local es exactamente lo que esta rama arregla.
+    // Se declina y el mensaje sigue su camino.
+    if (!deps.sendLocalAddress) return null;
+
+    const enviada = await deps.sendLocalAddress({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+    });
+    // Ni el teléfono ni el texto: solo si se pudo.
+    log.info('webhook_local_address', { result: enviada.ok ? 'sent' : 'failed' });
+    return {
+      ok: enviada.ok,
+      handled: 'local_address',
+      result: enviada.ok ? 'sent' : 'failed',
+    };
+  }
+
   if (decision.action === 'proof_reminder') {
     // Sin puerto de recordatorio no se improvisa con el menú: mandarle la carta
     // a quien está por pagar es exactamente lo que esta rama evita.
@@ -1072,6 +1115,7 @@ async function processMessage(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendLocalAddress?: SendLocalAddress;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -1706,6 +1750,7 @@ async function processEnvelopes(
     askLocationForQuote?: AskLocationForQuote;
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
+    sendLocalAddress?: SendLocalAddress;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -2395,6 +2440,7 @@ async function runBusiness(
       askLocationForQuote: params.askLocationForQuote,
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
+      sendLocalAddress: params.sendLocalAddress,
       sendWaitNotice: params.sendWaitNotice,
       sendOrderReview: params.sendOrderReview,
       decideCashOrder: params.decideCashOrder,

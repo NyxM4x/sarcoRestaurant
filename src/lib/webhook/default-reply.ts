@@ -9,6 +9,7 @@ import {
   kitchenNoteFrom,
 } from './order-change-intent';
 import { isPickupSwitchRequest } from './pickup-switch-intent';
+import { isLocalAddressRequest } from './local-address-intent';
 import { readOrderReviewReply } from './order-review-reply';
 import { readCashConfirmReply } from './cash-confirm-reply';
 import { isCourtesyOnly } from './courtesy';
@@ -360,6 +361,14 @@ export type DefaultSilenceReason =
 export type DefaultReplyDecision =
   | { action: 'menu' }
   /**
+   * Preguntó dónde queda el LOCAL (09-09-2026).
+   *
+   * No lleva pedido: cuando esta rama se alcanza ya se sabe que el cliente no
+   * tiene ninguno abierto. El texto es fijo —`localAddressText`— y no depende
+   * de nada suyo.
+   */
+  | { action: 'local_address' }
+  /**
    * Hablarle de su pago. `variant` dice QUÉ, y sale del estado, no del texto:
    *
    *   `missing`   no consta ninguna foto  → "falta que nos mandes el comprobante"
@@ -618,9 +627,24 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
   if (texto.trim() === '') return { action: 'none', reason: 'no_text' };
   if (input.menuAlreadySent) return { action: 'none', reason: 'already_sent' };
 
+  /**
+   * ¿Está preguntando dónde queda el LOCAL? (09-09-2026)
+   *
+   * Se resuelve ARRIBA y no en su guarda, que está al final, porque hace falta
+   * aquí mismo: preguntar la dirección es una PETICIÓN, y las peticiones no se
+   * pierden en una ráfaga. Ver la guarda del ancla, justo debajo.
+   */
+  const pideLaDireccion = isLocalAddressRequest(texto);
+
   // Quien lo pidió contesta aunque no sea el último de su ráfaga: su frase es la
   // petición, no el turno. El ancla solo ordena a los que no pidieron nada.
-  if (!input.explicitIntent && !input.isBatchAnchor) {
+  //
+  // La dirección cuenta como petición por lo mismo que el menú, y el caso que
+  // lo obligó es literal: el cliente del 09-09-2026 escribió "Hola" · "Buenas" ·
+  // "Tardes" · "Me pasa la ubicación" · "Por favor". Su pregunta iba CUARTA, así
+  // que el ancla era "Por favor" y sin esto el mensaje que de verdad pedía algo
+  // se descartaba por no ser el último.
+  if (!input.explicitIntent && !pideLaDireccion && !input.isBatchAnchor) {
     return { action: 'none', reason: 'not_anchor' };
   }
 
@@ -953,6 +977,29 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // lo que quería: encargar algo más.
     return input.explicitIntent ? { action: 'menu' } : { action: 'none', reason: 'open_order' };
   }
+
+  // ── "¿Dónde están ubicados?" (09-09-2026) ─────────────────────────────────
+  //
+  // La última guarda antes del botón, y tiene que ser la última: el detector
+  // reconoce preguntas por un SITIO, y hasta aquí solo llega quien no tiene
+  // ningún pedido abierto. Ese filtro es lo que hace segura una familia de
+  // palabras tan amplia.
+  //
+  // Colocarla antes se llevaría por delante a dos clientes distintos: el que
+  // está peleando con el clip de WhatsApp para mandar su GPS —"no me sale la
+  // ubicacion"— y el que pregunta "por donde estan" queriendo saber por dónde
+  // viene su moto. Al primero lo intercepta la rama de la ubicación pendiente;
+  // al segundo, `wait_notice`. Los dos van mucho más arriba.
+  //
+  // El caso que la trajo: el 09-09-2026 dos clientes preguntaron dónde queda el
+  // local y los dos recibieron el botón del menú. Uno lo preguntó dos veces.
+  //
+  // Cede ante quien pidió el MENÚ con todas las letras: "quiero pedir donde
+  // estan ubicados" dispara los dos detectores, y entre las dos cosas que pidió
+  // manda la que el sistema reconoce como explícita. Es la misma jerarquía que
+  // ya gobierna el resto de la cascada — quien pide algo expresamente tiene más
+  // derecho a recibirlo que quien no dijo nada.
+  if (pideLaDireccion && !input.explicitIntent) return { action: 'local_address' };
 
   return { action: 'menu' };
 }

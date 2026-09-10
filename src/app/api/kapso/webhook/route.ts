@@ -22,6 +22,7 @@ import { expandMapsLink } from '@/lib/delivery/maps-link-service';
 import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
+import { sendLocalAddress } from '@/lib/kapso/send-local-address';
 import { sendWaitNotice } from '@/lib/kapso/send-wait-notice';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { sendOrderReview, sendOrderReviewKept } from '@/lib/kapso/send-order-review';
@@ -107,6 +108,9 @@ export async function POST(request: Request): Promise<Response> {
       // que es el comportamiento anterior. Ver `webhook/default-reply.ts`.
       lookupCustomerState: (phone) => lookupCustomerState(phone),
       sendProofReminder: (input) => sendProofReminder(input),
+      // 09-09-2026: quien pregunta donde queda el local recibe la direccion y
+      // el enlace de Maps, no el boton del menu. Ver `local-address-intent`.
+      sendLocalAddress: (input) => sendLocalAddress(input),
       // 05-09-2026: antes del botón de modificar se le enseña lo que armó y se
       // le pregunta si le falta algo. Ver `kapso/send-order-review.ts`.
       sendOrderReview: ({ kept, ...input }) =>

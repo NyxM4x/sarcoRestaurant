@@ -907,3 +907,154 @@ describe('lo que el default NO toca', () => {
     expect(cta.enviados).toHaveLength(0);
   });
 });
+
+describe('"¿Dónde están ubicados?" recibe la dirección, no el menú (09-09-2026)', () => {
+  /**
+   * LAS DOS CONVERSACIONES REALES que trajeron esta puerta.
+   *
+   * Los dos clientes preguntaron dónde queda el local y los dos recibieron el
+   * botón del menú. Uno lo preguntó dos veces. La dirección ya estaba escrita
+   * en `business/facts.ts` desde el 02-09; lo que faltaba era que alguien
+   * reconociera la pregunta.
+   */
+
+  it('el cliente que pregunta la dirección recibe la dirección', async () => {
+    let direcciones = 0;
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'Dónde están ubicados?' })),
+      {
+        sendMenuCta: async () => {
+          throw new Error('el menú NO es la respuesta a esta pregunta');
+        },
+        lookupCustomerState: estado(DESPEJADO),
+        sendLocalAddress: async () => {
+          direcciones += 1;
+          return { ok: true };
+        },
+      },
+      'idem-ubi-1',
+    );
+
+    expect(processed?.outcome).toBe('processed');
+    expect(direcciones).toBe(1);
+  });
+
+  it('"Me pasa la ubicación" también, que es como lo escribió el cliente 1', async () => {
+    let direcciones = 0;
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'Me pasa la ubicación' })),
+      {
+        sendMenuCta: async () => {
+          throw new Error('el menú NO es la respuesta a esta pregunta');
+        },
+        lookupCustomerState: estado(DESPEJADO),
+        sendLocalAddress: async () => {
+          direcciones += 1;
+          return { ok: true };
+        },
+      },
+      'idem-ubi-2',
+    );
+
+    expect(direcciones).toBe(1);
+  });
+
+  it('sin el puerto cableado NO se improvisa: el mensaje sigue su camino', async () => {
+    // Comportamiento anterior a esta puerta, intacto. Mandarle el menú a quien
+    // preguntó la dirección es justo lo que esta rama arregla, así que si no se
+    // puede contestar bien, no se contesta.
+    const cta = spyCta();
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'donde estan' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(DESPEJADO),
+      },
+      'idem-ubi-3',
+    );
+
+    expect(cta.enviados).toHaveLength(0);
+    expect(processed?.outcome).toBe('processed');
+  });
+
+  it('quien SÍ quiere pedir sigue recibiendo su menú', async () => {
+    // La puerta nueva es la última de la cascada: no puede robarle mensajes al
+    // botón, que es la respuesta por defecto de todo lo demás.
+    const cta = spyCta();
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'quiero pedir' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(DESPEJADO),
+        sendLocalAddress: async () => {
+          throw new Error('esto no es una pregunta por la dirección');
+        },
+      },
+      'idem-ubi-4',
+    );
+
+    expect(cta.enviados).toHaveLength(1);
+  });
+});
+
+describe('la pregunta por la dirección NO se pierde en una ráfaga (09-09-2026)', () => {
+  it('LA RÁFAGA REAL DEL CLIENTE 1: la pregunta iba cuarta de cinco', async () => {
+    // "Hola" · "Buenas" · "Tardes" · "Me pasa la ubicación" · "Por favor"
+    //
+    // El ancla del lote es "Por favor", que no pide nada. Sin tratar la
+    // dirección como una petición, el único mensaje que de verdad preguntaba
+    // algo se descartaba por no ser el último — y este cliente recibió un menú.
+    let direcciones = 0;
+
+    const body = batchBody([
+      envelope({ wamid: 'wamid.R1', text: 'Hola' }),
+      envelope({ wamid: 'wamid.R2', text: 'Buenas' }),
+      envelope({ wamid: 'wamid.R3', text: 'Tardes' }),
+      envelope({ wamid: 'wamid.R4', text: 'Me pasa la ubicación' }),
+      envelope({ wamid: 'wamid.R5', text: 'Por favor' }),
+    ]);
+
+    await deliver(
+      body,
+      {
+        sendMenuCta: async () => ({
+          result: 'sent' as const,
+          deliveryId: 'del-x',
+          wamid: 'wamid.CTA',
+        }),
+        lookupCustomerState: estado(DESPEJADO),
+        sendLocalAddress: async () => {
+          direcciones += 1;
+          return { ok: true };
+        },
+      },
+      'idem-rafaga-ubi',
+    );
+
+    expect(direcciones).toBe(1);
+  });
+
+  it('quien pide el MENÚ con todas las letras recibe el menú, no la dirección', async () => {
+    // "quiero pedir donde estan ubicados" dispara los dos detectores. Entre las
+    // dos cosas manda la explícita: es la jerarquía de toda la cascada.
+    const cta = spyCta();
+
+    await deliver(
+      JSON.stringify(envelope({ text: 'quiero pedir donde estan ubicados' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(DESPEJADO),
+        sendLocalAddress: async () => {
+          throw new Error('pidió el menú expresamente: manda el menú');
+        },
+      },
+      'idem-choque-ubi',
+    );
+
+    expect(cta.enviados).toHaveLength(1);
+  });
+});

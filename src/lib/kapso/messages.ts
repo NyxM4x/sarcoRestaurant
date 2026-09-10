@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { businessHoursClock } from '@/lib/agent/business/facts';
+import {
+  businessHoursClock,
+  BUSINESS_ADDRESS,
+  BUSINESS_MAPS_URL,
+} from '@/lib/agent/business/facts';
 import { formatBs } from '@/lib/orders/calculate';
 import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { MenuSendReason } from '@/lib/menu/dispatch';
@@ -715,3 +719,48 @@ export const kapsoSendResponseSchema = z.object({
 });
 
 export type KapsoSendResponse = z.infer<typeof kapsoSendResponseSchema>;
+
+
+// ── Dónde queda el local (09-09-2026) ────────────────────────────────────────
+
+/**
+ * Lo que recibe quien pregunta por la dirección DEL LOCAL.
+ *
+ * ── Por qué es un texto fijo y no una respuesta del modelo ──────────────────
+ *
+ * Porque la respuesta no cambia nunca. El agente ya tenía esta misma dirección
+ * en su prompt y la orden de darla, pero nunca llegaba a que se la preguntaran:
+ * el botón del menú es la respuesta por defecto y se comía el mensaje antes
+ * (`local-address-intent.ts` explica el caso completo).
+ *
+ * ── Las DOS cosas van juntas, y es una orden heredada ───────────────────────
+ *
+ * La dirección en palabras Y el enlace, en el mismo mensaje. Lo dice
+ * `business/facts.ts` desde el 02-09-2026, después de una regresión en la que
+ * el modelo soltaba la calle y se dejaba el enlace: cada una sola falla de una
+ * forma distinta — la dirección sin enlace obliga a buscarla a mano, y el
+ * enlace sin dirección obliga a abrir el navegador solo para saber si queda
+ * cerca.
+ *
+ * ── Y por qué dice que es el único local ────────────────────────────────────
+ *
+ * Porque el mismo detector atiende "¿tienen sucursal?" y "¿hay uno por el
+ * norte?". Contestar solo con la dirección deja esa pregunta a medias y trae un
+ * segundo mensaje preguntando lo mismo. Es un hecho, no un dato que falte.
+ *
+ * ── Sin `BUSINESS_ADDRESS` sale solo el enlace ──────────────────────────────
+ *
+ * Es la misma regla del prompt: preferible mandar solo el mapa a inventar una
+ * calle o transcribir mal un barrio.
+ */
+export function localAddressText(): string {
+  const donde =
+    BUSINESS_ADDRESS === null
+      ? 'Estamos acá 📍'
+      : `Estamos ${BUSINESS_ADDRESS} 📍`;
+
+  return (
+    `${donde}\n${BUSINESS_MAPS_URL}\n\n` +
+    `Es nuestro único local, y atendemos todos los días de ${businessHoursClock()}.`
+  );
+}
