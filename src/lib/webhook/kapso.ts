@@ -17,6 +17,7 @@ import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/message
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isGreetingOnly, isMenuIntent } from './menu-intent';
 import { decideDefaultReply, type CustomerStateSnapshot } from './default-reply';
+import { readCashDecisionButton } from './cash-confirm-button';
 import { isExplicitMenuRequest } from '@/lib/agent/business/menu-request';
 import { isOutboundEventName, parseOutboundEvent } from '@/lib/orders/notifications/outbound-event';
 import {
@@ -322,6 +323,21 @@ export type DecideCashOrder = (input: {
 }) => Promise<{ ok: boolean }>;
 
 /**
+ * Volver a ponerle los botones delante al que escribió (13-09-2026).
+ *
+ * No decide nada sobre el pedido: solo repone lo único que puede decidirlo. Por
+ * eso no lleva `sourceMessageId` —no hay nada que hacer idempotente contra un
+ * mensaje del cliente— y sí lleva `orderNumber`, que es lo que viaja dentro del
+ * id de cada botón.
+ */
+export type SendCashButtons = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  orderNumber: string;
+  step: 'first' | 'last';
+}) => Promise<{ ok: boolean }>;
+
+/**
  * "Sin cebolla" anotado en el pedido y confirmado al cliente (04-09-2026).
  *
  * DOS efectos que no se pueden separar: se escribe la nota en `orders.notes`
@@ -542,6 +558,7 @@ export interface HandleKapsoWebhookParams {
   sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
+  sendCashButtons?: SendCashButtons;
   /**
    * Preferencias de cocina sobre un pedido ya armado (04-09-2026). Sin este
    * puerto, "sin cebolla" cae en el recordatorio del comprobante.
@@ -736,6 +753,7 @@ async function responderPorDefecto(
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
+  sendCashButtons?: SendCashButtons;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -779,6 +797,10 @@ async function responderPorDefecto(
         : null;
 
   const decision = decideDefaultReply({
+    // El botón que tocó, si tocó uno. Va como dato y no como texto inventado:
+    // sintetizar un "CONFIRMO" a partir del título del botón devolvería la
+    // decisión al terreno de las palabras, que es de lo que estamos saliendo.
+    buttonPress: readCashDecisionButton(ctx.message),
     text: texto,
     isBatchAnchor: ctx.ultimoTextoDelLote === true,
     batchTexts: ctx.textosDelLote,
@@ -862,6 +884,32 @@ async function responderPorDefecto(
       handled: confirmar ? 'cash_confirm' : 'cash_cancel',
       result: 'sent',
     };
+  }
+
+  if (decision.action === 'cash_reprompt') {
+    // Sin puerto no se insiste: el mensaje sigue su camino y lo verá el modelo,
+    // que es exactamente el comportamiento de antes de esta política.
+    if (!deps.sendCashButtons) return null;
+
+    const repuesto = await deps.sendCashButtons({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      orderNumber: decision.order.orderNumber,
+      step: decision.step,
+    });
+
+    // Ni el número de pedido ni el texto del cliente: solo cuál de los dos
+    // avisos salió y si se pudo.
+    log.info('webhook_cash_reprompt', {
+      step: decision.step,
+      result: repuesto.ok ? 'sent' : 'failed',
+    });
+
+    // Si no se pudo mandar, este mensaje NO queda atendido: sigue su camino. Un
+    // "ya le avisamos" sobre un aviso que no salió deja al cliente esperando un
+    // mensaje que nunca va a leer.
+    if (!repuesto.ok) return null;
+    return { ok: true, handled: 'cash_reprompt', result: 'sent' };
   }
 
   if (decision.action === 'order_review' || decision.action === 'order_review_kept') {
@@ -1119,6 +1167,7 @@ async function processMessage(
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
+  sendCashButtons?: SendCashButtons;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -1754,6 +1803,7 @@ async function processEnvelopes(
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
+  sendCashButtons?: SendCashButtons;
     appendKitchenNote?: AppendKitchenNote;
   switchToPickup?: SwitchToPickup;
   },
@@ -2444,6 +2494,7 @@ async function runBusiness(
       sendWaitNotice: params.sendWaitNotice,
       sendOrderReview: params.sendOrderReview,
       decideCashOrder: params.decideCashOrder,
+      sendCashButtons: params.sendCashButtons,
       appendKitchenNote: params.appendKitchenNote,
       switchToPickup: params.switchToPickup,
     });

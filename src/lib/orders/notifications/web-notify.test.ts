@@ -62,6 +62,19 @@ function harness(options: {
   loaded?: LoadedOrder | null;
   claims?: Partial<Record<NotificationType, ClaimResult>>;
   sendText?: SendResult;
+  /**
+   * ¿El sender sabe mandar botones? (13-09-2026)
+   *
+   * `false` por defecto, y no es pereza: con esta bandera apagada el sender es
+   * el de antes del 13-09, que es EXACTAMENTE el camino de respaldo que corre
+   * en producción si Kapso rechaza el interactivo. Las pruebas de maquinaria
+   * —claims, reintentos, reconciliación— siguen corriendo sobre él sin
+   * reescribir doce aserciones que no hablan del formato del mensaje.
+   *
+   * Las que sí hablan del formato lo encienden a mano.
+   */
+  withButtons?: boolean;
+  sendButtons?: SendResult;
   sendImage?: SendResult;
   sendLocation?: SendResult;
   markConfirmationSent?: boolean;
@@ -129,7 +142,22 @@ function harness(options: {
     },
   };
 
+  const sentButtons: Array<{ bodyText: string; ids: string[] }> = [];
+
   const sender: NotificationSender = {
+    ...(options.withButtons
+      ? {
+          async sendButtons(
+            _phone: string,
+            bodyText: string,
+            buttons: readonly { id: string; title: string }[],
+          ): Promise<SendResult> {
+            log.push('sendButtons');
+            sentButtons.push({ bodyText, ids: buttons.map((b) => b.id) });
+            return options.sendButtons ?? { ok: true, wamid: 'wamid.BTN' };
+          },
+        }
+      : {}),
     async sendText(_phone, text) {
       log.push('sendText');
       sentTexts.push(text);
@@ -156,6 +184,7 @@ function harness(options: {
     log,
     claimed,
     sentTexts,
+    sentButtons,
     sentImages,
     locationOrderNumbers,
     markConfirmationCalls,
@@ -922,5 +951,100 @@ describe('dispatchSingleNotification dinámico (worker tras la cotización)', ()
     });
     expect(h.log).not.toContain('sendText');
     expect(h.log).not.toContain('sendImage');
+  });
+});
+
+describe('efectivo con BOTONES (13-09-2026)', () => {
+  /** El pedido del #47: efectivo, delivery cotizado, esperando decisión. */
+  const enEfectivo = () => dynamicQuoted({ payment_method: 'cash' });
+
+  it('sale como interactivo, y los botones llevan el pedido dentro del id', async () => {
+    const h = harness({ loaded: enEfectivo(), withButtons: true });
+    const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(res.confirmation).toBe('sent');
+    expect(h.log).toContain('sendButtons');
+    // Un solo mensaje: el texto NO sale además del interactivo.
+    expect(h.log).not.toContain('sendText');
+
+    const enviado = h.sentButtons[0];
+    expect(enviado.ids).toEqual([
+      `cash_confirm:ORD-000042`,
+      `cash_cancel:ORD-000042`,
+    ]);
+
+    // El cuerpo es el de siempre más la pregunta, y ya no pide teclear nada.
+    expect(enviado.bodyText).toContain('Total: Bs. 106');
+    expect(enviado.bodyText).toContain('⚠️ *ADVERTENCIA:*');
+    expect(enviado.bodyText).toContain('¿Confirmás tu pedido? 👇');
+    expect(enviado.bodyText).not.toContain('Escribí');
+  });
+
+  it('RECHAZADO: si no se entregó y consta, sale el mensaje de palabras', async () => {
+    // El peor caso del cambio deja de ser "el efectivo se queda mudo".
+    const h = harness({
+      loaded: enEfectivo(),
+      withButtons: true,
+      sendButtons: { ok: false, error: 'buttons_rejected' },
+    });
+    const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(res.confirmation).toBe('sent');
+    expect(h.log).toEqual(expect.arrayContaining(['sendButtons', 'sendText']));
+    // Y el de palabras SÍ dice qué escribir: es la única forma que le queda.
+    expect(h.sentTexts[0]).toContain('*CONFIRMO*');
+    expect(h.sentTexts[0]).toContain('*CANCELAR*');
+    // Uno de cada: el respaldo no es un tercer mensaje.
+    expect(h.log.filter((l) => l === 'sendText')).toHaveLength(1);
+    expect(h.log.filter((l) => l === 'sendButtons')).toHaveLength(1);
+  });
+
+  it('AMBIGUO: un timeout NO cae al texto — el mensaje pudo haber salido', async () => {
+    // La otra mitad de la regla, y la que impide el peor desenlace: dos
+    // mensajes seguidos diciendo lo mismo con dos formas de contestar.
+    const h = harness({
+      loaded: enEfectivo(),
+      withButtons: true,
+      sendButtons: { ok: false, error: 'timeout' },
+    });
+    const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(h.log).toContain('sendButtons');
+    expect(h.log).not.toContain('sendText');
+    // Lo resuelven el reintento y la reconciliación, que sí saben distinguirlo.
+    expect(res.confirmation).toBe('pending_reconciliation');
+  });
+
+  it('un 5xx tampoco: solo el rechazo probado autoriza el respaldo', async () => {
+    const h = harness({
+      loaded: enEfectivo(),
+      withButtons: true,
+      sendButtons: { ok: false, error: 'http_error' },
+    });
+    await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(h.log).not.toContain('sendText');
+  });
+
+  it('el QR no se entera de nada: sigue saliendo como imagen', async () => {
+    const h = harness({
+      loaded: dynamicQuoted({ payment_method: 'qr' }),
+      withButtons: true,
+    });
+    await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(h.log).toContain('sendImage');
+    expect(h.log).not.toContain('sendButtons');
+  });
+
+  it('un sender sin botones conserva el mensaje de palabras', async () => {
+    // Es el adaptador viejo, y también el de todas las pruebas de maquinaria de
+    // este archivo: sin `withButtons` nada cambia respecto al 12-09.
+    const h = harness({ loaded: enEfectivo() });
+    await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(h.log).toContain('sendText');
+    expect(h.log).not.toContain('sendButtons');
+    expect(h.sentTexts[0]).toContain('*CONFIRMO*');
   });
 });

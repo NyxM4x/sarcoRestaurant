@@ -6,12 +6,15 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
 import { getKapsoClient } from '@/lib/kapso/client';
-import { buildWebLocationRequestBodyText } from '@/lib/kapso/messages';
+import {
+  buildWebLocationRequestBodyText,
+  type ReplyButton,
+} from '@/lib/kapso/messages';
 import { createKapsoMessageHistory } from '@/lib/kapso/message-history';
 import { normalizePhone } from '@/lib/phone';
 import type { KapsoClient } from '@/lib/kapso/transport';
 import { NOTIFICATION_SEND_TIMEOUT_MS } from './retry-policy';
-import { RECOVERY_STATUSES, type RecoveryStatus } from './recovery-state';
+import { BUTTONS_REJECTED_ERROR, RECOVERY_STATUSES, type RecoveryStatus } from './recovery-state';
 import type { NotificationStateRow, NotificationStatesResult } from './retry-plan';
 import { reconcileNotification } from './reconcile-runner';
 import { WORKER_ORDER_LIMIT, type WorkerDeps } from './worker';
@@ -365,6 +368,40 @@ export function createKapsoNotificationSender(kapso: KapsoClient): NotificationS
         timeoutMs: NOTIFICATION_SEND_TIMEOUT_MS,
       });
       return res.ok ? { ok: true, wamid: res.wamid } : { ok: false, error: res.error };
+    },
+
+    async sendButtons(
+      phone: string,
+      bodyText: string,
+      buttons: readonly ReplyButton[],
+      phoneNumberId: string,
+    ): Promise<SendResult> {
+      const res = await kapso.sendButtons(phone, bodyText, buttons, {
+        phoneNumberId,
+        timeoutMs: NOTIFICATION_SEND_TIMEOUT_MS,
+      });
+      if (res.ok) return { ok: true, wamid: res.wamid };
+
+      // ── El único fallo del que se PUEDE caer al texto (13-09-2026) ────────
+      //
+      // `BUTTONS_REJECTED_ERROR` significa una cosa muy concreta: el mensaje no
+      // se entregó, y consta. Son los dos casos en que eso es demostrable —el
+      // payload ni salió, o salió y la API lo rechazó con un 4xx, que es una
+      // negativa, no una duda.
+      //
+      // Todo lo demás —5xx, timeout, red caída, respuesta ilegible— es AMBIGUO
+      // en el vocabulario de este repo (`isAmbiguousError`): la petición llegó a
+      // la red y el mensaje pudo entregarse igual. Reintentar ahí en otro
+      // formato es cómo el mismo cliente acaba con dos mensajes, y para eso ya
+      // existen el reintento y la reconciliación, que sí saben distinguirlo.
+      const rechazado =
+        res.error === 'invalid_buttons' ||
+        (res.error === 'http_error' &&
+          res.status !== undefined &&
+          res.status >= 400 &&
+          res.status < 500);
+
+      return { ok: false, error: rechazado ? BUTTONS_REJECTED_ERROR : res.error };
     },
 
     async sendLocationRequest(

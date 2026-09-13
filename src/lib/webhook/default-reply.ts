@@ -12,6 +12,7 @@ import { isPickupSwitchRequest } from './pickup-switch-intent';
 import { isLocalAddressRequest } from './local-address-intent';
 import { readOrderReviewReply } from './order-review-reply';
 import { readCashConfirmReply } from './cash-confirm-reply';
+import type { CashButtonPress } from './cash-confirm-button';
 import { isCourtesyOnly } from './courtesy';
 
 /**
@@ -247,6 +248,16 @@ export interface CustomerStateSnapshot {
   /** ¿Ya se le recordó el comprobante hace poco? Ver `PROOF_REMINDER_COOLDOWN_MS`. */
   proofRemindedRecently: boolean;
   /**
+   * Cuántas veces se le volvieron a poner los botones delante (13-09-2026).
+   *
+   * Se cuenta desde que nació el pedido, no desde hace un rato: el tope es por
+   * PEDIDO, no por ventana de tiempo. Dos avisos y después el agente calla.
+   *
+   * Ausente = 0, que es lo correcto para un adaptador que todavía no lo
+   * consulta: se comporta como si nunca se le hubiera avisado.
+   */
+  cashRepromptsSent?: number;
+  /**
    * ¿Hay una pregunta suya sin contestar? (05-09-2026)
    *
    * `true` mientras la pregunta "¿querés agregar algo más?" siga fresca. Cambia
@@ -332,7 +343,15 @@ export type DefaultReplySkipReason =
   /** Espera comprobante, pero ya se le recordó hace muy poco. */
   | 'reminded_recently'
   /** Ya mandó una foto para este pedido: ni se le pide otra ni se le ofrece rehacerlo. */
-  | 'proof_received';
+  | 'proof_received'
+  /**
+   * Tocó un botón que ya no decide nada (13-09-2026).
+   *
+   * En WhatsApp se puede subir el chat y pulsar el botón de un mensaje viejo. Si
+   * el pedido que nombra ese botón ya no es el que espera confirmación —porque
+   * se confirmó, se canceló o venció—, el toque no puede reabrirlo.
+   */
+  | 'stale_button';
 
 /**
  * Por qué el agente se calla A PROPÓSITO (06-09-2026).
@@ -438,9 +457,26 @@ export type DefaultReplyDecision =
     }
   /** Calla A PROPÓSITO, y cierra el turno. Ver `DefaultSilenceReason`. */
   | { action: 'silence'; reason: DefaultSilenceReason }
+  /**
+   * Volver a ponerle los botones delante al que ESCRIBE (13-09-2026).
+   *
+   * `first` es el recordatorio amable; `last` dice la consecuencia y es el
+   * último: después de ese, el agente calla y el pedido lo cierra el barrido de
+   * los veinte minutos, que es quien tiene el reloj.
+   */
+  | { action: 'cash_reprompt'; order: OpenOrderSnapshot; step: 'first' | 'last' }
   | { action: 'none'; reason: DefaultReplySkipReason };
 
 export interface DefaultReplyInput {
+  /**
+   * El botón que tocó, si tocó uno (13-09-2026). Ver `cash-confirm-button.ts`.
+   *
+   * Se decide ANTES que cualquier otra cosa y por un camino propio: un botón no
+   * trae texto, así que moriría en la guarda de `no_text` que abre esta función,
+   * y tampoco tiene por qué esperar su turno de ráfaga —no es una frase suelta
+   * dentro de un chorro de mensajes, es una decisión con un solo significado.
+   */
+  buttonPress?: CashButtonPress | null;
   /**
    * El texto que escribió el cliente, o `null` si el mensaje no era texto suyo.
    *
@@ -623,6 +659,38 @@ export function waitingOnUs(order: OpenOrderSnapshot): WaitKind | null {
  * menú a quien ya pidió, y solo al final se manda el botón.
  */
 export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecision {
+  // ── El botón del pedido en efectivo, antes que todo lo demás (13-09-2026) ──
+  //
+  // Va aquí arriba por tres motivos, y los tres son estructurales:
+  //
+  //   1. Un botón NO trae texto. La guarda de `no_text` que viene justo debajo
+  //      lo mataría sin mirarlo, que es exactamente lo que pasaba hasta hoy.
+  //   2. No espera turno de ráfaga. `isBatchAnchor` ordena frases sueltas que
+  //      compiten por una respuesta; un toque no compite con nada.
+  //   3. **Atraviesa la pausa.** Es lo contrario de un capricho: el cliente del
+  //      #47 acabó con su conversación pausada por una derivación, y si el botón
+  //      respetara esa pausa no funcionaría justo para quien más lo necesita.
+  //      Es la doctrina ya escrita en `agent/control/pause-gate.ts` — lo que
+  //      CIERRA algo que el cliente empezó sigue saliendo durante una pausa.
+  //
+  // Lo que no atraviesa es la realidad del pedido: el número que viaja en el id
+  // tiene que ser el del pedido que hoy espera confirmación. Si no lo es, el
+  // toque es de un mensaje viejo y no decide nada.
+  const boton = input.buttonPress ?? null;
+  if (boton !== null) {
+    const pedido = input.state?.openOrder ?? null;
+    if (
+      pedido !== null &&
+      pedido.awaitingCashConfirm === true &&
+      pedido.orderNumber === boton.orderNumber
+    ) {
+      return boton.decision === 'confirm'
+        ? { action: 'cash_confirm', order: pedido }
+        : { action: 'cash_cancel', order: pedido };
+    }
+    return { action: 'none', reason: 'stale_button' };
+  }
+
   const texto = typeof input.text === 'string' ? input.text : '';
   if (texto.trim() === '') return { action: 'none', reason: 'no_text' };
   if (input.menuAlreadySent) return { action: 'none', reason: 'already_sent' };
@@ -975,7 +1043,37 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
     // siempre. Mandarle el menú a quien está esperando su comida es contestarle
     // a otra persona… salvo que lo haya pedido él, que entonces es exactamente
     // lo que quería: encargar algo más.
-    return input.explicitIntent ? { action: 'menu' } : { action: 'none', reason: 'open_order' };
+    if (input.explicitIntent) return { action: 'menu' };
+
+    // ── El que ESCRIBE en vez de tocar el botón (13-09-2026) ──────────────
+    //
+    // La última puerta, y tiene que ser la última: hasta aquí llega quien tiene
+    // un pedido en efectivo sin confirmar y cuyo mensaje NO era ni la decisión,
+    // ni un cambio de pedido, ni una nota, ni una petición del menú. Todas esas
+    // se atendieron arriba y siguen ganando.
+    //
+    // Lo que queda es el caso del #47: "ya esta bien mandamelo". Un sí que el
+    // detector estricto no reconoce y que hasta hoy terminaba en silencio —y de
+    // ahí, en el modelo, y de ahí en una derivación a una persona.
+    //
+    // ── Por qué DOS y no uno, y por qué no infinitos ──────────────────────
+    //
+    // Uno solo se pierde entre lo que el cliente estaba escribiendo. Infinitos
+    // convierten cada mensaje suyo en un eco nuestro, que es justo lo que este
+    // archivo se prohíbe unas líneas más arriba con la pregunta del pedido
+    // ("insistir con la misma pregunta es lo que acaba llevando a una persona
+    // al chat"). Dos: el recordatorio y la consecuencia.
+    //
+    // Después, silencio deliberado. No es abandono: el barrido de los veinte
+    // minutos cancela el pedido y se lo dice, y ese reloj ya existe.
+    if (order.awaitingCashConfirm === true) {
+      const avisos = state.cashRepromptsSent ?? 0;
+      if (avisos < 2) {
+        return { action: 'cash_reprompt', order, step: avisos === 0 ? 'first' : 'last' };
+      }
+    }
+
+    return { action: 'none', reason: 'open_order' };
   }
 
   // ── "¿Dónde están ubicados?" (09-09-2026) ─────────────────────────────────

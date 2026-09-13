@@ -764,3 +764,140 @@ export function localAddressText(): string {
     `Es nuestro único local, y atendemos todos los días de ${businessHoursClock()}.`
   );
 }
+
+// ── Botones de respuesta: el pedido en efectivo (13-09-2026) ─────────────────
+
+/**
+ * El pedido en efectivo se decide con DOS BOTONES, no con una palabra.
+ *
+ * ── Por qué se cambia lo que el 05-09 se decidió al revés ───────────────────
+ *
+ * Aquel día se eligió pedir la palabra entera —"CONFIRMO", "CANCELAR"— con un
+ * argumento bueno: una palabra no se teclea por accidente, y aquí el accidente
+ * agenda o tira un pedido. Lo que no se vio es el otro lado del trato: el
+ * cliente que dice que sí con SUS palabras.
+ *
+ *   #47  "ya esta bien mandamelo"   →  el detector no lo vio  →  derivación
+ *
+ * Un botón no tiene ese problema por los dos lados a la vez: no se pulsa sin
+ * querer —hay que tocarlo— y no hay forma de decirlo mal, porque no se dice.
+ *
+ * ── El id lleva el número de pedido dentro ──────────────────────────────────
+ *
+ * `cash_confirm:ORD-260913-047`, no `cash_confirm` a secas. En WhatsApp se
+ * puede subir el chat y tocar el botón de un mensaje de anoche, y entonces la
+ * pregunta "¿de qué pedido me habla?" tiene que tener respuesta en el propio
+ * mensaje. Sin el número habría que suponerlo, y se supondría el pedido de hoy.
+ */
+export const CASH_CONFIRM_BUTTON_PREFIX = 'cash_confirm:';
+export const CASH_CANCEL_BUTTON_PREFIX = 'cash_cancel:';
+
+export const CASH_CONFIRM_BUTTON_TITLE = '✅ CONFIRMAR';
+export const CASH_CANCEL_BUTTON_TITLE = '❌ CANCELAR';
+
+/** Límites de WhatsApp Cloud API para `interactive.type = 'button'`. */
+export const REPLY_BUTTONS_MAX = 3;
+export const REPLY_BUTTON_TITLE_MAX = 20;
+export const REPLY_BUTTON_ID_MAX = 256;
+export const INTERACTIVE_BODY_MAX = 1024;
+
+export interface ReplyButton {
+  /** Viaja de vuelta en `interactive.button_reply.id`. Es el contrato. */
+  id: string;
+  /** Lo que lee el cliente. */
+  title: string;
+}
+
+/** Los dos botones de un pedido en efectivo, en el orden en que se pintan. */
+export function cashDecisionButtons(orderNumber: string): ReplyButton[] {
+  return [
+    { id: `${CASH_CONFIRM_BUTTON_PREFIX}${orderNumber}`, title: CASH_CONFIRM_BUTTON_TITLE },
+    { id: `${CASH_CANCEL_BUTTON_PREFIX}${orderNumber}`, title: CASH_CANCEL_BUTTON_TITLE },
+  ];
+}
+
+/**
+ * Payload de un mensaje interactivo con botones de respuesta.
+ *
+ * Mismas reglas que el resto de builders de este módulo: valida los invariantes
+ * del emisor y LANZA si no se cumplen; el transporte traduce eso a un error
+ * tipado y no llega a llamar a `fetch`. Un payload que WhatsApp va a rechazar no
+ * merece un viaje de red para enterarse.
+ *
+ * Los límites son los de la API, no preferencias nuestras: 3 botones, 20
+ * caracteres de título, 1024 de cuerpo. El id se comprueba además ÚNICO: dos
+ * botones con el mismo id son dos respuestas indistinguibles.
+ */
+export function buildReplyButtonsPayload(
+  toDigits: string,
+  bodyText: string,
+  buttons: readonly ReplyButton[],
+) {
+  if (bodyText.trim() === '') {
+    throw new Error('buildReplyButtonsPayload: bodyText must not be empty');
+  }
+  if (bodyText.length > INTERACTIVE_BODY_MAX) {
+    throw new Error('buildReplyButtonsPayload: bodyText too long');
+  }
+  if (buttons.length === 0 || buttons.length > REPLY_BUTTONS_MAX) {
+    throw new Error('buildReplyButtonsPayload: buttons must be between 1 and 3');
+  }
+
+  const vistos = new Set<string>();
+  for (const button of buttons) {
+    if (button.id.trim() === '' || button.id.length > REPLY_BUTTON_ID_MAX) {
+      throw new Error('buildReplyButtonsPayload: invalid button id');
+    }
+    if (button.title.trim() === '' || button.title.length > REPLY_BUTTON_TITLE_MAX) {
+      throw new Error('buildReplyButtonsPayload: invalid button title');
+    }
+    if (vistos.has(button.id)) {
+      throw new Error('buildReplyButtonsPayload: duplicate button id');
+    }
+    vistos.add(button.id);
+  }
+
+  return {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: toDigits,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: bodyText },
+      action: {
+        buttons: buttons.map((button) => ({
+          type: 'reply',
+          reply: { id: button.id, title: button.title },
+        })),
+      },
+    },
+  } as const;
+}
+
+/**
+ * Lo que recibe quien ESCRIBE en vez de tocar (13-09-2026).
+ *
+ * Con los botones delante, este cliente es el que se quedó sin puerta: dice que
+ * sí con sus palabras, el detector estricto no lo reconoce, y hasta hoy acababa
+ * en una derivación a una persona. Ahora se le vuelve a poner delante lo único
+ * que hace avanzar su pedido.
+ *
+ * Sale CON los botones pegados, no como texto suelto: los del mensaje anterior
+ * siguen vivos más arriba en el chat, pero pedirle que suba a buscarlos es
+ * exactamente el trabajo que este mensaje existe para ahorrarle.
+ */
+export const CASH_REPROMPT_TEXT =
+  'Para mandar tu pedido a cocina necesito que toques uno de los dos botones 👇';
+
+/**
+ * La segunda y última vez. Después de esta el agente se calla y el pedido lo
+ * cierra el barrido de los 20 minutos, que es quien tiene el reloj.
+ *
+ * Dice la consecuencia, que es lo único que la primera no decía: no es que no
+ * te entienda, es que tu pedido no se está cocinando.
+ */
+export const CASH_LAST_CALL_TEXT =
+  '⚠️ Tu pedido todavía NO está en cocina.\n\n' +
+  'Si no tocás *CONFIRMAR* o *CANCELAR* aquí abajo, se cancela solo en unos ' +
+  'minutos y nadie lo prepara 👇';

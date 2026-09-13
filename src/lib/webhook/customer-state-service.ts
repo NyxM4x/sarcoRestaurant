@@ -20,6 +20,7 @@ import { catalogTermsFromNames } from './order-change-intent';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { PROOF_REMINDER_ACTION } from '@/lib/kapso/send-proof-reminder';
 import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
+import { CASH_REPROMPT_ACTION } from '@/lib/kapso/send-cash-buttons';
 import {
   CASH_WAIT_ACTION,
   DELIVERY_RELAY_ACTION,
@@ -241,6 +242,41 @@ async function avisoDeEsperaEnviado(
 }
 
 /**
+ * Cuántas veces salió el aviso de los botones desde `desde` (13-09-2026).
+ *
+ * Hermana de `avisoDeEsperaEnviado` y con la misma forma, salvo que aquí hace
+ * falta el NÚMERO y no un sí/no: hay dos avisos distintos y el segundo depende
+ * de que el primero ya haya salido. Se piden como mucho tres filas, que es una
+ * más de las que pueden cambiar la decisión.
+ *
+ * Ante un error devuelve el tope: si no se puede saber si ya se le avisó, no se
+ * le avisa. Es el mismo criterio conservador de la consulta hermana —callar de
+ * más es recuperable, insistir de más es lo que lleva una persona al chat.
+ */
+/** Dos avisos por pedido y después silencio. Ver `decideDefaultReply`. */
+const CASH_REPROMPT_MAX = 2;
+
+async function avisosDeBotonesEnviados(
+  supabase: SupabaseClient,
+  conversationId: string | null,
+  desde: string,
+): Promise<number> {
+  if (conversationId === null) return CASH_REPROMPT_MAX;
+
+  const { data, error } = await supabase
+    .from('agent_messages')
+    .select('id')
+    .eq('agent_conversation_id', conversationId)
+    .eq('actor', 'automation')
+    .eq('metadata->>action', CASH_REPROMPT_ACTION)
+    .gte('message_timestamp', desde)
+    .limit(CASH_REPROMPT_MAX + 1);
+
+  if (error) return CASH_REPROMPT_MAX;
+  return (data ?? []).length;
+}
+
+/**
  * Palabras de los productos ACTIVOS. `undefined` si no se pudo leer la carta.
  *
  * Se lee de `menu_items` por el mismo repositorio que usa el resto del sistema:
@@ -406,6 +442,21 @@ export async function lookupCustomerState(
           )
         : false;
 
+    // 3e. ¿Cuántas veces se le repusieron los botones del efectivo? (13-09-2026)
+    //
+    //     Solo se pregunta cuando el pedido los está esperando: el resto de
+    //     clientes no paga una consulta que no les toca. Se cuenta desde que
+    //     NACIÓ el pedido —el tope es por pedido, no por ventana de tiempo— y
+    //     se pide una fila de más que el tope para distinguir "ya van dos" de
+    //     "van muchas" sin traerse la conversación entera.
+    const cashRepromptsSent = openOrder.awaitingCashConfirm
+      ? await avisosDeBotonesEnviados(
+          supabase,
+          pausa?.conversationId ?? null,
+          pedido.created_at,
+        )
+      : 0;
+
     // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
     //    Sin ella ninguna frase se anota: no poder descartar que el cliente
     //    nombró un producto es razón suficiente para no tocar el pedido.
@@ -436,6 +487,7 @@ export async function lookupCustomerState(
       waitNoticeSent,
       deliveryRelaySentRecently,
       locationRemindedRecently,
+      cashRepromptsSent,
     };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.

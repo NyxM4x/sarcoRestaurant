@@ -3,8 +3,10 @@ import {
   buildImagePayload,
   buildLocationRequestPayload,
   buildMenuCtaPayload,
+  buildReplyButtonsPayload,
   buildTextPayload,
   kapsoSendResponseSchema,
+  type ReplyButton,
 } from './messages';
 
 /**
@@ -24,6 +26,7 @@ export type KapsoSendResult =
         | 'invalid_text'
         | 'invalid_body_text'
         | 'invalid_image'
+        | 'invalid_buttons'
         | 'http_error'
         | 'invalid_response'
         | 'timeout'
@@ -191,6 +194,35 @@ export function createKapsoTransport(cfg: KapsoTransportConfig) {
         payload = buildImagePayload(to, imageUrl, caption);
       } catch {
         return { ok: false, error: 'invalid_image' };
+      }
+      return postMessage(payload, {
+        phoneNumberId: options?.phoneNumberId,
+        timeoutMs: options?.timeoutMs,
+      });
+    },
+
+    /**
+     * Envía un mensaje interactivo con BOTONES de respuesta y devuelve el wamid.
+     *
+     * Mismo contrato que el resto: no lanza, devuelve errores tipados. El
+     * builder valida los límites de WhatsApp —3 botones, 20 caracteres de
+     * título, 1024 de cuerpo, ids únicos— y aquí se traducen a
+     * `invalid_buttons` SIN llamar a fetch: un payload que la API va a rechazar
+     * no merece el viaje de red para enterarse.
+     */
+    async sendButtons(
+      customerPhone: string,
+      bodyText: string,
+      buttons: readonly ReplyButton[],
+      options?: SendOptions,
+    ): Promise<KapsoSendResult> {
+      const to = normalizePhone(customerPhone);
+      if (!to) return { ok: false, error: 'invalid_phone' };
+      let payload: ReturnType<typeof buildReplyButtonsPayload>;
+      try {
+        payload = buildReplyButtonsPayload(to, bodyText, buttons);
+      } catch {
+        return { ok: false, error: 'invalid_buttons' };
       }
       return postMessage(payload, {
         phoneNumberId: options?.phoneNumberId,

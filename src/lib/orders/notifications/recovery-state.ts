@@ -74,6 +74,19 @@ export const AMBIGUOUS_ERROR_CODES: readonly string[] = [
   STALE_SENDING_ERROR_CODE,
 ] as const;
 
+/**
+ * "No se entregó, y consta" — el contrario exacto de los de arriba (13-09-2026).
+ *
+ * Lo produce el envío de botones cuando el payload ni salió o la API lo rechazó
+ * con un 4xx. Vive aquí, junto a los ambiguos, porque lo que lo define es la
+ * misma pregunta: ¿pudo haber llegado el mensaje? Aquí la respuesta es que no,
+ * y por eso es el ÚNICO fallo sobre el que se puede reintentar en otro formato
+ * sin arriesgarse a mandar dos.
+ *
+ * Nunca se persiste: `web-notify` lo consume en el mismo tick.
+ */
+export const BUTTONS_REJECTED_ERROR = 'buttons_rejected';
+
 export function isAmbiguousError(code: string | null): boolean {
   if (code === null) return false;
   const trimmed = code.trim();

@@ -172,8 +172,18 @@ export function buildDynamicDeliveryConfirmationText(
 export function buildCashPaymentText(
   confirmationText: string,
   amounts?: { subtotal: number; deliveryAmount: number },
+  /**
+   * ¿El mensaje va a salir con los DOS BOTONES pegados? (13-09-2026)
+   *
+   * Cambia solo el cierre: con botones no se le pide que escriba nada, porque
+   * lo que tiene que tocar está debajo del texto. Por defecto `false`, que es
+   * el mensaje de palabras de siempre — y es el que sale si el transporte no
+   * puede mandar botones, para que nunca quede un cliente con una pregunta y
+   * sin ninguna forma de contestarla.
+   */
+  withButtons = false,
 ): string {
-  const pregunta = cashOrderPendingText();
+  const pregunta = withButtons ? cashOrderPendingWithButtonsText() : cashOrderPendingText();
 
   if (!amounts || amounts.deliveryAmount <= 0) {
     return `${confirmationText}\n\n💵 Pagas en efectivo al recibir tu pedido.\n\n${pregunta}`;
@@ -236,6 +246,32 @@ function cashOrderPendingText(): string {
     '',
     '⚠️ *ADVERTENCIA:* si el delivery llega con tu pedido y no lo recibís, tu ' +
       'número queda BLOQUEADO y no vas a poder volver a pedir en Don Zarco.',
+  ].join('\n');
+}
+
+/**
+ * El mismo cierre, cuando el mensaje lleva los DOS BOTONES (13-09-2026).
+ *
+ * ── Qué cambia y qué no ─────────────────────────────────────────────────────
+ *
+ * Desaparecen las dos líneas que pedían escribir una palabra: con los botones
+ * debajo, decir "escribí CONFIRMO" es darle dos formas de hacer lo mismo y
+ * empujarlo hacia la peor. Lo que NO cambia es la advertencia — sigue aquí, y
+ * sigue pegada a la pregunta por el mismo motivo del 05-09: es la letra pequeña
+ * de lo que se le está pidiendo, y tiene que haberla leído ANTES de decidir.
+ *
+ * ── Por qué la advertencia va ANTES de la pregunta ──────────────────────────
+ *
+ * Porque WhatsApp pinta los botones al final del mensaje, siempre. Lo último
+ * que se lee antes de tocar es la última línea del cuerpo, así que la pregunta
+ * baja ahí y la advertencia queda justo encima: en el orden en que se leen.
+ */
+function cashOrderPendingWithButtonsText(): string {
+  return [
+    '⚠️ *ADVERTENCIA:* si el delivery llega con tu pedido y no lo recibís, tu ' +
+      'número queda BLOQUEADO y no vas a poder volver a pedir en Don Zarco.',
+    '',
+    '¿Confirmás tu pedido? 👇',
   ].join('\n');
 }
 

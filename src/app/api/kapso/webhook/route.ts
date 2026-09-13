@@ -24,6 +24,7 @@ import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
 import { sendLocalAddress } from '@/lib/kapso/send-local-address';
 import { sendWaitNotice } from '@/lib/kapso/send-wait-notice';
+import { sendCashButtons } from '@/lib/kapso/send-cash-buttons';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
 import { sendOrderReview, sendOrderReviewKept } from '@/lib/kapso/send-order-review';
 import { cancelCashOrder, confirmCashOrder } from '@/lib/orders/cash-confirm-service';
@@ -120,6 +121,10 @@ export async function POST(request: Request): Promise<Response> {
       // `orders/cash-confirm-service.ts`.
       decideCashOrder: ({ decision, ...input }) =>
         decision === 'confirm' ? confirmCashOrder(input) : cancelCashOrder(input),
+      // 13-09-2026: el que contesta con SUS palabras en vez de tocar el botón
+      // recibe los botones otra vez —dos veces como mucho— en lugar de acabar
+      // derivado a una persona. Ver `kapso/send-cash-buttons.ts`.
+      sendCashButtons: (input) => sendCashButtons(input),
       // 04-09-2026: "sin cebolla" no es rearmar el pedido — se anota en la
       // comanda y se le contesta que sí. Ver `webhook/order-change-intent.ts`.
       appendKitchenNote: (input) => appendKitchenNote(input),

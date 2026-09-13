@@ -5,7 +5,11 @@ import type {
   OrderStatus,
   PaymentMethod,
 } from '@/types';
-import { PAYMENT_QR_URL } from '@/lib/kapso/messages';
+import {
+  PAYMENT_QR_URL,
+  cashDecisionButtons,
+  type ReplyButton,
+} from '@/lib/kapso/messages';
 import {
   buildConfirmationText,
   buildDynamicDeliveryConfirmationText,
@@ -16,7 +20,12 @@ import {
   type NotifyItem,
 } from './notify-text';
 import { classifySendFailure } from './retry-policy';
-import { isAmbiguousError, type RecoveryStatus } from './recovery-state';
+import {
+  BUTTONS_REJECTED_ERROR,
+  isAmbiguousError,
+  type RecoveryStatus,
+} from './recovery-state';
+import { log } from '@/lib/log';
 
 /**
  * Orquestador de notificaciones del checkout web (Fase 5.2D.2) — módulo puro.
@@ -136,6 +145,21 @@ export interface NotificationSender {
     phone: string,
     phoneNumberId: string,
     orderNumber: string,
+  ): Promise<SendResult>;
+  /**
+   * Mensaje interactivo con botones de respuesta (13-09-2026).
+   *
+   * OPCIONAL a propósito, igual que `listPayments` en el KDS: sin este método el
+   * pedido en efectivo sale con el texto de palabras de siempre y todo se
+   * comporta exactamente como antes. Es lo que impide que un adaptador viejo
+   * —o un test que no lo implemente— deje al cliente con una pregunta y sin
+   * ninguna forma de contestarla.
+   */
+  sendButtons?(
+    phone: string,
+    bodyText: string,
+    buttons: readonly ReplyButton[],
+    phoneNumberId: string,
   ): Promise<SendResult>;
 }
 
@@ -385,6 +409,57 @@ async function processConfirmation(
   // 6D.1: si el pago es por QR, la confirmación es la imagen del QR con el texto
   // de confirmación como caption (un solo mensaje). Cualquier otro método
   // —incluido NULL (históricos / WhatsApp Flow)— conserva el texto de siempre.
+  /**
+   * El pedido en efectivo, con sus dos botones (13-09-2026).
+   *
+   * Si el sender no sabe mandarlos se cae al texto de palabras de siempre. Esa
+   * caída no es decoración: un mensaje que pregunta "¿confirmás?" sin botones y
+   * sin decir qué escribir deja al cliente sin ninguna forma de contestar, y al
+   * pedido esperando veinte minutos para cancelarse solo.
+   */
+  const enviarEfectivo = async (): Promise<SendResult> => {
+    const amounts = {
+      subtotal: order.subtotal_amount,
+      deliveryAmount: order.delivery_amount,
+    };
+
+    /** El mensaje de palabras: el de siempre, y la red debajo del nuevo. */
+    const porPalabras = () =>
+      sender.sendText(
+        order.customer_phone,
+        buildCashPaymentText(text, amounts),
+        order.phone_number_id,
+      );
+
+    const conBotones = sender.sendButtons;
+    if (conBotones === undefined) return porPalabras();
+
+    const enviado = await conBotones.call(
+      sender,
+      order.customer_phone,
+      buildCashPaymentText(text, amounts, true),
+      cashDecisionButtons(order.order_number),
+      order.phone_number_id,
+    );
+    if (enviado.ok) return enviado;
+
+    // ── Si los botones no se entregaron, que al menos salga el mensaje ──────
+    //
+    // Solo ante `buttons_rejected`, que es el único fallo que PRUEBA que no se
+    // entregó nada (ver `createKapsoNotificationSender`). Ante un timeout o un
+    // 5xx no se reintenta aquí: el mensaje pudo haber salido, y dos mensajes
+    // seguidos diciendo lo mismo con dos formas distintas de contestar es peor
+    // que uno solo que quizá no llegó. De eso se encargan el reintento y la
+    // reconciliación, que sí saben distinguirlo.
+    //
+    // El peor caso del cambio de hoy deja de ser "el pedido en efectivo se
+    // queda mudo" y pasa a ser "sale el mensaje de ayer".
+    if (enviado.error !== BUTTONS_REJECTED_ERROR) return enviado;
+
+    log.warn('cash_buttons_rejected_fallback_to_text');
+    return porPalabras();
+  };
+
   const sent = await safeSend(() =>
     order.payment_method === 'qr'
       ? sender.sendImage(
@@ -399,19 +474,14 @@ async function processConfirmation(
           }),
           order.phone_number_id,
         )
-      : sender.sendText(
-          order.customer_phone,
-          // El efectivo ya no sale mudo (04-09-2026): lleva su cifra y su
-          // instrucción, igual que el QR lleva las suyas. Un método de pago
-          // NULL —históricos, WhatsApp Flow— conserva el texto pelado.
-          order.payment_method === 'cash'
-            ? buildCashPaymentText(text, {
-                subtotal: order.subtotal_amount,
-                deliveryAmount: order.delivery_amount,
-              })
-            : text,
-          order.phone_number_id,
-        ),
+      : order.payment_method === 'cash'
+        // El efectivo ya no sale mudo (04-09-2026): lleva su cifra y su
+        // instrucción, igual que el QR lleva las suyas. Y desde el 13-09-2026
+        // lleva además los dos BOTONES con los que se decide.
+        ? enviarEfectivo()
+        // Un método de pago NULL —históricos, WhatsApp Flow— conserva el texto
+        // pelado de siempre.
+        : sender.sendText(order.customer_phone, text, order.phone_number_id),
   );
   if (!sent.ok) {
     // La RPC decide el estado real (ambiguo -> pending_reconciliation); el

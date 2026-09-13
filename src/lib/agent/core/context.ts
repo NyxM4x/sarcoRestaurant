@@ -36,7 +36,8 @@ export type AutomationAction =
   | 'proof_wait'
   | 'cash_wait'
   | 'delivery_relay'
-  | 'location_reminder';
+  | 'location_reminder'
+  | 'cash_reprompt';
 
 const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
   'send_menu',
@@ -47,6 +48,7 @@ const AUTOMATION_ACTIONS: readonly AutomationAction[] = [
   'cash_wait',
   'delivery_relay',
   'location_reminder',
+  'cash_reprompt',
 ];
 
 /** ¿Es una acción conocida? Todo lo demás cae al evento genérico. */
@@ -210,6 +212,13 @@ export function automationEventLine(action: AutomationAction | null | undefined)
   if (action === 'cash_wait') {
     // Lo mismo para el efectivo: escribió CONFIRMO y su pedido ya está hecho.
     return 'Evento del canal: el sistema le dijo al cliente que su pedido ya está en cocina y que espere.';
+  }
+  if (action === 'cash_reprompt') {
+    // Escribió en vez de tocar el botón, y el sistema ya se lo volvió a poner
+    // delante. Sin esta línea el modelo repetiría la pregunta con sus propias
+    // palabras —"¿entonces lo confirmás?"— y el cliente tendría dos preguntas y
+    // ningún botón nuevo que tocar.
+    return 'Evento del canal: el cliente escribió en vez de tocar CONFIRMAR o CANCELAR, y el sistema le volvió a mandar los dos botones.';
   }
   if (action === 'delivery_relay') {
     // Pidió cambiar algo cuando el pedido ya estaba en cocina y en el grupo de
