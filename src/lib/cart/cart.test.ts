@@ -220,8 +220,8 @@ describe('persistencia en localStorage', () => {
       porcion_papas: '3',
       gaseosa_2l: 99,
       gaseosa_personal: null,
-      gaseosa_pequena: 10,
+      soda_peque: 10,
     });
-    expect(parseStoredCart(stored)).toEqual({ la_fija: 2, gaseosa_pequena: 10 });
+    expect(parseStoredCart(stored)).toEqual({ la_fija: 2, soda_peque: 10 });
   });
 });
