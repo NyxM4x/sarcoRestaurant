@@ -10,6 +10,7 @@ import {
   orderConfirmedByCashText,
   orderExpiredWithoutConfirmText,
 } from '@/lib/orders/notifications/notify-text';
+import { CASH_EXPIRY_ORDER_COLUMNS, shouldNotifyCashExpiry } from '@/lib/orders/cash-expiry';
 import type { DeliveryType } from '@/types';
 
 /**
@@ -273,14 +274,20 @@ export async function expireUnconfirmedCashOrders(
 
     const { data, error } = await supabase
       .from('orders')
-      .select('id, order_number, customer_phone, phone_number_id, confirmed_at, created_at')
+      .select(CASH_EXPIRY_ORDER_COLUMNS)
       .eq('payment_method', 'cash')
       .eq('status', 'confirmed')
       .is('cash_confirmed_at', null)
       .lt('created_at', limite)
       .limit(MAX_POR_BARRIDO);
 
-    if (error || !data) return { cancelled: 0 };
+    // Una consulta que falla se DICE. Esta devolvió "0 cancelados" durante días
+    // pidiendo una columna que `orders` no tiene, y nada lo delató.
+    if (error) {
+      log.warn('cash_expiry_query_failed', { code: error.code });
+      return { cancelled: 0 };
+    }
+    if (!data) return { cancelled: 0 };
 
     let cancelados = 0;
     for (const fila of data as Array<Record<string, unknown>>) {
@@ -306,13 +313,16 @@ export async function expireUnconfirmedCashOrders(
       if (errorUpdate || (cerrado ?? []).length === 0) continue;
       cancelados += 1;
 
+      // Solo al que venció hace poco: al de hace días no se le escribe. Ver
+      // `shouldNotifyCashExpiry`.
       const telefono = String(fila.customer_phone ?? '');
-      if (telefono !== '') {
+      if (telefono !== '' && shouldNotifyCashExpiry(Date.parse(referencia), Date.now())) {
         await contestar(
           supabase,
           {
             toDigits: telefono,
-            phoneNumberId: (fila.phone_number_id as string | null) ?? null,
+            // `orders` no guarda el número del negocio: sale el del entorno.
+            phoneNumberId: null,
             sourceMessageId: '',
             orderId: id,
           },
