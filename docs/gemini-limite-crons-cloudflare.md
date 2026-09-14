@@ -1,5 +1,9 @@
 # Prompt para Gemini — cuatro despertadores y cinco lugares
 
+> **Decidido el 14-09-2026: Opción A.** Un solo Worker por restaurante,
+> `sarco-recovery-cron` (`cloudflare/recovery-cron/`), con los cuatro `POST` en
+> paralelo. Este documento queda como registro de la decisión.
+
 > Este archivo **es** el prompt. Copialo entero (Ctrl+A, Ctrl+C) y pegalo en
 > Gemini. No hace falta editar nada.
 

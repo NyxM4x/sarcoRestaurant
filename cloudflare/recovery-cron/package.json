@@ -1,8 +1,8 @@
 {
-  "name": "sarco-telegram-alerts-cron",
+  "name": "sarco-recovery-cron",
   "version": "0.1.0",
   "private": true,
-  "description": "Cloudflare Cron dedicado que despierta el outbox de alertas de Telegram (POST {} al endpoint interno de Vercel). Despliegue independiente de los otros dos crons.",
+  "description": "Cloudflare Cron único de Sarco: cada minuto despierta en paralelo los cuatro endpoints internos de recuperación de Vercel.",
   "type": "module",
   "scripts": {
     "test": "vitest run",

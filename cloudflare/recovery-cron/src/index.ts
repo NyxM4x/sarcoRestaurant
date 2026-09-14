@@ -1,17 +1,13 @@
-import {
-  runNotificationRecoveryTick,
-  TICK_TIMEOUT_MS,
-  type CronBindings,
-  type CronDeps,
-} from './cron';
+import { runRecoveryTick, TICK_TIMEOUT_MS, type CronBindings, type CronDeps } from './cron';
 
 /**
- * Cloudflare Module Worker — despertador COMPARTIDO del worker interno de
- * recuperación de notificaciones (Fase 5.2D.5E.1).
+ * Cloudflare Module Worker — el despertador único de Sarco (14-09-2026).
  *
- * Un solo Worker, un solo Cron Trigger, un solo endpoint. `scheduled()` hace UNA
- * llamada `POST {}` al endpoint interno de Vercel. `fetch()` es un health check
- * inerte que NUNCA dispara el tick. No hay ruta pública que invoque producción.
+ * Un solo Worker, un solo Cron Trigger, cuatro endpoints. `scheduled()` toca
+ * los cuatro timbres a la vez. `fetch()` es un health check inerte que NUNCA
+ * dispara nada: no hay ruta pública que invoque producción.
+ *
+ * Ver `cron.ts` para el porqué de uno solo y en paralelo.
  */
 
 /** Claves que jamás deben aparecer en un log, por si se cuelan en `fields`. */
@@ -19,12 +15,14 @@ const SENSITIVE_KEYS = new Set([
   'authorization',
   'token',
   'url',
-  'order_id',
-  'order_number',
+  'payload',
   'phone',
+  'customer_phone',
   'wamid',
-  'claim_token',
-  'results',
+  'message_id',
+  'event_id',
+  'idempotency_key',
+  'signature',
 ]);
 
 /** Emite un log estructurado saneado: elimina cualquier clave sensible. */
@@ -57,23 +55,23 @@ interface ExecutionContext {
 }
 
 export default {
-  /** Disparado por el Cron Trigger. Una sola llamada, sin datos de entrada. */
+  /** Disparado por el Cron Trigger. Cuatro llamadas en paralelo, sin datos de entrada. */
   async scheduled(
     _controller: ScheduledController,
     env: CronBindings,
     ctx: ExecutionContext,
   ): Promise<void> {
-    ctx.waitUntil(runNotificationRecoveryTick(env, defaultDeps()));
+    ctx.waitUntil(runRecoveryTick(env, defaultDeps()));
   },
 
   /**
-   * Health check inerte. NO ejecuta el tick, no acepta parámetros, no expone
+   * Health check inerte. NO ejecuta ningún tick, no acepta parámetros, no expone
    * configuración ni secretos: solo confirma que el Worker está vivo.
    */
   async fetch(): Promise<Response> {
-    return new Response(
-      JSON.stringify({ service: 'sarco-notification-recovery-cron', status: 'ok' }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ service: 'sarco-recovery-cron', status: 'ok' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   },
 };

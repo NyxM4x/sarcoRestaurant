@@ -1,7 +1,17 @@
 # RECOVERY CRON — quién despierta a los workers de recuperación
 
-Estado: **implementado y probado en local. NADA desplegado.** El plan de
-despliegue está al final y todavía no se ha ejecutado.
+> **Desde el 14-09-2026 hay UN solo Worker: `sarco-recovery-cron`**
+> (`cloudflare/recovery-cron/`). Cada minuto hace los cuatro `POST` en
+> paralelo, cada uno con su propio timeout. Reemplaza a los cuatro Workers que
+> había, uno por endpoint, porque el plan Free de Cloudflare admite cinco Cron
+> Triggers por **cuenta**, la cuenta la comparte La Fija con tres, y dos de los
+> de Sarco se quedaron sin cron. El porqué completo y la migración están en
+> `cloudflare/recovery-cron/README.md` y en
+> `docs/gemini-limite-crons-cloudflare.md`.
+>
+> Lo que sigue describe la etapa de cuatro Workers. Sigue valiendo lo que dice
+> del fallback, la tenencia y la seguridad; donde habla de "un Worker por
+> endpoint", léase "un `POST` en paralelo por endpoint".
 
 ## Por qué existe
 
@@ -71,7 +81,10 @@ que no suena es silencioso por definición.
 que lo despierte. Esta ruta ejecuta lo mismo que ellos, pero como SEGUNDA cuerda
 — nunca como la única. Si algo solo cuelga de aquí, no corre.
 
-El barrido tiene desde entonces su Worker: `sarco-order-expiry-cron`.
+El barrido tuvo desde entonces su Worker, `sarco-order-expiry-cron`, y desde el
+14-09-2026 lo despierta `sarco-recovery-cron` junto con los otros tres. Una
+prueba de la raíz falla si alguna ruta `worker/tick` de la app no aparece en la
+lista de ese Worker.
 
 ## Estado HTTP del fallback
 
@@ -141,13 +154,13 @@ Cubren toda la **configuración ejecutable** (lo que `wrangler` lee o empaqueta)
 queda fuera a propósito: documenta, no se ejecuta, y un guardián que falla por
 un ejemplo en prosa acaba desactivado.
 
-## Contrato de cada Worker
+## Contrato del despertador
 
-Sin cambios respecto a lo que ya había, y se conserva entero:
-
-- dos Workers **independientes**, un Cron Trigger por Worker;
+- **un** Worker y **un** Cron Trigger para los cuatro endpoints (una prueba de
+  la raíz impide declarar un segundo cron);
 - frecuencia `* * * * *` (UTC);
-- **un solo `POST`** por ejecución, cuerpo exactamente `{}`;
+- **un solo `POST` por endpoint** por ejecución, los cuatro en paralelo, cuerpo
+  exactamente `{}`;
 - timeout **55 s** (por debajo del `maxDuration = 60` del endpoint y por encima
   de su presupuesto interno de reloj de 42 s);
 - **cero retry** dentro del mismo tick — la recuperación es el minuto siguiente;
@@ -242,19 +255,16 @@ Requisitos previos, en este orden:
 > paralelo con su propia base de datos y sus propios secretos, y los Workers
 > despertarían al equivocado.
 
-Después, **por Worker y de uno en uno**:
+Después:
 
 ```bash
-cd cloudflare/webhook-events-recovery-cron
+cd cloudflare/recovery-cron
 npm install
-npm test                       # incluye el guardián de tenencia
+npm test                       # incluye el guardián de tenencia y de rutas
 npx wrangler secret put WORKER_INTERNAL_TOKEN   # el valor NO se escribe aquí
 npx wrangler deploy
-npx wrangler tail sarco-webhook-events-recovery-cron --format json
+npx wrangler tail sarco-recovery-cron --format json
 ```
-
-Y lo mismo con `cloudflare/notification-recovery-cron` →
-`sarco-notification-recovery-cron`.
 
 ### Validación con Wrangler (ya ejecutada, sin desplegar)
 

@@ -51,18 +51,17 @@ export const dynamic = 'force-dynamic';
  *
  * ── Esta ruta es el FALLBACK, no el despertador principal ────────────────────
  *
- * El camino oficial son los dos Cloudflare Workers dedicados
- * (`cloudflare/webhook-events-recovery-cron` y
- * `cloudflare/notification-recovery-cron`), que llaman por POST a cada worker
- * interno por separado, cada uno con su propio presupuesto de 55 s y su propia
- * observabilidad. Esa separación existe porque un evento del inbox puede llevar
- * un turno completo del agente —11-12 s medidos—: encadenar los dos recoveries
- * en una sola invocación hace que uno le coma el presupuesto al otro.
+ * El camino oficial es el Cloudflare Worker `sarco-recovery-cron`
+ * (`cloudflare/recovery-cron`), que llama por POST, en paralelo, a cada worker
+ * interno por separado: cada uno es su propia invocación de Vercel, con su
+ * propio presupuesto, y el Worker espera a cada uno con su propio timeout de
+ * 55 s. Esa separación existe porque un evento del inbox puede llevar un turno
+ * completo del agente —11-12 s medidos—: encadenar los recoveries en una sola
+ * invocación, como hace esta ruta, hace que uno le coma el presupuesto al otro.
  *
  * Esta ruta se conserva porque no cuesta nada y cubre el caso en que Cloudflare
- * esté caído o los Workers todavía no estén desplegados: un solo cron de Vercel
- * mueve los dos. Pero mientras los Workers estén activos, el despertador
- * principal son ellos, y esto es la segunda cuerda.
+ * esté caído o el Worker todavía no esté desplegado. Pero mientras el Worker
+ * esté activo, el despertador principal es él, y esto es la segunda cuerda.
  */
 
 /** Token esperado. Acepta `CRON_SECRET` para no obligar a duplicar el valor. */
@@ -127,8 +126,8 @@ export async function GET(request: Request): Promise<Response> {
    * se ejecutó JAMÁS. El 09-09-2026 había once pedidos sin confirmar, el más
    * antiguo de hacía tres días, y once clientes sin su aviso.
    *
-   * Desde entonces el camino oficial es `sarco-order-expiry-cron`, que llama a
-   * `POST /api/internal/orders/expiry/worker/tick`. Aquí se conserva por lo
+   * Desde entonces el camino oficial es `sarco-recovery-cron`, que llama a
+   * `POST /api/internal/orders/expiry/worker/tick` junto con los otros tres. Aquí se conserva por lo
    * mismo que los tres workers de arriba: un fallback que ejecuta MENOS que el
    * camino principal es una divergencia que no se nota hasta que hace falta. El
    * barrido es idempotente —su UPDATE lleva guarda sobre `cash_confirmed_at is

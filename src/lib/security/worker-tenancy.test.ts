@@ -77,9 +77,59 @@ const WORKERS: readonly string[] = existsSync(RAIZ_WORKERS)
 const corto = (ruta: string): string => ruta.split(sep).slice(-2).join('/');
 
 describe('los Cloudflare Workers del repositorio', () => {
-  it('se descubren al menos los dos conocidos', () => {
+  it('se descubre al menos el despertador de Sarco', () => {
     // Si esta lista se vacia, el resto de la suite pasaria sin comprobar nada.
-    expect(WORKERS.length).toBeGreaterThanOrEqual(2);
+    expect(WORKERS.length).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * UN solo Cron Trigger en todo el repositorio (14-09-2026).
+   *
+   * El plan Free de Cloudflare admite cinco por CUENTA, y la cuenta la comparte
+   * otro restaurante que ya usa tres. Con cuatro Workers, dos de Sarco se
+   * quedaron sin cron y un comprobante pagado quedo trabado sin que nadie lo
+   * retomara. Cada expresion cuenta, este en el Worker que este.
+   *
+   * Si algun dia hace falta un segundo cron, que sea una decision a la vista
+   * —cambiando este numero y contando los lugares libres de la cuenta—, no algo
+   * que se descubre cuando `wrangler deploy` lo rechaza.
+   */
+  it('entre todos declaran UN solo Cron Trigger', () => {
+    let total = 0;
+    for (const dirWorker of WORKERS) {
+      const manifiesto = join(dirWorker, 'wrangler.jsonc');
+      if (!existsSync(manifiesto)) continue;
+      const raw = readFileSync(manifiesto, 'utf8');
+      for (const [, lista] of raw.matchAll(/"crons"\s*:\s*\[([^\]]*)\]/g)) {
+        total += (lista.match(/"[^"]*"/g) ?? []).length;
+      }
+    }
+    expect(total).toBe(1);
+  });
+
+  /**
+   * Toda ruta `worker/tick` de la app tiene quien la despierte.
+   *
+   * El barrido de efectivo estuvo tres dias escrito, probado y sin que nadie lo
+   * llamara. Con un solo Worker para todo, el riesgo es el mismo con otra
+   * forma: una ruta nueva que nadie anade a su lista. Esta prueba corre con el
+   * `npm test` de la raiz, que es el que se ejecuta siempre.
+   */
+  it('ninguna ruta `worker/tick` de la app se queda sin despertador', () => {
+    const app = fileURLToPath(new URL('../../app', import.meta.url));
+    const rutas = ficherosDe(join(app, 'api', 'internal'))
+      .filter((f) => f.endsWith(`${sep}worker${sep}tick${sep}route.ts`))
+      .map((f) => '/' + f.slice(app.length + 1).split(sep).slice(0, -1).join('/'));
+    expect(rutas.length).toBeGreaterThanOrEqual(4);
+
+    const fuentes = WORKERS.flatMap((d) =>
+      existsSync(join(d, 'src')) ? ficherosDe(join(d, 'src')) : [],
+    )
+      .map((f) => readFileSync(f, 'utf8'))
+      .join('\n');
+
+    const sinDespertador = rutas.filter((ruta) => !fuentes.includes(`'${ruta}'`));
+    expect(sinDespertador).toEqual([]);
   });
 
   for (const dirWorker of WORKERS) {

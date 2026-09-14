@@ -9,21 +9,23 @@ de WhatsApp y las alertas Telegram de incidencias.
 ## Arquitectura (una sola pieza de cada)
 
 ```
-Cloudflare Cron (* * * * *)                 ← 1 Worker, 1 Cron, 1 despertador
+Cloudflare Cron (* * * * *)                 ← 1 Worker, 1 Cron, 4 timbres en paralelo
   → POST {} a /api/internal/order-notifications/worker/tick (Vercel, Bearer)
+    (junto con webhook-events, telegram-alerts y orders/expiry, cada uno con su timeout)
     → select_due_notification_orders  → claim atómico → recuperación/reconciliación/retry seguro
     → terminal / manual_review
     → pase de alertas: select_due_notification_alerts → claim atómico → Telegram → mark_notification_alerted
 ```
 
-- Worker Cloudflare: `notification-recovery-cron` (paquete `cloudflare/notification-recovery-cron`).
+- Worker Cloudflare: `sarco-recovery-cron` (paquete `cloudflare/recovery-cron`). Desde el
+  14-09-2026 es el único despertador de Sarco; antes cada recuperación tenía su Worker.
 - Endpoint interno único en Vercel: `POST /api/internal/order-notifications/worker/tick`.
 - Toda la deduplicación vive en los **claims atómicos** de la base (migraciones 0004–0007).
 
 ## Verificar el Cron
 
 - Estado del Worker/Cron: `npx wrangler deployments status` y `npx wrangler versions list`
-  (desde `cloudflare/notification-recovery-cron/`).
+  (desde `cloudflare/recovery-cron/`).
 - Health check inerte (no dispara el tick): `GET https://<worker>.workers.dev/` → `{"status":"ok"}`.
 - Confirmar que el endpoint responde protegido:
   - `POST .../worker/tick` sin Bearer → **401**.
@@ -31,16 +33,18 @@ Cloudflare Cron (* * * * *)                 ← 1 Worker, 1 Cron, 1 despertador
 
 ## Ver logs en vivo (`wrangler tail`)
 
-Desde `cloudflare/notification-recovery-cron/`:
+Desde `cloudflare/recovery-cron/`:
 
 ```
-npx wrangler tail notification-recovery-cron --format json
+npx wrangler tail sarco-recovery-cron --format json
 ```
 
-En reposo, cada minuto debe verse `cron_started` y luego `cron_completed` con:
+En reposo, cada minuto debe verse `cron_started`, un `cron_completed` con
+`recovery=order_notifications` y
 `status=200, ok=true, selected=0, processed=0, history_reads=0,
 network_send_attempts=0, alerts_selected=0, alert_send_attempts=0,
-alerts_sent=0, alerts_rescheduled=0`.
+alerts_sent=0, alerts_rescheduled=0`, y al final `cron_finished` con
+`outcomes.order_notifications=completed`.
 
 Los logs NUNCA contienen Authorization, token, chat_id, teléfono, dirección,
 coordenadas, wamid, order_id, claim_token ni el payload/`results` completo
@@ -49,9 +53,11 @@ coordenadas, wamid, order_id, claim_token ni el payload/`results` completo
 ## Pausar el Cron correctamente
 
 El Cron es un trigger declarado en `wrangler.jsonc` (`"crons": ["* * * * *"]`).
-Para pausar sin borrar el Worker:
+**Es el mismo para las cuatro recuperaciones**: pausarlo pausa también el inbox
+de webhooks, las alertas de reparto y el barrido de caducados. Para pausar sin
+borrar el Worker:
 
-1. Preferido (dashboard): Workers & Pages → `notification-recovery-cron` →
+1. Preferido (dashboard): Workers & Pages → `sarco-recovery-cron` →
    Triggers → Cron Triggers → eliminar/deshabilitar el trigger.
 2. Por código: comentar el `crons` en `wrangler.jsonc` y `npx wrangler deploy`.
 
