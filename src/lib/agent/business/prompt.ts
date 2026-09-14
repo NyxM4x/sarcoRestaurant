@@ -257,5 +257,36 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
   '  que la reenvíen. Nunca describas una imagen que no pudiste ver.',
 ].join('\n');
 
+/**
+ * El prompt de ESTE turno: el de siempre, más la noche de promoción si toca
+ * (14-09-2026). Ver `promotions/promo-mode`.
+ *
+ * El prompt fijo le enseña a ofrecer "Recojo" y no sabe de horas. Sin este
+ * bloque, en noche de promoción mandaría al cliente a elegir una opción que el
+ * checkout tiene deshabilitada. Va AL FINAL y dice que manda: es la instrucción
+ * más específica, y la última que el modelo lee.
+ *
+ * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
+ */
+export function systemPromptForMode(mode: { cashAllowed: boolean; pickupAllowed: boolean }): string {
+  if (mode.cashAllowed && mode.pickupAllowed) return DON_ZARCO_SYSTEM_PROMPT;
+
+  const lineas = ['', 'Hoy hay promoción vigente, y mientras dure:'];
+  if (!mode.pickupAllowed) {
+    lineas.push(
+      '- No hay recojo: todos los pedidos salen con delivery. Si alguien quiere',
+      '  pasar a recogerlo, dile que hoy no se puede y que lo pida con envío.',
+    );
+  }
+  if (!mode.cashAllowed) {
+    lineas.push('- No se acepta efectivo: el pago es solo por QR.');
+  }
+  lineas.push(
+    '- Esto manda sobre lo que dicen arriba del recojo y del efectivo. No',
+    '  prometas que mañana vuelva: no lo sabes.',
+  );
+  return DON_ZARCO_SYSTEM_PROMPT + '\n' + lineas.join('\n');
+}
+
 /** Techo de tokens de la respuesta: en WhatsApp, largo es peor. */
 export const DON_ZARCO_MAX_OUTPUT_TOKENS = 300;

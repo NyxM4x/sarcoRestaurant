@@ -690,6 +690,20 @@ export function pickupSwitchText(
 }
 
 /**
+ * "Paso yo a recogerlo" en noche de promoción: hoy no se puede (14-09-2026).
+ *
+ * Empieza por el NO, como el efectivo, y sigue con lo que le importa: que su
+ * pedido no se tocó y sale igual. Sin esa segunda mitad, un "no hay recojo"
+ * suelto se lee como que algo le pasó al pedido.
+ */
+export function pickupUnavailableText(orderNumber: string): string {
+  return (
+    `Hoy, por la promoción, no hay recojo: los pedidos salen solo con delivery. ` +
+    `Tu pedido ${shortOrderNumber(orderNumber)} sigue igual y te lo llevamos 🛵`
+  );
+}
+
+/**
  * Lo que recibe quien pide algo para la plancha sobre un pedido ya armado.
  *
  * ── Por qué no se le manda a rearmar el pedido ──────────────────────────────
@@ -768,15 +782,30 @@ export type KapsoSendResponse = z.infer<typeof kapsoSendResponseSchema>;
  * Es la misma regla del prompt: preferible mandar solo el mapa a inventar una
  * calle o transcribir mal un barrio.
  */
-export function localAddressText(): string {
+export function localAddressText(
+  /**
+   * ¿Hay recojo ahora? En noche de promoción no (14-09-2026). Ausente = sí.
+   *
+   * La dirección se manda igual —quien pregunta dónde queda puede querer otra
+   * cosa—, pero el mismo detector atiende "¿se puede pasar a recoger?", y la
+   * dirección sola le contestaría que sí.
+   */
+  options: { pickupAllowed?: boolean } = {},
+): string {
   const donde =
     BUSINESS_ADDRESS === null
       ? 'Estamos acá 📍'
       : `Estamos ${BUSINESS_ADDRESS} 📍`;
 
+  const sinRecojo =
+    options.pickupAllowed === false
+      ? '\n\nHoy, por la promoción, no hay recojo: los pedidos salen solo con delivery.'
+      : '';
+
   return (
     `${donde}\n${BUSINESS_MAPS_URL}\n\n` +
-    `Es nuestro único local, y atendemos todos los días de ${businessHoursClock()}.`
+    `Es nuestro único local, y atendemos todos los días de ${businessHoursClock()}.` +
+    sinRecojo
   );
 }
 

@@ -188,6 +188,9 @@ const ORDER_ALREADY_PAID_MESSAGE =
  * debajo de "Método de pago", que es exactamente lo que hay que cambiar.
  */
 const CASH_UNAVAILABLE_MESSAGE = 'Hoy el pago es solo por QR. Elige QR y confirma de nuevo.';
+/** Noche de promoción: tampoco hay recojo. Mismo criterio: error del campo. */
+const PICKUP_UNAVAILABLE_MESSAGE =
+  'Hoy no hay recojo: los pedidos salen solo con envío. Elige Envío y confirma de nuevo.';
 /**
  * Noche de promoción: un producto del carrito hoy solo va dentro de su combo.
  *
@@ -396,6 +399,15 @@ export async function handleCreateWebOrder(
         error: 'validation_error',
         message: CASH_UNAVAILABLE_MESSAGE,
         issues: [{ field: 'payment_method', message: CASH_UNAVAILABLE_MESSAGE }],
+      });
+    }
+
+    if (body.delivery_type === 'pickup' && !modo.pickupAllowed) {
+      log.warn('store.orders.pickup_during_promo');
+      return jsonResponse(422, {
+        error: 'validation_error',
+        message: PICKUP_UNAVAILABLE_MESSAGE,
+        issues: [{ field: 'delivery_type', message: PICKUP_UNAVAILABLE_MESSAGE }],
       });
     }
 

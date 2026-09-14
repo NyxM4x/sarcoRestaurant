@@ -198,18 +198,19 @@ export function MenuStore({
   /**
    * El formulario tal como se pinta y se envía.
    *
-   * Sin efectivo, el método es QR y punto: se DERIVA aquí en vez de escribirlo
-   * en el reducer con un efecto. Así no hay un render con "Efectivo" marcado en
-   * un formulario que ya no lo ofrece, y a las 00:00 lo que el cliente había
-   * elegido sigue ahí intacto.
+   * Sin efectivo, el método es QR y punto; sin recojo, la entrega es envío y
+   * punto. Se DERIVA aquí en vez de escribirlo en el reducer con un efecto. Así
+   * no hay un render con "Efectivo" o "Recojo" marcado en un formulario que ya
+   * no lo ofrece, y a las 00:00 lo que el cliente había elegido sigue intacto.
    */
-  const fields = useMemo(
-    () =>
-      modo.cashAllowed || checkout.fields.payment_method === 'qr'
-        ? checkout.fields
-        : { ...checkout.fields, payment_method: 'qr' as const },
-    [checkout.fields, modo.cashAllowed],
-  );
+  const fields = useMemo(() => {
+    let f = checkout.fields;
+    if (!modo.cashAllowed && f.payment_method !== 'qr') f = { ...f, payment_method: 'qr' as const };
+    if (!modo.pickupAllowed && f.delivery_type !== 'delivery') {
+      f = { ...f, delivery_type: 'delivery' as const };
+    }
+    return f;
+  }, [checkout.fields, modo.cashAllowed, modo.pickupAllowed]);
 
   const hasSession = sessionToken !== null;
   // El checkout solo está disponible con un enlace que aún no se haya bloqueado.
@@ -442,6 +443,7 @@ export function MenuStore({
         open={checkoutOpen}
         fields={fields}
         cashAllowed={modo.cashAllowed}
+        pickupAllowed={modo.pickupAllowed}
         errors={checkout.errors}
         summary={cart.summary}
         promoSummary={promos.summary}

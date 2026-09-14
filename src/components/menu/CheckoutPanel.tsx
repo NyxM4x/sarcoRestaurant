@@ -22,6 +22,7 @@ export function CheckoutPanel({
   open,
   fields,
   cashAllowed = true,
+  pickupAllowed = true,
   errors,
   summary,
   promoSummary,
@@ -43,6 +44,8 @@ export function CheckoutPanel({
    * `promotions/promo-mode`. Ausente = sí, como siempre.
    */
   cashAllowed?: boolean;
+  /** ¿Se ofrece recojo? En noche de promoción tampoco. Ausente = sí. */
+  pickupAllowed?: boolean;
   errors: CheckoutFormErrors;
   summary: CartSummary;
   /** Los combos del carrito. El resumen del checkout tiene que sumarlos. */
@@ -179,13 +182,14 @@ export function CheckoutPanel({
                 disabled={frozen}
                 onSelect={() => onChange('delivery_type', 'delivery')}
               />
+              {/* Igual que el efectivo: sin recojo se deshabilita, no desaparece. */}
               <DeliveryOption
                 label="Recojo"
-                hint="En el local"
+                hint={pickupAllowed ? 'En el local' : 'Hoy no disponible'}
                 icon="🏠"
                 value="pickup"
-                active={fields.delivery_type === 'pickup'}
-                disabled={frozen}
+                active={pickupAllowed && fields.delivery_type === 'pickup'}
+                disabled={frozen || !pickupAllowed}
                 onSelect={() => onChange('delivery_type', 'pickup')}
               />
             </div>

@@ -30,7 +30,7 @@ import { pauseAgentForHandoff } from './control/handoff-pause';
 import { PAUSE_REASON_PAYMENT_REVIEWED } from './core/types';
 import { createOpenAiModel, OPENAI_DEFAULT_MODEL } from './openai/adapter';
 import { createKapsoMediaResolver } from '@/lib/kapso/media-resolver';
-import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './business/prompt';
+import { DON_ZARCO_MAX_OUTPUT_TOKENS, systemPromptForMode } from './business/prompt';
 import {
   parseAccessMode,
   parseTestPhones,
@@ -104,7 +104,9 @@ export function createAgentChannel(): AgentChannelPort {
           send: createKapsoSendPort(),
           config: readAgentEligibility(),
           // El prompt viene del Business Adapter: el core no sabe de Don Zarco.
-          systemPrompt: DON_ZARCO_SYSTEM_PROMPT,
+          // Por turno desde el 14-09: en noche de promoción lleva el aviso de
+          // que no hay recojo ni efectivo. `readCurrentPromoMode` nunca lanza.
+          systemPrompt: systemPromptForMode(await readCurrentPromoMode()),
           maxOutputTokens: DON_ZARCO_MAX_OUTPUT_TOKENS,
           actions: createAgentActions(),
           // Vision (5C.5). Su ausencia sería el interruptor de apagado: sin

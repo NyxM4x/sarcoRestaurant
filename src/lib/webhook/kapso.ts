@@ -371,7 +371,8 @@ export type SwitchToPickup = (input: {
   /** WAMID del mensaje del cliente. */
   sourceMessageId: string;
   orderId: string;
-}) => Promise<{ ok: boolean }>;
+  /** `declined`: noche de promoción, no se convirtió y se le dijo por qué (14-09-2026). */
+}) => Promise<{ ok: boolean; declined?: boolean }>;
 
 /**
  * Comprobación del cliente atascado (0027 / 29-08-2026).
@@ -831,12 +832,13 @@ async function responderPorDefecto(
       orderId: decision.order.orderId,
     });
     // Ni el número de pedido ni el texto: solo si se pudo.
-    log.info('webhook_pickup_switch', { result: convertido.ok ? 'switched' : 'skipped' });
+    const resultado = !convertido.ok ? 'skipped' : convertido.declined ? 'declined' : 'switched';
+    log.info('webhook_pickup_switch', { result: resultado });
 
     // Si no se pudo —ya salió el repartidor, el envío consta cobrado—, este
     // mensaje NO queda atendido: sigue su camino y lo verá una persona.
     if (!convertido.ok) return null;
-    return { ok: true, handled: 'pickup_switch', result: 'switched' };
+    return { ok: true, handled: 'pickup_switch', result: resultado };
   }
 
   if (decision.action === 'kitchen_note') {

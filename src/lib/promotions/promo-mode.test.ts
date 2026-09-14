@@ -64,16 +64,18 @@ describe('promoModeAt — cuándo es noche de promoción', () => {
     expect(promoModeAt([], ANTES_DE_MEDIANOCHE)).toBe(NORMAL_MODE);
   });
 
-  it('con una promoción vendible se activa y apaga el efectivo', () => {
+  it('con una promoción vendible se activa y apaga el efectivo y el recojo', () => {
     const modo = promoModeAt([DOS_TRANCAPECHOS], ANTES_DE_MEDIANOCHE);
     expect(modo.active).toBe(true);
     expect(modo.cashAllowed).toBe(false);
+    expect(modo.pickupAllowed).toBe(false);
   });
 
   it('a las 00:00 en punto vuelve solo al menú de siempre', () => {
     const modo = promoModeAt([DOS_TRANCAPECHOS], MEDIANOCHE);
     expect(modo).toBe(NORMAL_MODE);
     expect(modo.cashAllowed).toBe(true);
+    expect(modo.pickupAllowed).toBe(true);
     expect(modo.comboOnlyCodes.size).toBe(0);
   });
 

@@ -897,6 +897,7 @@ class DepsConPromo extends FakeDeps {
   modo: PromoMode = {
     active: true,
     cashAllowed: false,
+    pickupAllowed: false,
     comboOnlyCodes: new Set(['trancapecho']),
   };
   modoThrows: Error | null = null;
@@ -949,9 +950,35 @@ describe('noche de promoción', () => {
     expect(body.message).toContain('promoción');
   });
 
-  it('fuera de la promoción el efectivo vuelve a pasar', async () => {
+  it('rechaza el recojo sin crear el pedido, y lo marca en el campo de entrega', async () => {
     const deps = new DepsConPromo();
-    deps.modo = { active: false, cashAllowed: true, comboOnlyCodes: new Set() };
+
+    const response = await handleCreateWebOrder(
+      request(validBody({ payment_method: 'qr', delivery_type: 'pickup' })),
+      deps,
+    );
+    const body = (await response.json()) as {
+      error: string;
+      message: string;
+      issues: Array<{ field: string; message: string }>;
+    };
+
+    expect(response.status).toBe(422);
+    expect(deps.rpcCalls).toEqual([]);
+    expect(body.error).toBe('validation_error');
+    expect(body.message).toMatch(/no hay recojo/);
+    expect(body.issues.map((i) => i.field)).toEqual(['delivery_type']);
+  });
+
+  it('fuera de la promoción el efectivo y el recojo vuelven a pasar', async () => {
+    const deps = new DepsConPromo();
+    deps.modo = { active: false, cashAllowed: true, pickupAllowed: true, comboOnlyCodes: new Set() };
+
+    const recojo = await handleCreateWebOrder(
+      request(validBody({ payment_method: 'cash', delivery_type: 'pickup' })),
+      deps,
+    );
+    expect(recojo.status).toBe(201);
 
     const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
 

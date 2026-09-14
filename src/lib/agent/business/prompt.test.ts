@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { BUSINESS_ADDRESS, BUSINESS_HOURS, BUSINESS_MAPS_URL } from './facts';
-import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT } from './prompt';
+import { DON_ZARCO_MAX_OUTPUT_TOKENS, DON_ZARCO_SYSTEM_PROMPT, systemPromptForMode } from './prompt';
 
 /**
  * Business Adapter — reglas grounded (Fase 6D.2F.4.1).
@@ -510,5 +510,22 @@ describe('prompt — la ubicación se responde entera', () => {
     // información, que es falso: sí la tiene, y es que no hay más locales.
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/ÚNICO local: no hay sucursales/);
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no respondas que no tienes la información/);
+  });
+});
+
+describe('prompt — noche de promoción (14-09-2026)', () => {
+  it('fuera de la promoción es exactamente el prompt de siempre', () => {
+    expect(systemPromptForMode({ cashAllowed: true, pickupAllowed: true })).toBe(
+      DON_ZARCO_SYSTEM_PROMPT,
+    );
+  });
+
+  it('en noche de promoción avisa que no hay recojo ni efectivo, y que eso manda', () => {
+    const prompt = systemPromptForMode({ cashAllowed: false, pickupAllowed: false });
+    expect(prompt.startsWith(DON_ZARCO_SYSTEM_PROMPT)).toBe(true);
+    const bloque = prompt.slice(DON_ZARCO_SYSTEM_PROMPT.length);
+    expect(bloque).toMatch(/No hay recojo/);
+    expect(bloque).toMatch(/No se acepta efectivo/);
+    expect(bloque).toMatch(/Esto manda sobre lo que dicen arriba/);
   });
 });

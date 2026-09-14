@@ -4,6 +4,7 @@ import { localAddressText } from './messages';
 import { log } from '@/lib/log';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { createAgentStore } from '@/lib/agent/memory/repository';
+import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
 
 /**
  * "Estamos en la Doble Vía La Guardia" — envío y memoria (server-only).
@@ -51,7 +52,10 @@ export interface SendLocalAddressInput {
 export async function sendLocalAddress(
   input: SendLocalAddressInput,
 ): Promise<{ ok: boolean }> {
-  const texto = localAddressText();
+  // Noche de promoción (14-09-2026): la dirección sale igual, con el aviso de
+  // que hoy no hay recojo. `readCurrentPromoMode` nunca lanza.
+  const { pickupAllowed } = await readCurrentPromoMode();
+  const texto = localAddressText({ pickupAllowed });
 
   let wamid: string;
   try {

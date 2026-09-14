@@ -9,12 +9,13 @@ import { evaluatePromotion, isPurchasable, type Promotion } from './promotion';
  * hace trancapechos, el resto del catálogo queda agotado y lo que se le ofrece
  * al cliente junto al combo son las bebidas.
  *
- * Tres cosas cambian, y las tres se deciden AQUÍ para que el menú, el checkout
- * del servidor, el botón de WhatsApp y el agente no tengan cada uno su versión:
+ * Cuatro cosas cambian, y las cuatro se deciden AQUÍ para que el menú, el
+ * checkout del servidor, WhatsApp y el agente no tengan cada uno su versión:
  *
  *   · Bebidas sube justo debajo de Promociones. Es lo que acompaña al combo.
  *   · El producto de un combo de UN solo producto no se vende suelto.
  *   · No se acepta efectivo.
+ *   · No hay recojo: todo sale con delivery.
  *
  * ── Por qué depende de la promoción y no de un interruptor ──────────────────
  *
@@ -25,8 +26,9 @@ import { evaluatePromotion, isPurchasable, type Promotion } from './promotion';
  * alguien tiene que acordarse de parar.
  *
  * El precio de esa decisión: CUALQUIER promoción vendible activa el modo, y con
- * él se apaga el efectivo. Si algún día hay un combo que tiene que convivir con
- * el efectivo, esto se convierte en una columna de `promotions` — y no antes.
+ * él se apagan el efectivo y el recojo. Si algún día hay un combo que tiene que
+ * convivir con alguno de los dos, esto se convierte en columnas de `promotions`
+ * — y no antes.
  *
  * ── Por qué el suelto se esconde solo en combos de un producto ──────────────
  *
@@ -46,6 +48,11 @@ export interface PromoMode {
   /** ¿Se puede elegir efectivo? Solo fuera de la noche de promoción. */
   cashAllowed: boolean;
   /**
+   * ¿Se puede pasar a recoger? Solo fuera de la noche de promoción: esa noche
+   * todo sale con delivery. Cubre el checkout y el "paso yo a recogerlo".
+   */
+  pickupAllowed: boolean;
+  /**
    * Códigos de producto que ahora solo se venden dentro de su combo. Vacío
    * cuando el modo no está activo.
    */
@@ -56,6 +63,7 @@ export interface PromoMode {
 export const NORMAL_MODE: PromoMode = {
   active: false,
   cashAllowed: true,
+  pickupAllowed: true,
   comboOnlyCodes: new Set(),
 };
 
@@ -77,7 +85,7 @@ export function promoModeAt(promotions: ReadonlyArray<Promotion>, now: number): 
     if (promotion.components.length === 1) comboOnlyCodes.add(promotion.components[0].code);
   }
 
-  return { active: true, cashAllowed: false, comboOnlyCodes };
+  return { active: true, cashAllowed: false, pickupAllowed: false, comboOnlyCodes };
 }
 
 /** La categoría que acompaña al combo y sube debajo de Promociones. */

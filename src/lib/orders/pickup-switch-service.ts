@@ -2,7 +2,8 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getKapsoClient } from '@/lib/kapso/client';
-import { pickupSwitchText } from '@/lib/kapso/messages';
+import { pickupSwitchText, pickupUnavailableText } from '@/lib/kapso/messages';
+import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
 import { createAgentStore } from '@/lib/agent/memory/repository';
 import { log } from '@/lib/log';
 import { deliveryNoticeAlreadySent } from '@/lib/alerts/outbox-store';
@@ -68,13 +69,17 @@ interface FilaPedido {
 /**
  * Pasa el pedido a recojo y se lo confirma al cliente. NUNCA lanza.
  *
- * `ok: false` significa que NO se convirtió —por guarda o por fallo—, y en ese
+ * `ok: false` significa que NO se atendió —por guarda o por fallo—, y en ese
  * caso el cliente no recibe nada de aquí.
+ *
+ * `declined: true` (14-09-2026): en noche de promoción no hay recojo. El pedido
+ * NO se toca y al cliente se le dice que sale igual con delivery; el mensaje
+ * queda atendido, porque callarse lo dejaría esperando para ir a buscarlo.
  */
 export async function switchOrderToPickup(
   input: SwitchToPickupInput,
   supabase: SupabaseClient = getSupabaseAdmin(),
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; declined?: boolean }> {
   let fila: FilaPedido;
   try {
     const { data, error } = await supabase
@@ -93,6 +98,20 @@ export async function switchOrderToPickup(
 
   if (fila.delivery_type !== 'delivery') return { ok: false };
   if (!ESTADOS_CONVERTIBLES.includes(fila.status)) return { ok: false };
+
+  // Noche de promoción: todo sale con delivery. Va después de las dos guardas
+  // de arriba —a un pedido que ya es de recojo o que ya salió no hay nada que
+  // negarle— y antes de todo lo que escribe.
+  if (!(await readCurrentPromoMode(supabase)).pickupAllowed) {
+    log.info('pickup_switch_skipped', { reason: 'promo_night' });
+    const avisado = await avisarAlCliente(
+      input,
+      pickupUnavailableText(fila.order_number),
+      'pickup_declined',
+      supabase,
+    );
+    return avisado ? { ok: true, declined: true } : { ok: false };
+  }
   // El repartidor ya tiene este pedido: lo mira una persona.
   //
   // 05-09-2026: esto miraba `orders.delivery_notice_sent_at`, una columna que
@@ -135,22 +154,45 @@ export async function switchOrderToPickup(
   }
   if (!convertido) return { ok: false };
 
+  // El pedido YA es de recojo, que es lo que protege al repartidor de un viaje
+  // inútil. Si el aviso no sale, lo que falta es el aviso, y eso se ve en el panel.
+  const avisado = await avisarAlCliente(
+    input,
+    pickupSwitchText(fila.order_number, comida),
+    'pickup_switch',
+    supabase,
+  );
+  if (!avisado) return { ok: false };
+
+  log.info('pickup_switch_done');
+  return { ok: true };
+}
+
+/**
+ * Manda el texto y lo anota en la memoria del agente. `false` si no salió.
+ *
+ * La anotación es para que el modelo sepa qué se le dijo; si falla, el cliente
+ * ya tiene su mensaje y eso no se deshace.
+ */
+async function avisarAlCliente(
+  input: SwitchToPickupInput,
+  texto: string,
+  action: 'pickup_switch' | 'pickup_declined',
+  supabase: SupabaseClient,
+): Promise<boolean> {
   let wamid: string;
-  const texto = pickupSwitchText(fila.order_number, comida);
   try {
     const enviado = await getKapsoClient().sendText(input.toDigits, texto, {
       phoneNumberId: input.phoneNumberId ?? undefined,
     });
     if (!enviado.ok) {
-      // El pedido YA es de recojo, que es lo que protege al repartidor de un
-      // viaje inútil. Lo que falta es el aviso, y eso se ve en el panel.
-      log.warn('pickup_switch_ack_failed', { error: enviado.error });
-      return { ok: false };
+      log.warn('pickup_switch_ack_failed', { action, error: enviado.error });
+      return false;
     }
     wamid = enviado.wamid;
   } catch {
-    log.warn('pickup_switch_ack_failed', { error: 'threw' });
-    return { ok: false };
+    log.warn('pickup_switch_ack_failed', { action, error: 'threw' });
+    return false;
   }
 
   try {
@@ -169,15 +211,12 @@ export async function switchOrderToPickup(
       actor: 'automation',
       content: texto,
       contentType: 'text',
-      metadata: { action: 'pickup_switch', resource_type: 'order' },
+      metadata: { action, resource_type: 'order' },
       messageTimestamp: new Date().toISOString(),
     });
   } catch {
-    // El pedido está convertido y el cliente avisado: que no hayamos podido
-    // anotar el saliente no deshace ninguna de las dos cosas.
-    log.warn('pickup_switch_memory_failed');
+    log.warn('pickup_switch_memory_failed', { action });
   }
 
-  log.info('pickup_switch_done');
-  return { ok: true };
+  return true;
 }
