@@ -82,6 +82,26 @@ describe('classifyFailedRow — un failed NO ambiguo no es, por sí solo, retrya
       expect(classifyFailedRow(row({ lastErrorCode: code }))).toBe('manual_review');
     }
   });
+
+  it('reconciled_not_found es RETRYABLE: el historial confirmó que no salió (14-09-2026)', () => {
+    // Antes caía en "desconocido" → manual_review, y el worker saltaba sin
+    // escribir una fila que la base le ofrecía cada minuto.
+    expect(classifyFailedRow(row({ lastErrorCode: 'reconciled_not_found' }))).toBe('retryable');
+  });
+
+  it('un failed reconciled_not_found con reintento vencido se despacha', () => {
+    expect(
+      planNotificationRetry(
+        row({
+          status: 'failed',
+          lastErrorCode: 'reconciled_not_found',
+          attemptCount: 1,
+          nextAttemptAt: PAST,
+        }),
+        NOW,
+      ),
+    ).toEqual({ action: 'dispatch' });
+  });
 });
 
 describe('planNotificationRetry — estados que SÍ despachan', () => {

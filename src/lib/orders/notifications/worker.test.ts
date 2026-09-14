@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import {
   runWorkerTick,
   MAX_HISTORY_READS_PER_WORKER_RUN,
+  MAX_NOTIFICATION_AGE_MS,
+  ORDER_STATUSES_PAST_NOTIFICATIONS,
+  type NotificationClose,
+  type OrderLifecycle,
   type WorkerDeps,
   type WorkerConfig,
 } from './worker';
@@ -43,11 +47,22 @@ interface Calls {
   recoverStale: Array<[string, NotificationType]>;
   reconcile: Array<[string, NotificationType]>;
   send: Array<[string, NotificationType]>;
+  close: Array<[string, NotificationType, NotificationClose]>;
 }
+
+/** Pedido vivo y reciente: el freno de etapa y antigüedad no interviene. */
+const LIVE_ORDER: OrderLifecycle = {
+  status: 'confirmed',
+  createdAt: new Date(NOW - 5 * 60_000).toISOString(),
+};
 
 interface HarnessOpts {
   orders?: string[];
   states?: Record<string, NotificationStatesResult>;
+  /** Estado del pedido; por defecto LIVE_ORDER. `null` = el pedido no se encontró. */
+  lifecycle?: Record<string, OrderLifecycle | null>;
+  lifecycleThrows?: boolean;
+  close?: (o: string, t: NotificationType, c: NotificationClose) => boolean;
   send?: (o: string, t: NotificationType) => { outcome: string; sendAttempted: boolean };
   reconcile?: (o: string, t: NotificationType) => { outcome: ReconcileOutcome; historyRead: boolean };
   recoverStale?: (o: string, t: NotificationType) => { recovered: boolean; reason?: string };
@@ -61,7 +76,7 @@ interface HarnessOpts {
 
 function harness(opts: HarnessOpts = {}) {
   const orders = opts.orders ?? ['o1'];
-  const calls: Calls = { selectDue: 0, loadStates: [], recoverStale: [], reconcile: [], send: [] };
+  const calls: Calls = { selectDue: 0, loadStates: [], recoverStale: [], reconcile: [], send: [], close: [] };
   const logs: Array<{ event: string; fields: Record<string, unknown> }> = [];
   const deps: WorkerDeps = {
     async selectDue() {
@@ -73,6 +88,14 @@ function harness(opts: HarnessOpts = {}) {
       calls.loadStates.push(o);
       if (opts.loadStatesThrows?.(o)) throw new Error('load failed');
       return opts.states?.[o] ?? states([]);
+    },
+    async loadOrderLifecycle(o) {
+      if (opts.lifecycleThrows) throw new Error('order failed');
+      return opts.lifecycle && o in opts.lifecycle ? opts.lifecycle[o] : LIVE_ORDER;
+    },
+    async closeNotification(o, t, c) {
+      calls.close.push([o, t, c]);
+      return opts.close ? opts.close(o, t, c) : true;
     },
     async recoverStale(o, t) {
       calls.recoverStale.push([o, t]);
@@ -569,6 +592,8 @@ function baseDeps(over: Partial<NotificationWorkerDeps> = {}): NotificationWorke
     internalToken: 'tok',
     async selectDue() { return []; },
     async loadStates() { return states([]); },
+    async loadOrderLifecycle() { return LIVE_ORDER; },
+    async closeNotification() { return true; },
     async recoverStale() { return { recovered: false }; },
     async reconcileNotification() { return { outcome: 'not_applicable', historyRead: false }; },
     async sendNotification() { return { outcome: 'skipped', sendAttempted: false }; },
@@ -886,5 +911,235 @@ describe('runWorkerTick — delivery dinámico (3 fases)', () => {
 
     // order_received 'sent' no reenvía; la ubicación es el único POST.
     expect(calls.send).toEqual([['o1', 'location_request']]);
+  });
+});
+
+// ── 14-09-2026: lo que la base ofrece y nunca se va a enviar se CIERRA ─────────
+//
+// Caso real: un "recibimos tu pedido" reconciliado 15 h tarde quedó `failed` con
+// `reconciled_not_found` y reintento vencido. La base lo ofrecía cada minuto, el
+// plan lo mandaba a revisión manual sin escribir nada, y volvía el minuto
+// siguiente ocupando uno de los cinco lugares del tick.
+
+describe('runWorkerTick — cierre de avisos que ya no deben salir (14-09-2026)', () => {
+  const VENCIDO = new Date(NOW - 60_000).toISOString();
+
+  it('el caso real: pedido listo con reconciled_not_found vencido → se cierra en silencio, cero envío', async () => {
+    const h = harness({
+      orders: ['o1'],
+      lifecycle: {
+        o1: { status: 'ready', createdAt: new Date(NOW - 15 * 60 * 60_000).toISOString() },
+      },
+      states: {
+        o1: states([
+          row({
+            notificationType: 'order_received',
+            status: 'failed',
+            lastErrorCode: 'reconciled_not_found',
+            nextAttemptAt: VENCIDO,
+          }),
+          row({ notificationType: 'location_request', status: 'pending', attemptCount: 0 }),
+          row({ notificationType: 'confirmation', status: 'pending', attemptCount: 0 }),
+        ]),
+      },
+    });
+    const r = await h.run();
+
+    expect(h.calls.send).toEqual([]);
+    expect(r.network_send_attempts).toBe(0);
+    expect(h.calls.close).toEqual([
+      ['o1', 'order_received', { fromStatus: 'failed', code: 'order_already_closed', silenceAlert: true }],
+      ['o1', 'confirmation', { fromStatus: 'pending', code: 'order_already_closed', silenceAlert: true }],
+      ['o1', 'location_request', { fromStatus: 'pending', code: 'order_already_closed', silenceAlert: true }],
+    ]);
+    expect(r.results.every((i) => i.action === 'closed')).toBe(true);
+    // La ubicación no queda "bloqueada" detrás de un aviso que se está cerrando:
+    // bloqueada seguiría abierta.
+    expect(r.results.map((i) => i.outcome)).not.toContain('blocked_by_order_received');
+  });
+
+  for (const status of ORDER_STATUSES_PAST_NOTIFICATIONS) {
+    it(`pedido en ${status}: un pending se cierra sin alerta y no se envía`, async () => {
+      const h = harness({
+        lifecycle: { o1: { ...LIVE_ORDER, status } },
+        states: { o1: states([row({ status: 'pending' })]) },
+      });
+      await h.run();
+      expect(h.calls.send).toEqual([]);
+      expect(h.calls.close).toEqual([
+        ['o1', 'confirmation', { fromStatus: 'pending', code: 'order_already_closed', silenceAlert: true }],
+      ]);
+    });
+  }
+
+  for (const status of ['draft', 'awaiting_location', 'confirmed']) {
+    it(`pedido vivo en ${status}: el aviso se envía, no se cierra`, async () => {
+      const h = harness({
+        lifecycle: { o1: { ...LIVE_ORDER, status } },
+        states: { o1: states([row({ status: 'pending' })]) },
+      });
+      await h.run();
+      expect(h.calls.send).toEqual([['o1', 'confirmation']]);
+      expect(h.calls.close).toEqual([]);
+    });
+  }
+
+  it('pedido con más de 3 h todavía antes de cocina → notification_too_old, sin alerta', async () => {
+    const h = harness({
+      lifecycle: {
+        o1: { status: 'confirmed', createdAt: new Date(NOW - MAX_NOTIFICATION_AGE_MS - 1).toISOString() },
+      },
+      states: { o1: states([row({ status: 'pending' })]) },
+    });
+    await h.run();
+    expect(h.calls.send).toEqual([]);
+    expect(h.calls.close).toEqual([
+      ['o1', 'confirmation', { fromStatus: 'pending', code: 'notification_too_old', silenceAlert: true }],
+    ]);
+  });
+
+  it('justo en el límite de las 3 h todavía se envía', async () => {
+    const h = harness({
+      lifecycle: {
+        o1: { status: 'confirmed', createdAt: new Date(NOW - MAX_NOTIFICATION_AGE_MS).toISOString() },
+      },
+      states: { o1: states([row({ status: 'pending' })]) },
+    });
+    await h.run();
+    expect(h.calls.send).toEqual([['o1', 'confirmation']]);
+    expect(h.calls.close).toEqual([]);
+  });
+
+  it('reconciled_not_found en un pedido vivo y reciente → se REENVÍA: es lo que programó la reconciliación', async () => {
+    const h = harness({
+      states: {
+        o1: states([
+          row({
+            notificationType: 'order_received',
+            status: 'failed',
+            lastErrorCode: 'reconciled_not_found',
+            nextAttemptAt: VENCIDO,
+          }),
+        ]),
+      },
+    });
+    const r = await h.run();
+    expect(h.calls.send).toEqual([['o1', 'order_received']]);
+    expect(h.calls.close).toEqual([]);
+    expect(r.network_send_attempts).toBe(1);
+  });
+
+  const atascados: Array<[string, Partial<NotificationStateRow>, string]> = [
+    ['código desconocido', { lastErrorCode: 'algo_nuevo' }, 'manual_review_required'],
+    ['fallo permanente', { lastErrorCode: 'invalid_phone' }, 'permanent_failure'],
+    ['intentos agotados', { lastErrorCode: 'http_500', attemptCount: 5, maxAttempts: 5 }, 'max_attempts_reached'],
+  ];
+
+  for (const [nombre, extra, motivo] of atascados) {
+    it(`failed vencido que nunca se despachará (${nombre}) → se cierra CON alerta: el pedido está vivo`, async () => {
+      const h = harness({
+        states: { o1: states([row({ status: 'failed', nextAttemptAt: VENCIDO, ...extra })]) },
+      });
+      const r = await h.run();
+      expect(h.calls.send).toEqual([]);
+      expect(h.calls.close).toEqual([
+        ['o1', 'confirmation', { fromStatus: 'failed', code: motivo, silenceAlert: false }],
+      ]);
+      expect(r.results[0]).toMatchObject({ action: 'closed', outcome: motivo });
+    });
+  }
+
+  it('el mismo failed SIN reintento vencido no está en bucle: la base no lo ofrece y no se toca', async () => {
+    const h = harness({
+      states: { o1: states([row({ status: 'failed', lastErrorCode: 'algo_nuevo', nextAttemptAt: null })]) },
+    });
+    const r = await h.run();
+    expect(h.calls.close).toEqual([]);
+    expect(r.results[0]).toMatchObject({ action: 'skipped', outcome: 'manual_review_required' });
+  });
+
+  it('envío sin salida: not_initialized se cierra con alerta; not_applicable en silencio', async () => {
+    for (const [outcome, silenceAlert] of [
+      ['not_initialized', false],
+      ['not_applicable', true],
+    ] as const) {
+      const h = harness({
+        states: { o1: states([row({ status: 'pending' })]) },
+        send: () => ({ outcome, sendAttempted: false }),
+      });
+      const r = await h.run();
+      expect(h.calls.close).toEqual([['o1', 'confirmation', { fromStatus: 'pending', code: outcome, silenceAlert }]]);
+      expect(r.results[0]).toMatchObject({ action: 'closed', outcome });
+    }
+  });
+
+  it('un envío que SÍ llegó a intentarse nunca se cierra aquí, aunque no saliera', async () => {
+    const h = harness({
+      states: { o1: states([row({ status: 'pending' })]) },
+      send: () => ({ outcome: 'not_initialized', sendAttempted: true }),
+    });
+    await h.run();
+    expect(h.calls.close).toEqual([]);
+  });
+
+  it('sin poder leer el pedido, ni se envía ni se cierra nada', async () => {
+    const variantes: HarnessOpts[] = [{ lifecycleThrows: true }, { lifecycle: { o1: null } }];
+    for (const variante of variantes) {
+      const h = harness({ ...variante, states: { o1: states([row({ status: 'pending' })]) } });
+      const r = await h.run();
+      expect(h.calls.send).toEqual([]);
+      expect(h.calls.close).toEqual([]);
+      expect(r.results).toEqual([{ notification_type: 'unknown', action: 'skipped', outcome: 'order_error' }]);
+    }
+  });
+
+  it('si el cierre no se aplica (otro proceso tomó la fila), no se insiste ni se envía', async () => {
+    const h = harness({
+      lifecycle: { o1: { ...LIVE_ORDER, status: 'cancelled' } },
+      states: { o1: states([row({ status: 'pending' })]) },
+      close: () => false,
+    });
+    const r = await h.run();
+    expect(h.calls.close).toHaveLength(1);
+    expect(h.calls.send).toEqual([]);
+    expect(r.results[0]).toMatchObject({ action: 'skipped', outcome: 'close_not_applied' });
+  });
+
+  it('en un pedido cerrado, un sending abandonado sigue su recuperación: nunca se cierra a mano', async () => {
+    const h = harness({
+      lifecycle: { o1: { ...LIVE_ORDER, status: 'cancelled' } },
+      states: { o1: states([row({ status: 'sending' })]) },
+    });
+    await h.run();
+    expect(h.calls.recoverStale).toEqual([['o1', 'confirmation']]);
+    expect(h.calls.close).toEqual([]);
+  });
+
+  it('en un pedido cerrado, una reconciliación pendiente también sigue su camino, sin envío', async () => {
+    const h = harness({
+      lifecycle: { o1: { ...LIVE_ORDER, status: 'delivered' } },
+      states: { o1: states([row({ status: 'pending_reconciliation', lastErrorCode: 'timeout' })]) },
+    });
+    await h.run();
+    expect(h.calls.reconcile).toEqual([['o1', 'confirmation']]);
+    expect(h.calls.close).toEqual([]);
+    expect(h.calls.send).toEqual([]);
+  });
+
+  it('ni el log ni la respuesta del cierre exponen el pedido', async () => {
+    const id = 'orden-secreta-123';
+    const h = harness({
+      orders: [id],
+      lifecycle: { [id]: { ...LIVE_ORDER, status: 'delivered' } },
+      states: { [id]: states([row({ status: 'pending' })]) },
+    });
+    const r = await h.run();
+    expect(JSON.stringify(h.logs)).not.toContain(id);
+    expect(JSON.stringify(r)).not.toContain(id);
+    expect(h.logs.find((l) => l.event === 'notification_closed')?.fields).toEqual({
+      notification_type: 'confirmation',
+      outcome: 'order_already_closed',
+      alert: false,
+    });
   });
 });

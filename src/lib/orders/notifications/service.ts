@@ -17,7 +17,12 @@ import { NOTIFICATION_SEND_TIMEOUT_MS } from './retry-policy';
 import { BUTTONS_REJECTED_ERROR, RECOVERY_STATUSES, type RecoveryStatus } from './recovery-state';
 import type { NotificationStateRow, NotificationStatesResult } from './retry-plan';
 import { reconcileNotification } from './reconcile-runner';
-import { WORKER_ORDER_LIMIT, type WorkerDeps } from './worker';
+import {
+  WORKER_ORDER_LIMIT,
+  type NotificationClose,
+  type OrderLifecycle,
+  type WorkerDeps,
+} from './worker';
 import {
   ALERT_RETRY_DELAY_SECONDS,
   type AlertClaimResult,
@@ -956,6 +961,95 @@ export function buildAlertRunnerDeps(supabase: SupabaseClient): AlertRunnerDeps 
   };
 }
 
+// ============================================================================
+// Cierre de avisos que ya no deben salir (14-09-2026).
+// ============================================================================
+
+/** Estado y fecha de creación del pedido, para el freno de etapa y antigüedad. */
+export async function loadOrderLifecycle(
+  supabase: SupabaseClient,
+  orderId: string,
+): Promise<OrderLifecycle | null> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('status, created_at')
+    .eq('id', orderId)
+    .maybeSingle();
+  if (error) throw new NotificationPersistenceError();
+  const row = asRecord(data);
+  if (row === null || typeof row.status !== 'string' || typeof row.created_at !== 'string') {
+    return null;
+  }
+  return { status: row.status, createdAt: row.created_at };
+}
+
+/** Mismo dominio que `order_notifications_last_error_code_format` (0004). */
+const ERROR_CODE_FORMAT = /^[A-Za-z0-9._:-]{1,64}$/;
+/** Código de reserva si el motivo no cumple el formato de la columna. */
+const FALLBACK_CLOSE_CODE = 'closed_stuck';
+
+/**
+ * Cierra UNA notificación sin reclamar para que deje de ser trabajo.
+ *
+ * ── Por qué un UPDATE condicional y no `mark_notification_terminal` ─────────
+ *
+ * Esa RPC cierra bien, pero deja la alerta intacta, y `select_due_notification_alerts`
+ * toma cualquier fila terminal sin `alerted_at`: cerrar así los avisos de un
+ * pedido ya entregado mandaría una alerta técnica al grupo por cada uno. Apagar
+ * la alerta en una SEGUNDA escritura deja una ventana en la que el pase de
+ * alertas de otro tick ya la reclamó. Aquí va todo en una sola sentencia.
+ *
+ * Y sin migración: el arreglo tenía que llegar a producción antes de abrir, sin
+ * depender de que alguien corriera SQL a mano.
+ *
+ * ── Qué garantiza ───────────────────────────────────────────────────────────
+ *
+ *  - Solo toca la fila si sigue en `close.fromStatus`, sin claim, sin cierre y
+ *    sin revisión manual. Si otro proceso la reclamó entre la lectura y esto,
+ *    no se aplica y devuelve `false`.
+ *  - Queda `failed` + `terminal_at`, como la deja `mark_notification_terminal`,
+ *    sin nada programado (`order_notifications_terminal_not_scheduled`).
+ *  - Una fila `pending` recibe el código del motivo (un `failed` lo exige); una
+ *    `failed` conserva el suyo, que es el que la alerta mostrará.
+ *  - Con `silenceAlert`, la alerta queda `failed` con el motivo, igual que se
+ *    neutralizaron a mano las del 13-09-2026.
+ */
+export async function closeStuckNotification(
+  supabase: SupabaseClient,
+  orderId: string,
+  notificationType: NotificationType,
+  close: NotificationClose,
+  nowIso: string = new Date().toISOString(),
+): Promise<boolean> {
+  const code = ERROR_CODE_FORMAT.test(close.code) ? close.code : FALLBACK_CLOSE_CODE;
+
+  const changes: Record<string, unknown> = {
+    status: 'failed',
+    terminal_at: nowIso,
+    next_attempt_at: null,
+    reconciliation_due_at: null,
+    updated_at: nowIso,
+  };
+  if (close.fromStatus === 'pending') changes.last_error_code = code;
+  if (close.silenceAlert) {
+    changes.alert_status = 'failed';
+    changes.alert_last_error_code = code;
+  }
+
+  const { data, error } = await supabase
+    .from('order_notifications')
+    .update(changes)
+    .eq('order_id', orderId)
+    .eq('notification_type', notificationType)
+    .eq('status', close.fromStatus)
+    .is('terminal_at', null)
+    .is('claim_token', null)
+    .eq('manual_review_required', false)
+    .select('id');
+  if (error) throw new NotificationPersistenceError();
+  return Array.isArray(data) && data.length === 1;
+}
+
 /** Reserva de la invocación (60 s de maxDuration) menos margen de cierre. */
 const WORKER_DEADLINE_MS = 55_000;
 
@@ -974,6 +1068,9 @@ export function buildWorkerDeps(): WorkerDeps {
   return {
     selectDue: (limit) => selectDueNotificationOrders(supabase, limit),
     loadStates: (orderId) => loadNotificationStates(supabase, orderId),
+    loadOrderLifecycle: (orderId) => loadOrderLifecycle(supabase, orderId),
+    closeNotification: (orderId, type, close) =>
+      closeStuckNotification(supabase, orderId, type, close),
     recoverStale: (orderId, type) => recoverStaleNotification(supabase, orderId, type),
     reconcileNotification: (orderId, type) => reconcileNotification(orderId, type, reconcileDeps),
     async sendNotification(orderId, type) {

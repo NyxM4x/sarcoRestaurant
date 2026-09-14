@@ -22,7 +22,9 @@ import { runAlertPass, MAX_ALERT_SENDS_PER_WORKER_RUN, type AlertRunnerDeps } fr
  *    mismo tick);
  *  - nunca inicializa notificaciones para pedidos históricos;
  *  - un claim rechazado NUNCA autoriza un envío;
- *  - alcanzar un límite no es error: el trabajo queda para otro tick.
+ *  - alcanzar un límite no es error: el trabajo queda para otro tick;
+ *  - una fila que la base ofrece como trabajo y que este worker NUNCA va a
+ *    despachar se CIERRA, no se salta: saltarla sin escribir es un bucle.
  */
 
 /** Cupo pequeño y constante de pedidos por ejecución. */
@@ -30,11 +32,84 @@ export const WORKER_ORDER_LIMIT = 5;
 /** Máximo de lecturas de historial (`GET /messages`) por ejecución. */
 export const MAX_HISTORY_READS_PER_WORKER_RUN = 2;
 
+/**
+ * Estados del pedido en los que ningún aviso de este worker tiene sentido.
+ *
+ * Los tres avisos —"recibimos tu pedido", "mándanos tu ubicación" y la
+ * confirmación con el total— son de ANTES de cocina. Un pedido que ya se está
+ * preparando, que salió, que se entregó o que se canceló no necesita ninguno, y
+ * mandarlo tarde confunde al cliente en vez de ayudarle.
+ */
+export const ORDER_STATUSES_PAST_NOTIFICATIONS: readonly string[] = [
+  'preparing',
+  'ready',
+  'on_the_way',
+  'delivered',
+  'cancelled',
+];
+
+/**
+ * Antigüedad máxima de un pedido para que todavía se le mande un aviso: 3 h.
+ *
+ * La ventana más larga en la que un pedido vive legítimamente sin entrar a
+ * cocina son los 45 min del carrito sin ubicación más las 2 h del QR sin pagar.
+ * Pasadas 3 h, un pedido que sigue antes de cocina es uno al que los barridos
+ * no llegaron —ya pasó el 09-09-2026—, y un aviso a esas horas no sirve de nada.
+ *
+ * El caso real que lo pidió (14-09-2026): un "recibimos tu pedido" que se
+ * reconcilió QUINCE horas tarde, con el pedido ya listo.
+ */
+export const MAX_NOTIFICATION_AGE_MS = 3 * 60 * 60 * 1000;
+
+/** Motivo de cierre por el estado o la edad del pedido. Nunca genera alerta. */
+export type OrderCloseReason = 'order_already_closed' | 'notification_too_old';
+
+/** Lo mínimo del pedido que el worker necesita para decidir si un aviso sigue vivo. */
+export interface OrderLifecycle {
+  status: string;
+  /** ISO de `orders.created_at`. */
+  createdAt: string;
+}
+
+/** Cómo cerrar una fila que no debe volver a ser trabajo. */
+export interface NotificationClose {
+  /** Estado leído al planificar: el cierre solo se aplica si sigue en él. */
+  fromStatus: 'pending' | 'failed';
+  /** Código corto del motivo, sin datos sensibles. */
+  code: string;
+  /**
+   * `true` cuando no hay nada que alguien deba hacer (pedido cerrado o viejo):
+   * la alerta de Telegram se apaga en la MISMA escritura. `false` deja que el
+   * pase de alertas avise, porque un cliente con pedido vivo se quedó sin aviso.
+   */
+  silenceAlert: boolean;
+}
+
 /** Coste temporal estimado de cada operación de red, para el presupuesto. */
 const SEND_COST_MS = NOTIFICATION_SEND_TIMEOUT_MS;
 const HISTORY_COST_MS = DEFAULT_HISTORY_TIMEOUT_MS;
 /** Reserva mínima para cerrar el tick con holgura. */
 const RESERVE_MS = RESERVED_NON_NETWORK_MS;
+
+/**
+ * Motivos de rechazo de un `failed` que NO cambian solos: ni pasando el tiempo
+ * ni en otro tick. Si la base lo ofrece como trabajo y el plan dice esto, la
+ * fila se seleccionaría cada minuto para siempre.
+ */
+const STUCK_FAILED_REASONS: ReadonlySet<string> = new Set([
+  'permanent_failure',
+  'manual_review_required',
+  'requires_reconciliation',
+  'max_attempts_reached',
+  'unknown',
+]);
+
+/**
+ * Salidas del envío que tampoco cambian solas: el pedido no se puede cargar para
+ * enviar (`not_initialized`) o el aviso no aplica a ese pedido (`not_applicable`,
+ * una ubicación para un pedido de recojo).
+ */
+const DEAD_END_SEND_OUTCOMES: ReadonlySet<string> = new Set(['not_initialized', 'not_applicable']);
 
 /** Acción global saneada por notificación. */
 export type WorkerAction =
@@ -44,6 +119,7 @@ export type WorkerAction =
   | 'recovered_stale'
   | 'skipped'
   | 'manual_review'
+  | 'closed'
   | 'unknown';
 
 export interface WorkerResultItem {
@@ -84,6 +160,18 @@ export interface WorkerDeps {
   selectDue(limit: number): Promise<string[]>;
   /** Estado de recuperación de las notificaciones de un pedido. */
   loadStates(orderId: string): Promise<NotificationStatesResult>;
+  /** Estado y fecha de creación del pedido. `null` si no existe. */
+  loadOrderLifecycle(orderId: string): Promise<OrderLifecycle | null>;
+  /**
+   * Cierra UNA notificación sin reclamar que no debe volver a ser trabajo.
+   * Condicional y atómico: devuelve `false` si la fila ya no está en
+   * `close.fromStatus` (otro proceso la tomó), y entonces no se insiste.
+   */
+  closeNotification(
+    orderId: string,
+    notificationType: NotificationType,
+    close: NotificationClose,
+  ): Promise<boolean>;
   /** `recover_stale_sending_notification`. No envía ni consulta historial. */
   recoverStale(
     orderId: string,
@@ -145,6 +233,26 @@ function rowOf(states: NotificationStatesResult, type: NotificationType): Notifi
   return states.rows.find((r) => r.notificationType === type) ?? null;
 }
 
+/** ¿La fecha existe y ya venció? Una fecha ausente o ilegible nunca vence. */
+function isDue(iso: string | null, now: number): boolean {
+  if (iso === null) return false;
+  const at = Date.parse(iso);
+  return Number.isFinite(at) && at <= now;
+}
+
+/**
+ * ¿Este pedido ya no debe recibir ningún aviso? Por estado primero —es la razón
+ * más clara— y por edad después. Una fecha ilegible no cierra nada por edad.
+ */
+export function orderCloseReason(order: OrderLifecycle, now: number): OrderCloseReason | null {
+  if (ORDER_STATUSES_PAST_NOTIFICATIONS.includes(order.status)) return 'order_already_closed';
+  const createdAt = Date.parse(order.createdAt);
+  if (Number.isFinite(createdAt) && now - createdAt > MAX_NOTIFICATION_AGE_MS) {
+    return 'notification_too_old';
+  }
+  return null;
+}
+
 /** Mapea el resultado de reconciliación a acción + outcome saneados. */
 function fromReconcile(outcome: ReconcileOutcome): { action: WorkerAction; outcome: string } {
   switch (outcome) {
@@ -166,6 +274,8 @@ function fromReconcile(outcome: ReconcileOutcome): { action: WorkerAction; outco
   }
 }
 
+type ProcessResult = { item: WorkerResultItem; sends: number; historyReads: number; budgetHit: boolean };
+
 /**
  * Procesa UNA notificación según su estado persistido. Devuelve el item de
  * resultado y cuánto presupuesto consumió (0/1 envío, 0/1 lectura de historial).
@@ -176,15 +286,28 @@ async function processNotification(
   orderId: string,
   type: NotificationType,
   row: NotificationStateRow,
+  order: OrderLifecycle,
   gates: Gates,
   now: number,
-): Promise<{ item: WorkerResultItem; sends: number; historyReads: number; budgetHit: boolean }> {
-  const mk = (action: WorkerAction, outcome: string) => ({
+): Promise<ProcessResult> {
+  const mk = (action: WorkerAction, outcome: string): ProcessResult => ({
     item: { notification_type: type, action, outcome: short(outcome) },
     sends: 0,
     historyReads: 0,
     budgetHit: false,
   });
+
+  /**
+   * Saca la fila de la cola. Si el cierre no se aplica es porque otro proceso
+   * cambió la fila entre la lectura y la escritura: lo que haya hecho manda, y
+   * aquí no se insiste ni se envía.
+   */
+  const close = async (fromStatus: 'pending' | 'failed', code: string, silenceAlert: boolean) => {
+    const closed = await deps.closeNotification(orderId, type, { fromStatus, code, silenceAlert });
+    if (!closed) return mk('skipped', 'close_not_applied');
+    log('notification_closed', { notification_type: type, outcome: short(code), alert: !silenceAlert });
+    return mk('closed', code);
+  };
 
   // Cierres explícitos: nunca se tocan automáticamente.
   if (row.terminalAt !== null) {
@@ -194,6 +317,14 @@ async function processNotification(
   if (row.manualReviewRequired) {
     log('notification_manual_review', { notification_type: type });
     return mk('manual_review', 'manual_review_required');
+  }
+
+  // Freno de etapa y de antigüedad, ANTES de cualquier envío. Solo sobre filas
+  // sin reclamar: un `sending` o una reconciliación siguen su camino, que nunca
+  // envía y termina en un estado que este mismo freno cerrará después.
+  if (row.status === 'pending' || row.status === 'failed') {
+    const reason = orderCloseReason(order, now);
+    if (reason !== null) return close(row.status, reason, true);
   }
 
   switch (row.status) {
@@ -240,7 +371,22 @@ async function processNotification(
       // envían aquí (el worker no arma retries: §5.G).
       const plan = planNotificationRetry(row, now);
       if (plan.action !== 'dispatch') {
-        return mk('skipped', plan.action === 'reject' ? (plan.reason ?? 'not_dispatchable') : 'not_scheduled');
+        const reason = plan.action === 'reject' ? (plan.reason ?? 'not_dispatchable') : 'not_scheduled';
+
+        // ── El bucle del 14-09-2026 ────────────────────────────────────────
+        //
+        // Un `failed` con reintento VENCIDO es exactamente lo que la base
+        // ofrece como trabajo. Si el plan dice que nunca se despachará,
+        // saltarlo sin escribir hace que vuelva el minuto siguiente, y el
+        // siguiente, ocupando uno de los cinco lugares del tick. Se cierra, y
+        // la alerta se deja encendida: el pedido está vivo y su cliente se
+        // quedó sin un aviso que nadie va a mandar.
+        //
+        // Sin reintento vencido la base no lo ofrece: no hay bucle y no se toca.
+        if (row.status === 'failed' && STUCK_FAILED_REASONS.has(reason) && isDue(row.nextAttemptAt, now)) {
+          return close('failed', reason, false);
+        }
+        return mk('skipped', reason);
       }
       if (!gates.canSend) {
         log('worker_budget_exhausted', { kind: 'send' });
@@ -253,6 +399,13 @@ async function processNotification(
       if (r.outcome === 'sent') {
         log('notification_sent', { notification_type: type });
         return { item: { notification_type: type, action: 'sent', outcome: 'sent' }, sends, historyReads: 0, budgetHit: false };
+      }
+      // Un envío que ni llegó a intentarse porque el pedido no se puede cargar,
+      // o porque el aviso no le corresponde, dará lo mismo en cada tick. Solo
+      // `not_applicable` se cierra en silencio: `not_initialized` es un pedido
+      // que debería poder avisarse y no puede, y eso sí hay que saberlo.
+      if (!r.sendAttempted && DEAD_END_SEND_OUTCOMES.has(r.outcome)) {
+        return close(row.status, r.outcome, r.outcome === 'not_applicable');
       }
       // Intento sin éxito confirmado (timeout/ambiguo/carrera): se reporta el
       // outcome real y el intento YA consumió el cupo.
@@ -308,14 +461,25 @@ export async function runWorkerTick(
     }
 
     let states: NotificationStatesResult;
+    let order: OrderLifecycle | null;
     try {
       states = await deps.loadStates(orderId);
+      order = await deps.loadOrderLifecycle(orderId);
     } catch {
       // Fallo aislado de un pedido: no tumba el tick.
       log('worker_error', { stage: 'load_states' });
       pushCapped(results, { notification_type: 'unknown', action: 'skipped', outcome: 'order_error' });
       continue;
     }
+
+    // Sin saber en qué estado está el pedido no se decide nada sobre él: ni se
+    // envía —podría estar cancelado— ni se cierra —podría estar vivo—.
+    if (order === null) {
+      log('worker_error', { stage: 'load_order' });
+      pushCapped(results, { notification_type: 'unknown', action: 'skipped', outcome: 'order_error' });
+      continue;
+    }
+    const lifecycle = order;
 
     if (states.unknownStateCount > 0) {
       pushCapped(results, { notification_type: 'unknown', action: 'skipped', outcome: 'unknown_state' });
@@ -328,7 +492,7 @@ export async function runWorkerTick(
     /** Procesa una fila aislando su fallo; actualiza presupuesto y contadores. */
     const runRow = async (type: NotificationType, row: NotificationStateRow) => {
       try {
-        const r = await processNotification(deps, log, orderId, type, row, gates(), deps.now());
+        const r = await processNotification(deps, log, orderId, type, row, lifecycle, gates(), deps.now());
         applyResult(results, budget, r);
         historyReads += r.historyReads;
         networkSendAttempts += r.sends;
@@ -338,6 +502,21 @@ export async function runWorkerTick(
         pushCapped(results, { notification_type: type, action: 'skipped', outcome: 'error' });
       }
     };
+
+    // Pedido que ya no debe recibir avisos: se recorren TODAS sus filas, sin
+    // bloqueos de orden. El orden existe para no mandar la ubicación antes que
+    // su aviso previo, y aquí no se va a mandar nada: bloquear la ubicación
+    // detrás de un `order_received` que se está cerrando la dejaría abierta.
+    if (orderCloseReason(lifecycle, deps.now()) !== null) {
+      for (const [type, row] of [
+        ['order_received', orderReceivedRow],
+        ['confirmation', confirmationRow],
+        ['location_request', locationRow],
+      ] as const) {
+        if (row) await runRow(type, row);
+      }
+      continue;
+    }
 
     if (orderReceivedRow) {
       // 6D.2C — delivery DINÁMICO: order_received → location_request → confirmation.

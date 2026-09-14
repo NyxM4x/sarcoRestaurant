@@ -58,6 +58,13 @@ export const MIN_STALE_SECONDS = 120;
 export const STALE_SENDING_ERROR_CODE = 'stale_sending_unknown';
 
 /**
+ * Código que deja la reconciliación cuando el historial de Kapso CONFIRMA que el
+ * mensaje no salió. Es lo contrario de un ambiguo: no hay riesgo de duplicado, y
+ * por eso la reconciliación programa el reenvío (`schedule_notification_retry`).
+ */
+export const RECONCILED_NOT_FOUND_ERROR_CODE = 'reconciled_not_found';
+
+/**
  * Códigos AMBIGUOS: el mensaje pudo haberse entregado pese al fallo. Espeja
  * `public.is_ambiguous_notification_error`. Cualquier `http_*` también lo es
  * porque la petición llegó a salir a la red.

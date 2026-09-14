@@ -13,7 +13,11 @@
  * sobre filas que YA existen, nunca inicializa.
  */
 
-import { isAmbiguousError, type RecoveryStatus } from './recovery-state';
+import {
+  isAmbiguousError,
+  RECONCILED_NOT_FOUND_ERROR_CODE,
+  type RecoveryStatus,
+} from './recovery-state';
 import { classifyHttpStatus, classifySendFailure } from './retry-policy';
 import type { NotificationType } from './web-notify';
 
@@ -111,6 +115,16 @@ export function classifyFailedRow(row: NotificationStateRow): FailedDisposition 
 
   // Ambiguos de 0005: el mensaje pudo entregarse.
   if (isAmbiguousError(code)) return 'reconcile';
+
+  // La reconciliación ya miró el historial y el mensaje NO está: reenviar no
+  // puede duplicar nada, y es justo lo que la reconciliación programó.
+  //
+  // Faltaba aquí, y el 14-09-2026 costó un bucle: la base ofrecía la fila como
+  // reintento vencido, este código la mandaba a revisión manual sin escribir
+  // nada, y la fila volvía el minuto siguiente. Lo que evita mandar un aviso
+  // tarde no es negarse a reenviar: es el freno de etapa y de antigüedad del
+  // worker, que corre antes.
+  if (code === RECONCILED_NOT_FOUND_ERROR_CODE) return 'retryable';
 
   switch (classifySendFailure(code)) {
     case 'permanent':

@@ -8,7 +8,11 @@ import {
   type MessageHistoryResult,
   type ListOutboundQuery,
 } from '@/lib/kapso/message-history';
-import type { RecoveryStatus, NotificationType } from './recovery-state';
+import {
+  RECONCILED_NOT_FOUND_ERROR_CODE,
+  type RecoveryStatus,
+  type NotificationType,
+} from './recovery-state';
 
 /**
  * Orquestador PURO de la reconciliación manual de un pedido (Fase 5.2D.5C).
@@ -131,7 +135,7 @@ export interface OrderReconcileResult {
 }
 
 /** Código no ambiguo que queda en la fila cuando el historial confirma que no salió. */
-const NOT_FOUND_CODE = 'reconciled_not_found';
+const NOT_FOUND_CODE = RECONCILED_NOT_FOUND_ERROR_CODE;
 /** Código de cierre cuando la reconciliación no puede concluir. */
 const UNRESOLVED_CODE = 'reconciliation_unresolved';
 const PROVIDER_FAILED_CODE = 'provider_failed';
