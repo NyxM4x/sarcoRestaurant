@@ -26,6 +26,11 @@ describe('prompt — hechos con respaldo', () => {
     );
   });
 
+  it('las promociones salen de get_menu_items, y sin ninguna no se promete (14-09-2026)', () => {
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/Las promociones también salen de get_menu_items/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no prometas que vaya a haber/);
+  });
+
   it('el horario entra desde facts.ts, pero no autoriza a decir si está abierto', () => {
     // El horario dejó de ser un dato prohibido: tiene una fuente única
     // (`./facts.ts`) y es la pregunta más frecuente del chat. Lo que sigue

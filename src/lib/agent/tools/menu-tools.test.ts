@@ -3,11 +3,13 @@ import {
   createGetMenuItemsTool,
   createSendMenuTool,
   GET_MENU_ITEMS,
+  promotionsForModel,
   SEND_MENU,
   type MenuItemForModel,
   type SendMenuToolResult,
 } from './menu-tools';
 import { executeToolCall, hasNoArguments, type AgentToolContext } from './registry';
+import type { Promotion } from '@/lib/promotions/promotion';
 import {
   dispatchMenu,
   type ClaimMenuDeliveryInput,
@@ -711,5 +713,108 @@ describe('send_menu — al que ya tiene pedido se le reabre el suyo', () => {
     await createSendMenuTool(dispatcher.port, conPedido).execute!(ctx('un vaso más'));
 
     expect(dispatcher.calls[0].reason).toBe('explicit_request');
+  });
+});
+
+/**
+ * Las promociones que ve el agente (14-09-2026).
+ *
+ * Lo que se prueba: que solo vea las que el menú deja comprar, con el
+ * vencimiento ya redactado en hora de Bolivia, y que un fallo al leerlas no se
+ * convierta en "no hay ninguna".
+ */
+describe('get_menu_items — promociones', () => {
+  const DOS_TRANCAPECHOS: Promotion = {
+    id: 'promo-trancapecho',
+    name: '2 Trancapechos',
+    description: null,
+    promoPrice: 25,
+    imageUrl: null,
+    startsAt: null,
+    // 00:00 del 15-09 en Bolivia.
+    endsAt: '2026-09-15T04:00:00.000Z',
+    isActive: true,
+    revision: 3,
+    updatedAt: '2026-09-14T18:00:00.000Z',
+    components: [
+      {
+        menuItemId: 'id-trancapecho',
+        code: 'trancapecho',
+        name: 'Trancapecho',
+        category: 'plato',
+        unitPrice: 18,
+        quantity: 2,
+        isActive: true,
+      },
+    ],
+  };
+  /** 20:00 del 14-09 en Bolivia. */
+  const NOCHE = Date.parse('2026-09-15T00:00:00.000Z');
+
+  it('proyecta nombre, precio, precio normal, composición y hasta cuándo', () => {
+    expect(promotionsForModel([DOS_TRANCAPECHOS], NOCHE)).toEqual([
+      {
+        name: '2 Trancapechos',
+        price: 25,
+        normalPrice: 36,
+        includes: '2× Trancapecho',
+        until: 'Termina mañana 00:00',
+      },
+    ]);
+  });
+
+  it('una promoción que ya no se puede comprar no llega al modelo', () => {
+    const medianoche = Date.parse('2026-09-15T04:00:00.000Z');
+    expect(promotionsForModel([DOS_TRANCAPECHOS], medianoche)).toEqual([]);
+    expect(promotionsForModel([{ ...DOS_TRANCAPECHOS, isActive: false }], NOCHE)).toEqual([]);
+  });
+
+  it('sin fecha de fin no inventa un "hasta"', () => {
+    const [promo] = promotionsForModel([{ ...DOS_TRANCAPECHOS, endsAt: null }], NOCHE);
+    expect(Object.keys(promo).sort()).toEqual(['includes', 'name', 'normalPrice', 'price']);
+  });
+
+  it('la tool las entrega junto a los productos, con la nota que explica el vacío', async () => {
+    const tool = createGetMenuItemsTool({
+      listForModel: async () => ITEMS,
+      listPromotionsForModel: async () => promotionsForModel([DOS_TRANCAPECHOS], NOCHE),
+    });
+
+    const result = (await tool.execute!(CTX)).result as {
+      items: MenuItemForModel[];
+      promotions: unknown[];
+      promotionsNote: string;
+    };
+
+    expect(result.items).toEqual(ITEMS);
+    expect(result.promotions).toHaveLength(1);
+    expect(result.promotionsNote).toMatch(/ÚNICAS promociones/);
+    expect(result.promotionsNote).toMatch(/solo se vende dentro de esa\s+promoción/);
+  });
+
+  it('si no se pudieron leer, calla: no afirma que no hay ninguna', async () => {
+    const tool = createGetMenuItemsTool({
+      listForModel: async () => ITEMS,
+      listPromotionsForModel: async () => null,
+    });
+
+    const result = (await tool.execute!(CTX)).result as Record<string, unknown>;
+
+    expect(result).not.toHaveProperty('promotions');
+    expect(result).not.toHaveProperty('promotionsNote');
+    expect(result.items).toEqual(ITEMS);
+  });
+
+  it('sin el puerto, la tool responde exactamente como antes', async () => {
+    const tool = createGetMenuItemsTool({ listForModel: async () => ITEMS });
+
+    const result = (await tool.execute!(CTX)).result as Record<string, unknown>;
+
+    expect(Object.keys(result).sort()).toEqual(['currency', 'items', 'note']);
+  });
+
+  it('la descripción le dice al modelo que ahí están las promociones', () => {
+    const tool = createGetMenuItemsTool({ listForModel: async () => ITEMS });
+    expect(tool.definition.description).toMatch(/pregunta si hay promoción/);
   });
 });

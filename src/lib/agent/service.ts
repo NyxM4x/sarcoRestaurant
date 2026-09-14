@@ -8,7 +8,9 @@ import { createMenuDispatchDeps } from '@/lib/kapso/send-menu-cta';
 import { createMenuRepository } from '@/lib/menu/repository';
 import { categoryLabel, productDescription } from '@/lib/menu/catalog';
 import { dispatchMenu, type MenuAutomationMemoryPort } from '@/lib/menu/dispatch';
-import { createGetMenuItemsTool, createSendMenuTool } from './tools/menu-tools';
+import { createGetMenuItemsTool, createSendMenuTool, promotionsForModel } from './tools/menu-tools';
+import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
+import { createPromotionsRepository } from '@/lib/promotions/repository';
 // El pedido vivo del cliente y la regla que dice si todavía se puede rearmar:
 // las MISMAS que usa la vía determinística, no una segunda copia.
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
@@ -184,10 +186,14 @@ function createAgentActions(): AgentTool[] {
     ),
     createGetMenuItemsTool({
       async listForModel() {
-        const items = await menu.listActive();
+        const [items, modo] = await Promise.all([menu.listActive(), readCurrentPromoMode()]);
         // Proyección MÍNIMA: se descartan id, code, is_active, sort_order y
         // timestamps. Lo que no se entrega no se puede repetir por WhatsApp.
-        return items.map((item) => {
+        //
+        // 14-09-2026: sin el producto que esta noche va solo en combo. Si el
+        // agente lo diera suelto a Bs 18, el cliente lo buscaría en un menú que
+        // no lo tiene. Ver `promotions/promo-mode`.
+        return items.filter((item) => !modo.comboOnlyCodes.has(item.code)).map((item) => {
           const description = productDescription(item.code);
           return {
             name: item.name,
@@ -196,6 +202,23 @@ function createAgentActions(): AgentTool[] {
             ...(description === null ? {} : { description }),
           };
         });
+      },
+      /**
+       * Las promociones vendibles ahora (14-09-2026), de la misma tabla y con la
+       * misma regla que las tarjetas del menú.
+       *
+       * Si la lectura falla devuelve `null` y no `[]`: una lista vacía le diría
+       * al modelo que no hay ninguna, y eso sería afirmar algo que no sabemos.
+       */
+      async listPromotionsForModel() {
+        try {
+          return promotionsForModel(await createPromotionsRepository().list(), Date.now());
+        } catch (error) {
+          log.error('agent.tools.promotions_failed', {
+            error: error instanceof Error ? error.message : 'unknown',
+          });
+          return null;
+        }
       },
     }),
     createAnswerDirectlyAction(),

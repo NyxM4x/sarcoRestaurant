@@ -10,6 +10,8 @@ import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-cont
 // El MISMO botón y el MISMO copy que manda la vía determinística: si el enlace
 // hace lo mismo, no puede leerse distinto según por dónde salió.
 import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/messages';
+import { evaluatePromotion, isPurchasable, type Promotion } from '@/lib/promotions/promotion';
+import { composeSummary, expiryLabel } from '@/lib/promotions/promotion-display';
 
 /**
  * Las dos primeras herramientas de negocio — módulo PURO (Fase 6D.2F.5B).
@@ -38,9 +40,61 @@ export interface MenuItemForModel {
   description?: string;
 }
 
+/**
+ * Una promoción que se puede comprar AHORA, tal como la ve el modelo (14-09-2026).
+ *
+ * Igual de pobre que `MenuItemForModel`: sin id, sin revisión, sin estado —si
+ * llega aquí, se puede comprar— y sin fechas en crudo. El vencimiento viaja ya
+ * redactado en hora de Bolivia, porque el modelo no tiene reloj y convertir un
+ * ISO en UTC es justo la cuenta que no queremos que haga.
+ */
+export interface PromotionForModel {
+  name: string;
+  /** Lo que cuesta el combo. */
+  price: number;
+  /** Lo que costaría suelto: la cifra que el menú tacha. */
+  normalPrice: number;
+  /** "2× Trancapecho". Sale de los componentes, nunca de un texto a mano. */
+  includes: string;
+  /** "Termina hoy 00:00". Ausente si no tiene fin. */
+  until?: string;
+}
+
 export interface MenuCatalogPort {
   /** Productos ACTIVOS, en el orden en que se muestran. */
   listForModel(): Promise<MenuItemForModel[]>;
+  /**
+   * Promociones vendibles ahora. Opcional: sin él la tool se comporta como
+   * antes y no dice nada de promociones. `null` = no se pudieron leer, y la
+   * tool también calla en vez de afirmar que no hay ninguna.
+   */
+  listPromotionsForModel?(): Promise<PromotionForModel[] | null>;
+}
+
+/**
+ * Las promociones vendibles en `now`, proyectadas para el modelo.
+ *
+ * Con `evaluatePromotion`, la MISMA regla que decide qué tarjeta ve el cliente
+ * en el menú: el agente no puede anunciar un combo que el menú no deja comprar.
+ */
+export function promotionsForModel(
+  promotions: ReadonlyArray<Promotion>,
+  now: number,
+): PromotionForModel[] {
+  return promotions.flatMap((promotion) => {
+    const pricing = evaluatePromotion(promotion, now);
+    if (!isPurchasable(pricing)) return [];
+    const until = expiryLabel(promotion.endsAt, now);
+    return [
+      {
+        name: promotion.name,
+        price: pricing.promoPrice,
+        normalPrice: pricing.normalPrice,
+        includes: composeSummary(promotion.components),
+        ...(until === null ? {} : { until }),
+      },
+    ];
+  });
 }
 
 export const GET_MENU_ITEMS = 'get_menu_items';
@@ -67,11 +121,16 @@ export function createGetMenuItemsTool(catalog: MenuCatalogPort): AgentTool {
         'tu cuenta. ' +
         'NO la uses para responder qué hay, qué opciones existen ni qué ' +
         'contiene una categoría entera (hamburguesas, bebidas, extras): eso se ' +
-        'responde con send_menu. Nunca respondas de memoria.',
+        'responde con send_menu. Nunca respondas de memoria. ' +
+        'Trae también las promociones que se pueden comprar ahora: úsala si el ' +
+        'cliente pregunta si hay promoción o cuánto sale una.',
       parameters: NO_ARGUMENTS,
     },
     async execute() {
-      const items = await catalog.listForModel();
+      const [items, promotions] = await Promise.all([
+        catalog.listForModel(),
+        catalog.listPromotionsForModel ? catalog.listPromotionsForModel() : null,
+      ]);
       // Sin `userVisibleEffectConfirmed`: leer una tabla no le enseña nada al
       // cliente. Si el modelo consulta el menú y luego se queda callado, el
       // cliente se queda sin respuesta — y eso sigue siendo un fallo.
@@ -79,6 +138,20 @@ export function createGetMenuItemsTool(catalog: MenuCatalogPort): AgentTool {
         result: {
           currency: 'Bs',
           items,
+          ...(promotions === null
+            ? {}
+            : {
+                promotions,
+                // Lo vacío también es un dato: sin decirlo, una lista vacía se
+                // lee como "no lo sé" y el modelo rellena. Y el suelto que falta
+                // de `items` hay que explicarlo, o contestaría que no existe.
+                promotionsNote:
+                  'Son las ÚNICAS promociones que hay ahora. Si la lista está ' +
+                  'vacía, no hay ninguna. Un producto que aparece en una ' +
+                  'promoción y no en items hoy solo se vende dentro de esa ' +
+                  'promoción. Da el precio tal cual: no calcules descuentos ni ' +
+                  'juntes promociones.',
+              }),
           note:
             'No hay datos de ingredientes, alérgenos ni atributos dietéticos. ' +
             'No deduzcas de qué está hecho un producto por su nombre ni por su ' +
