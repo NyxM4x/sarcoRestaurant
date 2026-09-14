@@ -6,6 +6,7 @@ import { createMenuSessionWithUrl } from '@/lib/menu/session-service';
 import { createMenuDeliveryStore } from '@/lib/menu/delivery-repository';
 import { dispatchMenu, type MenuDispatchDeps } from '@/lib/menu/dispatch';
 import { createMenuAutomationMemory } from '@/lib/agent/service';
+import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
 import type { SendMenuCta } from '@/lib/webhook/kapso';
 
 /**
@@ -64,7 +65,7 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
       // `menu_sessions`: se envía por el número por el que llegó.
       // El copy se resuelve AQUÍ, en el borde: `dispatchMenu` decide que hay que
       // mandar el menú y por qué; qué palabras acompañan al botón es del canal.
-      sendCta: ({
+      sendCta: async ({
         customerPhone,
         menuUrl,
         phoneNumberId: from,
@@ -72,8 +73,16 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
         ctaContext,
         bodyText,
         buttonText,
-      }) =>
-        getKapsoClient().sendMenuCtaUrl(customerPhone, {
+      }) => {
+        // ¿Hay efectivo? Solo se pregunta cuando el cliente preguntó por él
+        // (14-09-2026): en noche de promoción la respuesta es no, y un "¡Sí!"
+        // lo mandaría a buscar una opción deshabilitada. Nunca lanza.
+        const cashAllowed =
+          bodyText === undefined && ctaContext === 'cash'
+            ? (await readCurrentPromoMode()).cashAllowed
+            : true;
+
+        return getKapsoClient().sendMenuCtaUrl(customerPhone, {
           phoneNumberId: from,
           menuUrl,
           // La etiqueta solo cambia cuando el enlace hace otra cosa (0035).
@@ -81,8 +90,9 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
           // El texto ya redactado gana, y solo lo trae quien lleva un dato que
           // no cabe en una constante — hoy, la tarifa del envío. Ver
           // `DispatchMenuInput.bodyText`.
-          bodyText: bodyText ?? menuCtaBodyText(reason, ctaContext ?? null),
-        }),
+          bodyText: bodyText ?? menuCtaBodyText(reason, ctaContext ?? null, { cashAllowed }),
+        });
+      },
     },
 
     memory: createMenuAutomationMemory(),

@@ -215,6 +215,11 @@ export const MENU_CTA_BODY_TEXT =
 export function menuCtaBodyText(
   reason: MenuSendReason,
   context: MenuCtaContext | null = null,
+  /**
+   * ¿Se acepta efectivo ahora? En noche de promoción no (14-09-2026), ver
+   * `promotions/promo-mode`. Ausente = sí, como siempre.
+   */
+  options: { cashAllowed?: boolean } = {},
 ): string {
   // El CONTEXTO manda sobre el motivo cuando consta, porque es más específico:
   // el motivo dice con qué autoridad se manda el menú, y el contexto qué
@@ -230,7 +235,17 @@ export function menuCtaBodyText(
       // (05-09-2026). Se le contesta que SÍ antes que nada: es lo que le está
       // impidiendo tocar el botón. Y se le dice dónde se elige, porque la
       // respuesta completa es "sí, y se hace ahí dentro".
+      //
+      // En noche de promoción la respuesta es NO, y se dice igual de primero:
+      // un "¡Sí!" aquí lo haría armar el pedido para descubrir en el último paso
+      // que la opción está deshabilitada. Lo que sigue es cómo sí puede pagar.
       case 'cash':
+        if (options.cashAllowed === false) {
+          return (
+            'Hoy no: por la promoción, el pago es solo por QR. Armá tu pedido ' +
+            'en el botón 👇 y pagalo con el QR que te mandamos por acá.'
+          );
+        }
         return (
           '¡Sí! 👇 Armá tu pedido en el botón y al confirmarlo elegí EFECTIVO ' +
           'como método de pago: le pagás al delivery cuando llegue con tu pedido.'

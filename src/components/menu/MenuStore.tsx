@@ -7,6 +7,7 @@ import { usePromoCart } from '@/lib/cart/use-promo-cart';
 import { useServerClock } from '@/lib/menu/use-server-clock';
 import { unifiedTotals } from '@/lib/cart/promo-cart';
 import { evaluatePromotion, isPurchasable, type Promotion } from '@/lib/promotions/promotion';
+import { orderSectionsForMode, promoModeAt } from '@/lib/promotions/promo-mode';
 import { filterMenuItems, groupByCategory, type CategoryFilter } from '@/lib/menu/catalog';
 import { submitOrder } from '@/lib/checkout/client';
 import { validateCheckoutForm, type CheckoutFormFields } from '@/lib/checkout/form';
@@ -101,6 +102,30 @@ export function MenuStore({
   const ahora = useServerClock(serverNow);
 
   /**
+   * ¿Noche de promoción? (14-09-2026). Ver `promotions/promo-mode`.
+   *
+   * Con el reloj del servidor, igual que las tarjetas de los combos: a las 00:00
+   * la pestaña abierta vuelve sola al menú de siempre —orden, sueltos y
+   * efectivo— sin recargar.
+   */
+  const modo = useMemo(() => promoModeAt(promotions, ahora), [promotions, ahora]);
+  // `modo` es un objeto nuevo en cada tick del reloj. La lista de productos solo
+  // tiene que rehacerse cuando cambia QUÉ se esconde, no cada 30 segundos.
+  const soloEnCombo = [...modo.comboOnlyCodes].sort().join(',');
+
+  /**
+   * Lo que se puede VER: el catálogo menos lo que esta noche va solo en combo.
+   *
+   * El suelto se esconde en vez de pintarse "Agotado": no está agotado, está
+   * dentro de la tarjeta de arriba, y un Trancapecho en gris debajo del combo de
+   * Trancapechos haría pensar que el combo tampoco se puede pedir.
+   */
+  const visibles = useMemo(() => {
+    const ocultos = new Set(soloEnCombo === '' ? [] : soloEnCombo.split(','));
+    return ocultos.size === 0 ? items : items.filter((item) => !ocultos.has(item.code));
+  }, [items, soloEnCombo]);
+
+  /**
    * Lo que se puede COBRAR, que no es lo que se puede VER (07-09-2026).
    *
    * Desde que la vitrina enseña los agotados en gris, `items` trae también lo
@@ -112,8 +137,11 @@ export function MenuStore({
    * El servidor lo rechazaría al crear el pedido (`orders/service` usa
    * `listActive`), pero eso es un error DESPUÉS de que el cliente lo dio por
    * pedido. La lista de aquí es la que evita llegar hasta ahí.
+   *
+   * Sale de `visibles` y no de `items`: el Trancapecho que quedó en el carrito
+   * antes de la promoción tampoco puede cobrarse suelto esta noche.
    */
-  const aLaVenta = useMemo(() => items.filter((item) => item.is_active), [items]);
+  const aLaVenta = useMemo(() => visibles.filter((item) => item.is_active), [visibles]);
 
   const cart = useCart(aLaVenta);
   const promos = usePromoCart(promotions, ahora);
@@ -156,9 +184,31 @@ export function MenuStore({
    */
   const inFlight = useRef(false);
 
+  const modoActivo = modo.active;
   const groups = useMemo(
-    () => groupByCategory(filterMenuItems(items, category, query)),
-    [items, category, query],
+    () =>
+      // En noche de promoción las bebidas suben debajo de Promociones: son lo
+      // que acompaña al combo. A las 00:00 vuelve el orden de siempre.
+      orderSectionsForMode(groupByCategory(filterMenuItems(visibles, category, query)), {
+        active: modoActivo,
+      }),
+    [visibles, category, query, modoActivo],
+  );
+
+  /**
+   * El formulario tal como se pinta y se envía.
+   *
+   * Sin efectivo, el método es QR y punto: se DERIVA aquí en vez de escribirlo
+   * en el reducer con un efecto. Así no hay un render con "Efectivo" marcado en
+   * un formulario que ya no lo ofrece, y a las 00:00 lo que el cliente había
+   * elegido sigue ahí intacto.
+   */
+  const fields = useMemo(
+    () =>
+      modo.cashAllowed || checkout.fields.payment_method === 'qr'
+        ? checkout.fields
+        : { ...checkout.fields, payment_method: 'qr' as const },
+    [checkout.fields, modo.cashAllowed],
   );
 
   const hasSession = sessionToken !== null;
@@ -234,7 +284,8 @@ export function MenuStore({
     // igual y dispararía una petición sin transición de estado.
     if (!canSubmitState(checkout)) return;
 
-    const validation = validateCheckoutForm(checkout.fields, cartItems, cartPromotions);
+    // `fields` y no `checkout.fields`: lo que se envía es lo que se ve.
+    const validation = validateCheckoutForm(fields, cartItems, cartPromotions);
     if (!validation.ok) {
       dispatch({ type: 'VALIDATION_FAILED', errors: validation.errors });
       return;
@@ -242,7 +293,7 @@ export function MenuStore({
 
     dispatch({ type: 'SUBMIT', snapshot: validation.value });
     void send(sessionToken, validation.value);
-  }, [cartItems, cartPromotions, checkout, sessionToken, submitting, send]);
+  }, [cartItems, cartPromotions, checkout, fields, sessionToken, submitting, send]);
 
   const handleRetry = useCallback(() => {
     if (inFlight.current || submitting) return;
@@ -389,7 +440,8 @@ export function MenuStore({
 
       <CheckoutPanel
         open={checkoutOpen}
-        fields={checkout.fields}
+        fields={fields}
+        cashAllowed={modo.cashAllowed}
         errors={checkout.errors}
         summary={cart.summary}
         promoSummary={promos.summary}

@@ -217,6 +217,28 @@ describe('el cuerpo del botón según POR QUÉ se manda el menú', () => {
     }
   });
 
+  it('a "¿puedo pagar en efectivo?" se le dice que sí, como siempre', () => {
+    expect(menuCtaBodyText('agent_suggestion', 'cash')).toMatch(/^¡Sí!/);
+    expect(menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: true })).toMatch(/^¡Sí!/);
+  });
+
+  it('en noche de promoción se le dice que NO, primero, y cómo sí puede pagar', () => {
+    // Un "¡Sí!" lo haría armar el pedido para encontrarse el efectivo
+    // deshabilitado en el último paso (14-09-2026).
+    const texto = menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false });
+    expect(texto).toMatch(/^Hoy no/);
+    expect(texto).toContain('QR');
+    expect(texto).not.toMatch(/elegí EFECTIVO/i);
+    expect([...texto].filter((c) => /\p{Extended_Pictographic}/u.test(c)).length).toBeLessThanOrEqual(1);
+  });
+
+  it('sin efectivo, las preguntas que no son de efectivo no cambian', () => {
+    expect(menuCtaBodyText('agent_suggestion', 'price', { cashAllowed: false })).toBe(
+      menuCtaBodyText('agent_suggestion', 'price'),
+    );
+    expect(menuCtaBodyText('explicit_request', null, { cashAllowed: false })).toBe(MENU_CTA_BODY_TEXT);
+  });
+
   it('el payload lleva el cuerpo que se le pase, no la constante', () => {
     const payload = buildMenuCtaPayload('59170000001', undefined, undefined, 'texto elegido');
     expect(payload.interactive.body.text).toBe('texto elegido');

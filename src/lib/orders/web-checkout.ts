@@ -5,6 +5,7 @@ import {
   parsePromotionRejection,
   promotionRejectionMessage,
 } from '@/lib/promotions/rejection';
+import { NORMAL_MODE, type PromoMode } from '@/lib/promotions/promo-mode';
 import { calculateCheckoutFingerprint } from './fingerprint';
 import { createWebOrderSchema } from './web-schema';
 import type { DeliveryType, OrderStatus, PaymentMethod } from '@/types';
@@ -136,6 +137,16 @@ export interface WebCheckoutDeps {
    * que sin `scheduleOrderReplacement`.
    */
   checkReplacementFeasible?: CheckReplacementFeasible;
+  /**
+   * ¿Noche de promoción? (14-09-2026). Ver `promotions/promo-mode`.
+   *
+   * El menú ya no ofrece efectivo ni el producto que va solo en combo; esto es
+   * para la pestaña que se abrió ANTES de encender la promoción y sigue
+   * mostrando el menú de siempre hasta que se recarga.
+   *
+   * Opcional: sin ella el checkout se comporta EXACTAMENTE como antes.
+   */
+  readPromoMode?: () => Promise<PromoMode>;
 }
 
 /** Ver `checkReplacementFeasible` en `@/lib/orders/order-replacement`. */
@@ -170,6 +181,21 @@ const INTERNAL_ERROR_MESSAGE = 'No pudimos registrar tu pedido. Intenta de nuevo
 const ORDER_ALREADY_PAID_MESSAGE =
   'Tu pedido anterior ya está pagado y en preparación, así que este enlace ya no ' +
   'puede cambiarlo. Escribinos por WhatsApp y armamos un pedido nuevo con lo que falte.';
+/**
+ * Noche de promoción: el efectivo no está (14-09-2026).
+ *
+ * Va como error del CAMPO de pago y no del pedido: el formulario lo pinta
+ * debajo de "Método de pago", que es exactamente lo que hay que cambiar.
+ */
+const CASH_UNAVAILABLE_MESSAGE = 'Hoy el pago es solo por QR. Elige QR y confirma de nuevo.';
+/**
+ * Noche de promoción: un producto del carrito hoy solo va dentro de su combo.
+ *
+ * Quien lo lee tiene una pestaña vieja —la nueva ni se lo ofrece—, así que lo
+ * útil es decirle que recargue: al hacerlo ve la promoción arriba del todo.
+ */
+const COMBO_ONLY_MESSAGE =
+  'Hoy uno de tus productos solo se vende dentro de la promoción. Actualiza la página para verla.';
 
 function jsonResponse(status: number, body: unknown): Response {
   return Response.json(body, { status });
@@ -343,6 +369,39 @@ export async function handleCreateWebOrder(
         error: 'order_already_paid',
         message: ORDER_ALREADY_PAID_MESSAGE,
       });
+    }
+  }
+
+  // 3c. Noche de promoción (14-09-2026): sin efectivo, y el producto de un combo
+  //     de un solo producto no se vende suelto. Antes de la RPC por lo mismo que
+  //     3b: todavía no hay nada que deshacer.
+  if (deps.readPromoMode) {
+    let modo: PromoMode;
+    try {
+      modo = await deps.readPromoMode();
+    } catch (error) {
+      // Al revés que 3b, aquí un fallo deja pasar. Si las promociones no se
+      // pueden leer, el menú tampoco las muestra (`menu/page.tsx`) y el cliente
+      // vio el de siempre, con efectivo: rechazárselo sería contradecir lo que
+      // tiene delante por un problema nuestro.
+      log.error('store.orders.promo_mode_failed', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      modo = NORMAL_MODE;
+    }
+
+    if (body.payment_method === 'cash' && !modo.cashAllowed) {
+      log.warn('store.orders.cash_during_promo');
+      return jsonResponse(422, {
+        error: 'validation_error',
+        message: CASH_UNAVAILABLE_MESSAGE,
+        issues: [{ field: 'payment_method', message: CASH_UNAVAILABLE_MESSAGE }],
+      });
+    }
+
+    if (body.items.some((item) => modo.comboOnlyCodes.has(item.code))) {
+      log.warn('store.orders.combo_only_item');
+      return jsonResponse(422, { error: 'product_unavailable', message: COMBO_ONLY_MESSAGE });
     }
   }
 

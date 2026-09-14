@@ -17,6 +17,7 @@ import {
   checkReplacementFeasible,
   replaceSupersededOrder,
 } from '@/lib/orders/order-replacement';
+import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
 
 // Requiere APIs de Node (crypto, service_role) — no Edge. Siempre dinámico.
 export const runtime = 'nodejs';
@@ -98,6 +99,12 @@ function buildDeps(): WebCheckoutDeps {
      * Ver `checkReplacementFeasible`.
      */
     checkReplacementFeasible: (menuSessionId) => checkReplacementFeasible(menuSessionId, supabase),
+
+    /**
+     * 14-09 — noche de promoción: sin efectivo y sin el suelto que va en combo.
+     * Una lectura de `promotions` por pedido confirmado; ver `promotions/promo-mode`.
+     */
+    readPromoMode: () => readCurrentPromoMode(supabase),
   };
 }
 

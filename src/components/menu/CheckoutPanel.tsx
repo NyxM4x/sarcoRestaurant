@@ -21,6 +21,7 @@ import type { CheckoutFailure } from '@/lib/checkout/errors';
 export function CheckoutPanel({
   open,
   fields,
+  cashAllowed = true,
   errors,
   summary,
   promoSummary,
@@ -37,6 +38,11 @@ export function CheckoutPanel({
 }: {
   open: boolean;
   fields: CheckoutFormFields;
+  /**
+   * ¿Se ofrece efectivo? En noche de promoción no (14-09-2026), ver
+   * `promotions/promo-mode`. Ausente = sí, como siempre.
+   */
+  cashAllowed?: boolean;
   errors: CheckoutFormErrors;
   summary: CartSummary;
   /** Los combos del carrito. El resumen del checkout tiene que sumarlos. */
@@ -219,13 +225,16 @@ export function CheckoutPanel({
                 disabled={frozen}
                 onSelect={() => onChange('payment_method', 'qr')}
               />
+              {/* Sin efectivo se DESHABILITA, no desaparece: quien pensaba pagar
+                  así lee de un vistazo que hoy no se puede, en vez de buscar la
+                  opción y escribir por WhatsApp para preguntar. */}
               <PaymentOption
                 label="Efectivo"
-                hint="Pagas al recibir"
+                hint={cashAllowed ? 'Pagas al recibir' : 'Hoy no disponible'}
                 icon="💵"
                 value="cash"
-                active={fields.payment_method === 'cash'}
-                disabled={frozen}
+                active={cashAllowed && fields.payment_method === 'cash'}
+                disabled={frozen || !cashAllowed}
                 onSelect={() => onChange('payment_method', 'cash')}
               />
             </div>

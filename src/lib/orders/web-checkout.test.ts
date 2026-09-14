@@ -12,6 +12,7 @@ import {
 } from './web-checkout';
 import type { DispatchResult } from '@/lib/orders/notifications/web-notify';
 import { calculateCheckoutFingerprint } from './fingerprint';
+import type { PromoMode } from '@/lib/promotions/promo-mode';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
 
 const SESSION_TOKEN = 'token-opaco-de-prueba';
@@ -879,6 +880,89 @@ describe('el enlace que SÍ puede seguir', () => {
   it('sin la dep cableada, el checkout se comporta como antes de existir', async () => {
     const deps = new FakeDeps();
     const response = await handleCreateWebOrder(request(validBody()), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.rpcCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * Noche de promoción (14-09-2026): sin efectivo y sin el Trancapecho suelto.
+ *
+ * El menú ya no los ofrece. Estos tests fijan la barrera del servidor para la
+ * pestaña abierta ANTES de encender la promoción, y sobre todo que un fallo
+ * leyendo las promociones no le cierre la puerta a nadie.
+ */
+class DepsConPromo extends FakeDeps {
+  modo: PromoMode = {
+    active: true,
+    cashAllowed: false,
+    comboOnlyCodes: new Set(['trancapecho']),
+  };
+  modoThrows: Error | null = null;
+
+  readPromoMode = async (): Promise<PromoMode> => {
+    if (this.modoThrows) throw this.modoThrows;
+    return this.modo;
+  };
+}
+
+describe('noche de promoción', () => {
+  it('rechaza el efectivo sin crear el pedido, y lo marca en el campo de pago', async () => {
+    const deps = new DepsConPromo();
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
+    const body = (await response.json()) as {
+      error: string;
+      message: string;
+      issues: Array<{ field: string; message: string }>;
+    };
+
+    expect(response.status).toBe(422);
+    expect(deps.rpcCalls).toEqual([]);
+    expect(body.error).toBe('validation_error');
+    expect(body.message).toContain('QR');
+    expect(body.issues.map((i) => i.field)).toEqual(['payment_method']);
+  });
+
+  it('con QR el pedido sale como siempre', async () => {
+    const deps = new DepsConPromo();
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'qr' })), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.rpcCalls).toHaveLength(1);
+  });
+
+  it('rechaza el producto que esta noche solo va en combo', async () => {
+    const deps = new DepsConPromo();
+
+    const response = await handleCreateWebOrder(
+      request(validBody({ payment_method: 'qr', items: [{ code: 'trancapecho', quantity: 1 }] })),
+      deps,
+    );
+    const body = (await response.json()) as { error: string; message: string };
+
+    expect(response.status).toBe(422);
+    expect(deps.rpcCalls).toEqual([]);
+    expect(body.error).toBe('product_unavailable');
+    expect(body.message).toContain('promoción');
+  });
+
+  it('fuera de la promoción el efectivo vuelve a pasar', async () => {
+    const deps = new DepsConPromo();
+    deps.modo = { active: false, cashAllowed: true, comboOnlyCodes: new Set() };
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
+
+    expect(response.status).toBe(201);
+  });
+
+  it('si las promociones no se pueden leer, deja pasar: el cliente vio el menú de siempre', async () => {
+    const deps = new DepsConPromo();
+    deps.modoThrows = new Error('supabase caído');
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
 
     expect(response.status).toBe(201);
     expect(deps.rpcCalls).toHaveLength(1);

@@ -316,7 +316,9 @@ describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () =>
 
   it('MenuStore filtra por is_active ANTES de darle la lista al carrito', () => {
     const s = comp('MenuStore');
-    expect(s).toMatch(/items\.filter\(\(item\) => item\.is_active\)/);
+    // Desde el 14-09 la lista de partida es `visibles`: el catálogo menos lo que
+    // esa noche va solo en combo. El filtro por `is_active` sigue siendo este.
+    expect(s).toMatch(/visibles\.filter\(\(item\) => item\.is_active\)/);
     // El carrito recibe la lista filtrada...
     expect(s).toContain('useCart(aLaVenta)');
     // ...y NUNCA la lista entera: es la línea que volvería a cobrar lo agotado.
@@ -326,7 +328,12 @@ describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () =>
   it('la parrilla y el carrito SÍ ven la lista entera: hay que pintarlo y nombrarlo', () => {
     const s = comp('MenuStore');
     // Sin esto el agotado no se pintaría en gris: volvería a desaparecer.
-    expect(s).toContain('groupByCategory(filterMenuItems(items, category, query))');
+    expect(s).toContain('groupByCategory(filterMenuItems(visibles, category, query))');
+    // Y `visibles` solo quita lo que va en combo (14-09), NUNCA lo agotado: si
+    // filtrara por `is_active`, el gris volvería a desaparecer por la puerta de atrás.
+    const visibles = s.slice(s.indexOf('const visibles = useMemo'), s.indexOf('const aLaVenta'));
+    expect(visibles).toContain('ocultos.has(item.code)');
+    expect(visibles).not.toContain('is_active');
     // Y el panel necesita `items` completo para poder decir QUÉ se agotó.
     expect(s).toContain('items={items}');
   });
