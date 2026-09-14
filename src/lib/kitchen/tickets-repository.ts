@@ -134,6 +134,9 @@ const ORDER_NUMBER_RE = /^[A-Za-z0-9-]{1,40}$/;
  */
 const JORNADAS_DE_ARRASTRE = 1;
 
+/** Lecturas de pagos por ciclo antes de degradar el tablero: la original y un reintento. */
+const INTENTOS_DE_PAGOS = 2;
+
 /**
  * Reparte las filas del lote por pedido y arma la vista de cada uno.
  *
@@ -269,14 +272,26 @@ export function createKitchenRepository(source: KitchenDataSource): KitchenRepos
       // cocina puede quedarse sin ver el estado del pago, pero nunca sin
       // comandas. Perder la seccion de pago es molesto; perder la pantalla en
       // plena noche no es recuperable.
+      //
+      // ── Un hipo no es una caída: se reintenta UNA vez (13-09-2026) ─────────
+      //
+      // Degradado, el tablero deja entrar TODOS los pedidos por QR —también los
+      // que nadie pagó— y el ciclo siguiente, que sí consulta, los vuelve a
+      // sacar. En la tablet eso eran comandas apareciendo y desapareciendo:
+      // `ORD-260913-017` y `-021`, sin comprobante, parpadeando en plena noche.
+      // Un fallo aislado de red casi siempre se lo lleva un segundo intento
+      // inmediato; solo si también falla se degrada.
       let payments: Record<string, PaymentView> = {};
       let pagosConsultados = false;
       if (source.listPayments) {
-        try {
-          payments = agruparPagos(await source.listPayments(rows.map((r) => r.id)));
-          pagosConsultados = true;
-        } catch {
-          payments = {};
+        const ids = rows.map((r) => r.id);
+        for (let intento = 0; intento < INTENTOS_DE_PAGOS && !pagosConsultados; intento++) {
+          try {
+            payments = agruparPagos(await source.listPayments(ids));
+            pagosConsultados = true;
+          } catch {
+            payments = {};
+          }
         }
       }
 

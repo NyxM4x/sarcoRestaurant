@@ -10,6 +10,7 @@ import {
   summarizeProducts,
 } from '@/lib/kitchen/summary';
 import { useKitchenChime } from '@/lib/kitchen/use-kitchen-chime';
+import { boardToShow, type LastGoodBoard } from '@/lib/kitchen/degraded-board';
 import type { KitchenTicket } from '@/lib/kitchen/ticket-view';
 import type { KitchenBoard } from '@/lib/kitchen/tickets-repository';
 import { kitchenStageAction, kitchenLogoutAction } from '@/app/cocina/actions';
@@ -71,6 +72,17 @@ export function KitchenBoardScreen({
    * y nada lo insinuaba.
    */
   const [paymentsAvailable, setPaymentsAvailable] = useState(initial.paymentsAvailable);
+  /**
+   * La última respuesta con los pagos leídos. Una degradada se pinta contra
+   * ella, no sola: ver `boardToShow`. Se fecha con el reloj del navegador —el
+   * mismo que mide la gracia—, y por eso la carga inicial se anota al montar.
+   */
+  const lastGoodRef = useRef<LastGoodBoard | null>(null);
+  useEffect(() => {
+    if (initial.paymentsAvailable) {
+      lastGoodRef.current = { tickets: initial.tickets, atMs: Date.now() };
+    }
+  }, [initial.paymentsAvailable, initial.tickets]);
   const [message, setMessage] = useState<string | null>(null);
   const [, startAction] = useTransition();
 
@@ -102,8 +114,11 @@ export function KitchenBoardScreen({
         return;
       }
       const board = (await res.json()) as KitchenBoard;
-      setTickets(board.tickets);
-      setPaymentsAvailable(board.paymentsAvailable);
+      const ahora = Date.now();
+      if (board.paymentsAvailable) lastGoodRef.current = { tickets: board.tickets, atMs: ahora };
+      const visible = boardToShow(board, lastGoodRef.current, ahora);
+      setTickets(visible.tickets);
+      setPaymentsAvailable(visible.paymentsAvailable);
       setOffline(false);
     } catch {
       setOffline(true);

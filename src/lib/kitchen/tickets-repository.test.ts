@@ -116,6 +116,40 @@ describe('repositorio de cocina — lectura del tablero', () => {
   });
 });
 
+describe('repositorio de cocina — un fallo aislado de pagos no degrada el tablero', () => {
+  /** Un pedido por QR sin comprobante: solo entra al tablero si NO se pudo mirar el pago. */
+  const qrSinPago = row('confirmed', { payment_method: 'qr' });
+
+  function conPagosQueFallan(fallos: number) {
+    let llamadas = 0;
+    const { source } = fakeSource({ rows: [qrSinPago] });
+    source.listPayments = async () => {
+      llamadas += 1;
+      if (llamadas <= fallos) throw new Error('fetch failed');
+      return { attempts: [], proofs: [] };
+    };
+    return { source, llamadas: () => llamadas };
+  }
+
+  it('si la consulta falla UNA vez se reintenta, y el QR sin comprobante sigue fuera', async () => {
+    // `ORD-260913-017` y `-021` parpadeaban por esto: cada ciclo que perdía la
+    // lectura de pagos los metía, y el siguiente los sacaba.
+    const { source, llamadas } = conPagosQueFallan(1);
+    const board = await createKitchenRepository(source).getBoard(NOW);
+    expect(llamadas()).toBe(2);
+    expect(board.paymentsAvailable).toBe(true);
+    expect(board.tickets).toEqual([]);
+  });
+
+  it('si también falla el reintento se degrada como siempre: entra y se avisa', async () => {
+    const { source, llamadas } = conPagosQueFallan(2);
+    const board = await createKitchenRepository(source).getBoard(NOW);
+    expect(llamadas()).toBe(2);
+    expect(board.paymentsAvailable).toBe(false);
+    expect(board.tickets).toHaveLength(1);
+  });
+});
+
 describe('repositorio de cocina — escritura con guarda optimista', () => {
   it('INICIAR escribe confirmed → preparing usando el estado leído como guarda', async () => {
     const { source, calls } = fakeSource({ status: 'confirmed' });
