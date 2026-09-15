@@ -3,6 +3,7 @@ import {
   buildDeliveryCancelNotice,
   buildDeliveryNotice,
   mapsLink,
+  mergeNoticeItems,
   escapeTelegramHtml,
   shortOrderNumber,
   whatsappLink,
@@ -383,5 +384,42 @@ describe('el aviso de que un pedido se anuló', () => {
       replacementOrderNumber: null,
     });
     expect(text).toContain('ORD-000123');
+  });
+});
+
+/**
+ * Los combos en el aviso (14-09-2026): la primera promoción salió al grupo como
+ * "Pedido (0 productos)" en 57 de 58 avisos.
+ */
+describe('productos de combos en el aviso', () => {
+  it('junta el mismo plato suelto y del combo en una sola línea', () => {
+    expect(
+      mergeNoticeItems([
+        { name: 'Trancapecho', quantity: 1 },
+        { name: 'Soda Peque', quantity: 2 },
+        { name: 'Trancapecho', quantity: 4 },
+      ]),
+    ).toEqual([
+      { name: 'Trancapecho', quantity: 5 },
+      { name: 'Soda Peque', quantity: 2 },
+    ]);
+  });
+
+  it('no altera la lista que recibe', () => {
+    const entrada = [
+      { name: 'Trancapecho', quantity: 1 },
+      { name: 'Trancapecho', quantity: 2 },
+    ];
+    mergeNoticeItems(entrada);
+    expect(entrada[0].quantity).toBe(1);
+  });
+
+  it('un pedido que es solo combo ya no sale con 0 productos', () => {
+    const texto = buildDeliveryNotice({
+      ...BASE,
+      items: mergeNoticeItems([{ name: 'Trancapecho', quantity: 4 }]),
+    });
+    expect(texto).toContain('Pedido (4 productos):');
+    expect(texto).toContain('4x Trancapecho');
   });
 });

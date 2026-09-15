@@ -37,6 +37,26 @@ export interface DeliveryNoticeItem {
 }
 
 /**
+ * Junta en una línea las unidades del mismo producto (14-09-2026).
+ *
+ * Desde que el aviso incluye los componentes de los combos, un pedido con un
+ * Trancapecho suelto y un "2 Trancapechos" traería dos líneas del mismo plato.
+ * Quien reparte cuenta bolsas, no promociones: "3x Trancapecho" es lo que tiene
+ * que verificar, igual que la cocina (`promotions/kitchen-lines`).
+ *
+ * Conserva el orden de la primera aparición: los sueltos primero, como antes.
+ */
+export function mergeNoticeItems(items: DeliveryNoticeItem[]): DeliveryNoticeItem[] {
+  const porNombre = new Map<string, DeliveryNoticeItem>();
+  for (const item of items) {
+    const previo = porNombre.get(item.name);
+    if (previo) previo.quantity += item.quantity;
+    else porNombre.set(item.name, { name: item.name, quantity: item.quantity });
+  }
+  return [...porNombre.values()];
+}
+
+/**
  * Qué se cobra al entregar. Lo calcula `deliveryCollectOf` en cocina y llega
  * aquí ya resuelto: este módulo no deduce nada del pago, solo lo escribe.
  *

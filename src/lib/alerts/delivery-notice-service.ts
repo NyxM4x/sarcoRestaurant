@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
-import { buildDeliveryNotice, type DeliveryNoticeItem } from './delivery-notice';
+import { buildDeliveryNotice, mergeNoticeItems, type DeliveryNoticeItem } from './delivery-notice';
+import { promotionsToKitchenLines } from '@/lib/promotions/kitchen-lines';
 import { deliveryCollectOf } from '@/lib/kitchen/ticket-view';
 import { amountLabelHint, amountLabelText } from '@/lib/payment-proof/labels';
 import type { ProofAmountLabel } from '@/lib/payment-proof/analysis';
@@ -56,7 +57,10 @@ const NOTICE_SELECT =
   'notes, delivery_quote_status, delivery_amount, subtotal_amount, total_amount, ' +
   'payment_method, delivery_fee_paid, delivery_latitude, ' +
   'delivery_longitude, delivery_distance_meters, ' +
-  'order_items ( product_name_snapshot, quantity )';
+  'order_items ( product_name_snapshot, quantity ), ' +
+  // 14-09-2026: los combos. Sin esto, un pedido que es solo promoción salía al
+  // grupo como "Pedido (0 productos)" — el ORD-090 de la primera promo.
+  'order_promotions ( quantity, components_snapshot )';
 
 /**
  * La etiqueta del comprobante más reciente de este pedido.
@@ -174,13 +178,29 @@ export async function notifyDeliveryGroup(
     }
 
     const rawItems = Array.isArray(order.order_items) ? order.order_items : [];
-    const items: DeliveryNoticeItem[] = rawItems.map((raw) => {
+    const sueltos: DeliveryNoticeItem[] = rawItems.map((raw) => {
       const item = raw as Record<string, unknown>;
       return {
         name: String(item.product_name_snapshot ?? 'producto'),
         quantity: num(item.quantity) ?? 1,
       };
     });
+
+    // Los combos se aplanan con la MISMA función que usa la cocina: el
+    // repartidor tiene que ver los mismos platos que se pusieron en la bolsa.
+    const rawPromos = Array.isArray(order.order_promotions) ? order.order_promotions : [];
+    const deCombos: DeliveryNoticeItem[] = promotionsToKitchenLines(
+      rawPromos.map((raw) => {
+        const promo = raw as Record<string, unknown>;
+        return {
+          order_id: orderId,
+          quantity: num(promo.quantity) ?? 0,
+          components_snapshot: promo.components_snapshot,
+        };
+      }),
+    ).map((linea) => ({ name: linea.product_name_snapshot, quantity: linea.quantity }));
+
+    const items = mergeNoticeItems([...sueltos, ...deCombos]);
 
     // Qué se cobra en la puerta, con la MISMA función que lo decide en cocina.
     //
