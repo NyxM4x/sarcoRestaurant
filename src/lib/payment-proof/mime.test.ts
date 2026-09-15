@@ -118,6 +118,15 @@ describe('validación completa del comprobante', () => {
     });
   });
 
+  it('acepta una captura PNG que WhatsApp declaró JPEG, con el tipo real (14-09-2026)', () => {
+    // Los comprobantes de #59 y #70: pagos buenos que la cocina vio como
+    // "archivo no disponible" porque WhatsApp llama JPEG a toda imagen.
+    const res = validateProofBytes(file(PNG), 'image/jpeg');
+    expect(res).toEqual({ ok: true, mimeType: 'image/png', extension: 'png', declaredMatches: false });
+    // Y al revés, por la misma razón.
+    expect(validateProofBytes(file(JPEG), 'image/png')).toMatchObject({ ok: true, mimeType: 'image/jpeg' });
+  });
+
   it('si el proveedor no declara tipo, o declara uno que no admitimos, manda el contenido', () => {
     // El proveedor puede sencillamente no saberlo; el contenido sí lo sabemos.
     for (const declarado of [null, undefined, '', 'application/octet-stream']) {

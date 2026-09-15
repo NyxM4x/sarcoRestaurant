@@ -116,7 +116,22 @@ export function validateProofBytes(
   // Si el proveedor declaró un tipo ADMITIDO distinto del real, es un archivo
   // renombrado: se rechaza. Si declaró algo que no admitimos (o nada), manda el
   // contenido real — el proveedor puede sencillamente no saberlo.
-  if (declared !== null && declared !== real && isProofMimeType(declared)) {
+  //
+  // ── Salvo entre dos IMÁGENES (14-09-2026) ────────────────────────────────
+  //
+  // WhatsApp declara `image/jpeg` para toda imagen, también para la captura de
+  // pantalla que en realidad es PNG. Esa noche, los comprobantes de los pedidos
+  // #59 y #70 —un Yape y un Banco Ganadero, pagos buenos— eran PNG declarados
+  // JPEG: se rechazaron aquí, antes del hash, y la cocina los vio como "archivo
+  // no disponible". Eran justo los más pesados de la noche porque un PNG no
+  // comprime como un JPEG.
+  //
+  // Entre dos imágenes no hay nada que proteger: el archivo se guarda y se sirve
+  // con el tipo REAL, y `declaredMatches: false` deja la diferencia anotada. Lo
+  // que sigue rechazándose es cruzar familias —un PNG que dice ser PDF, un PDF
+  // que dice ser JPEG—, que sí es un archivo haciéndose pasar por otra cosa.
+  const entreImagenes = isImageMime(declared) && isImageMime(real);
+  if (declared !== null && declared !== real && isProofMimeType(declared) && !entreImagenes) {
     return { ok: false, reason: 'declared_mismatch' };
   }
 
