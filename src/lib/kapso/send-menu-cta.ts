@@ -1,7 +1,8 @@
 import 'server-only';
 import { getKapsoClient } from './client';
-import { menuCtaBodyText } from './messages';
+import { menuCtaBodyText, ORDERS_PAUSED_TEXT } from './messages';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { readOrdersPaused } from '@/lib/delivery/settings';
 import { createMenuSessionWithUrl } from '@/lib/menu/session-service';
 import { createMenuDeliveryStore } from '@/lib/menu/delivery-repository';
 import { dispatchMenu, type MenuDispatchDeps } from '@/lib/menu/dispatch';
@@ -74,6 +75,18 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
         bodyText,
         buttonText,
       }) => {
+        // Pedidos PAUSADOS por saturación (0038, 14-09-2026): en vez del botón
+        // sale el aviso. Va aquí, en el único envío del menú, para cubrir las
+        // tres puertas —la ruta determinística, `send_menu` del agente y el
+        // enlace de "Cambiar mi pedido"— sin tocar ninguna. El despacho lo
+        // registra como enviado, y lo fue: el cliente recibió respuesta.
+        // `readOrdersPaused` nunca lanza; si falla, el menú de siempre.
+        if (await readOrdersPaused()) {
+          return getKapsoClient().sendText(customerPhone, ORDERS_PAUSED_TEXT, {
+            phoneNumberId: from,
+          });
+        }
+
         // ¿Hay efectivo? Solo se pregunta cuando el cliente preguntó por él
         // (14-09-2026): en noche de promoción la respuesta es no, y un "¡Sí!"
         // lo mandaría a buscar una opción deshabilitada. Nunca lanza.

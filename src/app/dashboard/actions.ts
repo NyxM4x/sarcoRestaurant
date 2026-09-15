@@ -17,7 +17,7 @@ import {
   landingPathForRole,
   LOGIN_PATH,
 } from '@/lib/dashboard/session-role';
-import { setRainSurcharge } from '@/lib/delivery/settings';
+import { setOrdersPaused, setRainSurcharge } from '@/lib/delivery/settings';
 import { createOrdersRepository } from '@/lib/dashboard/orders-repository';
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { decidePaymentAttempt } from '@/lib/payment-proof/decide-attempt';
@@ -215,6 +215,31 @@ export async function setRainSurchargeAction(
 
   revalidatePath('/dashboard');
   return { ok: true, active };
+}
+
+/**
+ * Pausa o reanuda los pedidos NUEVOS (0038, 14-09-2026).
+ *
+ * El encargado Y la cocina: quien sabe que no da abasto es quien tiene los
+ * tickets delante, y en plena saturación no puede esperar a que conteste otra
+ * persona. No toca precios ni pedidos ya hechos, solo la puerta de entrada.
+ *
+ * Determinista como la lluvia: se escribe el valor pedido, nunca lo contrario
+ * de lo que haya. Dos toques en "pausar" no pueden acabar reanudando.
+ */
+export async function setOrdersPausedAction(
+  paused: boolean,
+): Promise<{ ok: true; paused: boolean } | { ok: false; reason: 'unauthorized' | 'error' }> {
+  const role = await currentSessionRole();
+  if (role === null || !canReviewPayments(role)) return { ok: false, reason: 'unauthorized' };
+  if (typeof paused !== 'boolean') return { ok: false, reason: 'error' };
+
+  const written = await setOrdersPaused(paused);
+  if (!written) return { ok: false, reason: 'error' };
+
+  revalidatePath('/dashboard');
+  revalidatePath('/menu');
+  return { ok: true, paused };
 }
 
 // ── Disponibilidad de productos ─────────────────────────────────────────────

@@ -29,6 +29,9 @@ import { PromoCard } from './PromoCard';
 import { SearchBar } from './SearchBar';
 
 const NO_SESSION_NOTICE = 'Abre el menú desde WhatsApp para confirmar tu pedido.';
+/** Pedidos nuevos pausados por saturación (0038, 14-09-2026). */
+const ORDERS_PAUSED_NOTICE =
+  'Estamos con demasiados pedidos y pausamos los nuevos por un rato. Vuelve a intentarlo en unos minutos.';
 /** El enlace ya tiene un pedido: 201, 200 idempotente o 409. */
 const SESSION_USED_NOTICE =
   'Este enlace ya fue utilizado. Vuelve a WhatsApp para solicitar un nuevo enlace y realizar otro pedido.';
@@ -66,7 +69,13 @@ export function MenuStore({
   serverNow,
   sessionToken,
   replacingOrder = null,
+  ordersPaused = false,
 }: {
+  /**
+   * ¿Pedidos nuevos pausados por saturación? (0038) Leído en el servidor. Se
+   * puede mirar el menú y armar el carrito, pero no confirmar.
+   */
+  ordersPaused?: boolean;
   items: MenuItem[];
   /** Combos publicables, ya leídos en el servidor. */
   promotions: Promotion[];
@@ -213,13 +222,15 @@ export function MenuStore({
   }, [checkout.fields, modo.cashAllowed, modo.pickupAllowed]);
 
   const hasSession = sessionToken !== null;
-  // El checkout solo está disponible con un enlace que aún no se haya bloqueado.
-  const canCheckout = hasSession && !isSessionBlocked(checkout);
+  // El checkout solo está disponible con un enlace que aún no se haya bloqueado,
+  // y con los pedidos nuevos abiertos (0038).
+  const canCheckout = hasSession && !isSessionBlocked(checkout) && !ordersPaused;
   const frozen = isFrozen(checkout);
   const submitting = checkout.step === 'submitting';
 
-  const cartNotice =
-    checkout.sessionBlockReason === 'used'
+  const cartNotice = ordersPaused
+    ? ORDERS_PAUSED_NOTICE
+    : checkout.sessionBlockReason === 'used'
       ? SESSION_USED_NOTICE
       : checkout.sessionBlockReason === 'invalid'
         ? SESSION_INVALID_NOTICE

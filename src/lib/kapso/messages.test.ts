@@ -1,5 +1,5 @@
 import { orderReviewKeptText, orderReviewText } from './messages';
-import { localAddressText, pickupUnavailableText } from './messages';
+import { localAddressText, ORDERS_PAUSED_TEXT, pickupUnavailableText } from './messages';
 import { CASH_WAIT_TEXT, PROOF_WAIT_TEXT, deliveryRelayText } from './messages';
 import { describe, it, expect } from 'vitest';
 import {
@@ -429,5 +429,14 @@ describe('noche de promoción: sin recojo', () => {
     expect(texto).toMatch(/sigue igual/);
     // No lo manda a hablar con nadie ni le promete una excepción.
     expect(texto).not.toMatch(/compañero|equipo|operador|excepción/i);
+  });
+});
+
+describe('pedidos pausados por saturación (0038)', () => {
+  it('dice qué pasa, qué hacer y tranquiliza a quien ya pidió, sin derivar', () => {
+    expect(ORDERS_PAUSED_TEXT).toMatch(/demasiados pedidos/);
+    expect(ORDERS_PAUSED_TEXT).toMatch(/Escribinos de nuevo/);
+    expect(ORDERS_PAUSED_TEXT).toMatch(/Si ya hiciste tu pedido, sigue en curso/);
+    expect(ORDERS_PAUSED_TEXT).not.toMatch(/compañero|equipo|operador|persona/i);
   });
 });

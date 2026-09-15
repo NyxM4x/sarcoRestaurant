@@ -52,3 +52,39 @@ export async function setRainSurcharge(
     .eq('id', SETTINGS_ID);
   return !error;
 }
+
+/**
+ * ¿Están pausados los pedidos NUEVOS? (0038, 14-09-2026)
+ *
+ * Fail-OPEN, al revés que la lluvia en espíritu pero por la misma razón: ante
+ * la duda, lo de siempre. Si la fila no está, la columna todavía no existe o la
+ * consulta falla, los pedidos siguen entrando. Pausar por un fallo nuestro
+ * cerraría el negocio sin que nadie lo haya decidido.
+ */
+export async function readOrdersPaused(
+  supabase: SupabaseClient = getSupabaseAdmin(),
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('delivery_settings')
+      .select('orders_paused')
+      .eq('id', SETTINGS_ID)
+      .maybeSingle();
+    if (error || !data) return false;
+    return (data as { orders_paused?: unknown }).orders_paused === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Pausa o reanuda los pedidos nuevos. `false` si no se pudo escribir. */
+export async function setOrdersPaused(
+  paused: boolean,
+  supabase: SupabaseClient = getSupabaseAdmin(),
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('delivery_settings')
+    .update({ orders_paused: paused, updated_at: new Date().toISOString() })
+    .eq('id', SETTINGS_ID);
+  return !error;
+}

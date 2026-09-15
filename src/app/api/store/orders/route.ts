@@ -18,6 +18,7 @@ import {
   replaceSupersededOrder,
 } from '@/lib/orders/order-replacement';
 import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
+import { readOrdersPaused } from '@/lib/delivery/settings';
 
 // Requiere APIs de Node (crypto, service_role) — no Edge. Siempre dinámico.
 export const runtime = 'nodejs';
@@ -105,6 +106,9 @@ function buildDeps(): WebCheckoutDeps {
      * Una lectura de `promotions` por pedido confirmado; ver `promotions/promo-mode`.
      */
     readPromoMode: () => readCurrentPromoMode(supabase),
+
+    /** 0038 — pedidos nuevos pausados por saturación. Nunca lanza. */
+    readOrdersPaused: () => readOrdersPaused(supabase),
   };
 }
 

@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { setRainSurchargeAction, sweepExpiredOrdersAction } from '@/app/dashboard/actions';
+import {
+  setOrdersPausedAction,
+  setRainSurchargeAction,
+  sweepExpiredOrdersAction,
+} from '@/app/dashboard/actions';
 import { formatLongDate, formatTime } from '@/lib/dashboard/format';
 
 export function DashboardHeader({
@@ -12,6 +16,7 @@ export function DashboardHeader({
   soundOn,
   onToggleSound,
   rainSurcharge = false,
+  ordersPaused = false,
 }: {
   nowMs: number | null;
   lastUpdated: number | null;
@@ -21,6 +26,8 @@ export function DashboardHeader({
   onToggleSound: () => void;
   /** Estado inicial del recargo por lluvia, leído en servidor. */
   rainSurcharge?: boolean;
+  /** ¿Pedidos nuevos pausados? (0038) Leído en servidor. */
+  ordersPaused?: boolean;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-1.5 sm:mb-6">
@@ -32,6 +39,7 @@ export function DashboardHeader({
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
         <SweepExpiredButton />
+        <OrdersPausedToggle initial={ordersPaused} />
         <RainSurchargeToggle initial={rainSurcharge} />
         <span className="flex items-center gap-1.5 text-xs text-zinc-400">
           <span className={`h-1.5 w-1.5 rounded-full ${refreshing ? 'animate-pulse bg-blue-500' : 'bg-green-500'}`} aria-hidden />
@@ -123,6 +131,63 @@ function SweepExpiredButton() {
  * Afecta solo a las cotizaciones NUEVAS. Los pedidos ya cotizados conservan su
  * precio: el cliente vio una cifra y esa es la que vale.
  */
+/**
+ * Pausa de pedidos NUEVOS (0038, 14-09-2026).
+ *
+ * Encendida, a quien pide el menú por WhatsApp se le contesta que estamos
+ * saturados, el menú web no deja confirmar y el servidor rechaza los pedidos
+ * nuevos. Lo que ya entró sigue igual: comprobantes, ubicación y cocina.
+ *
+ * En rojo cuando está activa, y a propósito: es el único botón del panel que
+ * deja de vender, y olvidarlo encendido cuesta una noche entera de pedidos.
+ */
+function OrdersPausedToggle({ initial }: { initial: boolean }) {
+  const [paused, setPaused] = useState(initial);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState(false);
+
+  const toggle = () => {
+    const siguiente = !paused;
+    setPaused(siguiente);
+    setError(false);
+    startTransition(async () => {
+      const res = await setOrdersPausedAction(siguiente);
+      if (!res.ok) {
+        // Se revierte: un botón que dice "pausado" sin haberlo escrito dejaría
+        // entrar pedidos creyendo que no entran.
+        setPaused(!siguiente);
+        setError(true);
+      }
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={pending}
+      aria-pressed={paused}
+      aria-label={paused ? 'Reanudar pedidos nuevos' : 'Pausar pedidos nuevos'}
+      title={
+        error
+          ? 'No se pudo cambiar. ¿Está aplicada la migración 0038?'
+          : paused
+            ? 'Pedidos PAUSADOS: a quien escribe se le dice que estamos saturados'
+            : 'Pedidos abiertos'
+      }
+      className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
+        error
+          ? 'border-red-500/50 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+          : paused
+            ? 'border-red-600 bg-red-600 text-white hover:bg-red-700'
+            : 'border-black/10 text-zinc-700 hover:bg-black/[0.04] dark:border-white/15 dark:text-zinc-200 dark:hover:bg-white/[0.06]'
+      }`}
+    >
+      {error ? '⚠ Pausa' : paused ? '⏸ Pedidos pausados' : '⏸ Pausar pedidos'}
+    </button>
+  );
+}
+
 function RainSurchargeToggle({ initial }: { initial: boolean }) {
   const [active, setActive] = useState(initial);
   const [pending, startTransition] = useTransition();

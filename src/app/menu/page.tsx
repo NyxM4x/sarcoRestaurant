@@ -5,6 +5,7 @@ import { createMenuRepository } from '@/lib/menu';
 import { createPromotionsRepository } from '@/lib/promotions/repository';
 import type { Promotion } from '@/lib/promotions/promotion';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { readOrdersPaused } from '@/lib/delivery/settings';
 import { log } from '@/lib/log';
 import { createMenuSessionRepository } from '@/lib/menu/session-repository';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
@@ -122,9 +123,18 @@ export default async function MenuPage(props: {
     promotions = [];
   }
 
+  // 0038: pedidos nuevos pausados por saturación. Nunca lanza; si falla, abierto.
+  const ordersPaused = await readOrdersPaused();
+
   return (
     <main className="flex-1 bg-donzarco-surface text-zinc-900">
       <MenuHeader />
+      {ordersPaused && (
+        <div role="status" className="bg-red-600 px-4 py-3 text-center text-sm font-semibold text-white">
+          Estamos con demasiados pedidos y pausamos los nuevos por un rato. Vuelve a intentarlo en
+          unos minutos. Si ya hiciste tu pedido, sigue en curso.
+        </div>
+      )}
       <ServiceNoticeBanner serverNow={serverNow} />
       {replacingOrder && <ReplacingOrderBanner orderNumber={replacingOrder.orderNumber} />}
 
@@ -143,6 +153,7 @@ export default async function MenuPage(props: {
         // sesión va `null`: el menú sigue siendo público, pero no se puede
         // confirmar un pedido. No se registra ni se persiste en ningún sitio.
         <MenuStore
+          ordersPaused={ordersPaused}
           items={items}
           promotions={promotions}
           serverNow={serverNow}
