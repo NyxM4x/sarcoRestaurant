@@ -529,3 +529,20 @@ describe('prompt — noche de promoción (14-09-2026)', () => {
     expect(bloque).toMatch(/Esto manda sobre lo que dicen arriba/);
   });
 });
+
+describe('prompt — pedidos pausados por saturación (0038)', () => {
+  it('sin pausa ni promoción es el prompt de siempre', () => {
+    expect(
+      systemPromptForMode({ cashAllowed: true, pickupAllowed: true, ordersPaused: false }),
+    ).toBe(DON_ZARCO_SYSTEM_PROMPT);
+  });
+
+  it('con pausa le dice que no invite a pedir y que lo ya pedido sigue', () => {
+    const bloque = systemPromptForMode({ cashAllowed: true, pickupAllowed: true, ordersPaused: true }).slice(
+      DON_ZARCO_SYSTEM_PROMPT.length,
+    );
+    expect(bloque).toMatch(/pedidos nuevos están PAUSADOS/);
+    expect(bloque).toMatch(/No lo invites a armar un pedido/);
+    expect(bloque).toMatch(/su pedido está en curso/);
+  });
+});

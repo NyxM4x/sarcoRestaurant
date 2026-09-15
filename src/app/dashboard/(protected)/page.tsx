@@ -2,7 +2,7 @@ import { createOrdersRepository, type OrdersListResult } from '@/lib/dashboard/o
 import { createSupabaseOrdersDataSource } from '@/lib/dashboard/data-source';
 import { normalizeFilters } from '@/lib/dashboard/filters';
 import { OrdersDashboard } from '@/components/dashboard/OrdersDashboard';
-import { readRainSurcharge } from '@/lib/delivery/settings';
+import { readOrdersPaused, readRainSurcharge } from '@/lib/delivery/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +33,9 @@ export default async function OrdersPage() {
     rainSurcharge = false;
   }
 
+  // 0038: nunca lanza; si falla, "no pausado", que es lo que de verdad pasa.
+  const ordersPaused = await readOrdersPaused();
+
   let initial = EMPTY;
   try {
     const repo = createOrdersRepository(createSupabaseOrdersDataSource());
@@ -42,5 +45,12 @@ export default async function OrdersPage() {
     initial = EMPTY;
   }
 
-  return <OrdersDashboard initial={initial} serverNow={now} rainSurcharge={rainSurcharge} />;
+  return (
+    <OrdersDashboard
+      initial={initial}
+      serverNow={now}
+      rainSurcharge={rainSurcharge}
+      ordersPaused={ordersPaused}
+    />
+  );
 }

@@ -704,6 +704,22 @@ export function pickupUnavailableText(orderNumber: string): string {
 }
 
 /**
+ * Pedidos nuevos PAUSADOS por saturación (0038, 14-09-2026).
+ *
+ * Sale EN LUGAR del botón del menú: un enlace a un menú que no deja confirmar
+ * sería peor que decirlo de frente. Tres cosas y en este orden: qué pasa (no es
+ * que no lo leímos, es que no damos abasto), qué hacer (volver a escribir en un
+ * rato, sin prometer hora) y la tranquilidad de quien ya pidió, que es quien
+ * más reclama si lee "pausamos los pedidos" sin esa frase.
+ *
+ * No manda a hablar con nadie: la cola es justamente lo que no hay que alargar.
+ */
+export const ORDERS_PAUSED_TEXT =
+  'Estamos con demasiados pedidos en este momento 🙏 Para no hacerte esperar de ' +
+  'más, pausamos los pedidos nuevos por un rato. Escribinos de nuevo en unos ' +
+  'minutos y te pasamos el menú. Si ya hiciste tu pedido, sigue en curso.';
+
+/**
  * Lo que recibe quien pide algo para la plancha sobre un pedido ya armado.
  *
  * ── Por qué no se le manda a rearmar el pedido ──────────────────────────────

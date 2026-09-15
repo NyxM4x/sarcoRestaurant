@@ -995,3 +995,31 @@ describe('noche de promoción', () => {
     expect(deps.rpcCalls).toHaveLength(1);
   });
 });
+
+/** Pedidos nuevos pausados por saturación (0038, 14-09-2026). */
+describe('pedidos pausados', () => {
+  class DepsPausadas extends FakeDeps {
+    pausado = true;
+    readOrdersPaused = async (): Promise<boolean> => this.pausado;
+  }
+
+  it('no crea el pedido y dice que estamos saturados', async () => {
+    const deps = new DepsPausadas();
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'qr' })), deps);
+    const body = (await response.json()) as { error: string; message: string };
+
+    expect(response.status).toBe(422);
+    expect(deps.rpcCalls).toEqual([]);
+    expect(body.message).toMatch(/demasiados pedidos/);
+  });
+
+  it('sin pausa, el pedido entra como siempre', async () => {
+    const deps = new DepsPausadas();
+    deps.pausado = false;
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'qr' })), deps);
+
+    expect(response.status).toBe(201);
+  });
+});

@@ -268,24 +268,51 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
  *
  * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
  */
-export function systemPromptForMode(mode: { cashAllowed: boolean; pickupAllowed: boolean }): string {
-  if (mode.cashAllowed && mode.pickupAllowed) return DON_ZARCO_SYSTEM_PROMPT;
+export function systemPromptForMode(mode: {
+  cashAllowed: boolean;
+  pickupAllowed: boolean;
+  /** Pedidos nuevos pausados por saturación (0038). Ausente = no. */
+  ordersPaused?: boolean;
+}): string {
+  const bloques: string[] = [];
 
-  const lineas = ['', 'Hoy hay promoción vigente, y mientras dure:'];
-  if (!mode.pickupAllowed) {
+  if (!mode.cashAllowed || !mode.pickupAllowed) {
+    const lineas = ['', 'Hoy hay promoción vigente, y mientras dure:'];
+    if (!mode.pickupAllowed) {
+      lineas.push(
+        '- No hay recojo: todos los pedidos salen con delivery. Si alguien quiere',
+        '  pasar a recogerlo, dile que hoy no se puede y que lo pida con envío.',
+      );
+    }
+    if (!mode.cashAllowed) {
+      lineas.push('- No se acepta efectivo: el pago es solo por QR.');
+    }
     lineas.push(
-      '- No hay recojo: todos los pedidos salen con delivery. Si alguien quiere',
-      '  pasar a recogerlo, dile que hoy no se puede y que lo pida con envío.',
+      '- Esto manda sobre lo que dicen arriba del recojo y del efectivo. No',
+      '  prometas que mañana vuelva: no lo sabes.',
+    );
+    bloques.push(lineas.join('\n'));
+  }
+
+  // Saturación (0038): manda sobre todo lo anterior, incluido mandar el menú.
+  // send_menu ya contesta con el aviso en vez del botón; esto es para que el
+  // modelo no invite a pedir con sus propias palabras.
+  if (mode.ordersPaused) {
+    bloques.push(
+      [
+        '',
+        'AHORA MISMO los pedidos nuevos están PAUSADOS: hay demasiados en cola.',
+        '- Si alguien quiere pedir, dile que estamos con demasiados pedidos y que',
+        '  vuelva a escribir en unos minutos. No lo invites a armar un pedido.',
+        '- Quien ya hizo su pedido sigue normal: su pedido está en curso.',
+        '- No prometas una hora: no la sabes.',
+      ].join('\n'),
     );
   }
-  if (!mode.cashAllowed) {
-    lineas.push('- No se acepta efectivo: el pago es solo por QR.');
-  }
-  lineas.push(
-    '- Esto manda sobre lo que dicen arriba del recojo y del efectivo. No',
-    '  prometas que mañana vuelva: no lo sabes.',
-  );
-  return DON_ZARCO_SYSTEM_PROMPT + '\n' + lineas.join('\n');
+
+  return bloques.length === 0
+    ? DON_ZARCO_SYSTEM_PROMPT
+    : DON_ZARCO_SYSTEM_PROMPT + '\n' + bloques.join('\n');
 }
 
 /** Techo de tokens de la respuesta: en WhatsApp, largo es peor. */

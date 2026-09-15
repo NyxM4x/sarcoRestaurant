@@ -147,6 +147,11 @@ export interface WebCheckoutDeps {
    * Opcional: sin ella el checkout se comporta EXACTAMENTE como antes.
    */
   readPromoMode?: () => Promise<PromoMode>;
+  /**
+   * ¿Pedidos nuevos pausados por saturación? (0038, 14-09-2026). Para la pestaña
+   * que se abrió antes de pausar. Opcional: sin ella, como antes.
+   */
+  readOrdersPaused?: () => Promise<boolean>;
 }
 
 /** Ver `checkReplacementFeasible` en `@/lib/orders/order-replacement`. */
@@ -199,6 +204,9 @@ const PICKUP_UNAVAILABLE_MESSAGE =
  */
 const COMBO_ONLY_MESSAGE =
   'Hoy uno de tus productos solo se vende dentro de la promoción. Actualiza la página para verla.';
+/** Pedidos nuevos pausados por saturación (0038). Mismo texto que el menú. */
+const ORDERS_PAUSED_MESSAGE =
+  'Estamos con demasiados pedidos y pausamos los nuevos por un rato. Vuelve a intentarlo en unos minutos.';
 
 function jsonResponse(status: number, body: unknown): Response {
   return Response.json(body, { status });
@@ -373,6 +381,13 @@ export async function handleCreateWebOrder(
         message: ORDER_ALREADY_PAID_MESSAGE,
       });
     }
+  }
+
+  // 3b'. Pedidos nuevos pausados por saturación (0038). La lectura nunca lanza:
+  //      si falla, "no pausado", y el pedido entra como siempre.
+  if (deps.readOrdersPaused && (await deps.readOrdersPaused())) {
+    log.warn('store.orders.paused');
+    return jsonResponse(422, { error: 'validation_error', message: ORDERS_PAUSED_MESSAGE });
   }
 
   // 3c. Noche de promoción (14-09-2026): sin efectivo, y el producto de un combo

@@ -44,11 +44,14 @@ export function OrdersDashboard({
   initial,
   serverNow,
   rainSurcharge = false,
+  ordersPaused = false,
 }: {
   initial: OrdersListResult;
   serverNow: number;
   /** Estado del recargo por lluvia, leido en servidor. */
   rainSurcharge?: boolean;
+  /** ¿Pedidos nuevos pausados? (0038) Leído en servidor. */
+  ordersPaused?: boolean;
 }) {
   const [data, setData] = useState<OrdersListResult>(initial);
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
@@ -301,6 +304,7 @@ export function OrdersDashboard({
         soundOn={soundOn}
         onToggleSound={toggleSound}
         rainSurcharge={rainSurcharge}
+        ordersPaused={ordersPaused}
       />
 
       <div className="mb-6">
