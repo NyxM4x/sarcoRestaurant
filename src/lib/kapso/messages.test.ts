@@ -407,26 +407,30 @@ describe('los avisos de espera', () => {
 });
 
 /**
- * Noche de promoción sin recojo (14-09-2026): la dirección sale igual pero no
- * puede leerse como un "sí, pasá a recoger", y el "paso a recogerlo" recibe un
- * no que deja claro que su pedido sigue en pie.
+ * Sin recojo (15-09-2026, `orders/pickup-enabled`): la dirección sale igual
+ * —sigue siendo el único local— pero no puede leerse como un "sí, pasá a
+ * recoger", y el "paso a recogerlo" recibe un no que deja claro que su pedido
+ * sigue en pie.
  */
-describe('noche de promoción: sin recojo', () => {
-  it('la dirección de siempre no cambia fuera de la promoción', () => {
+describe('sin recojo', () => {
+  it('con recojo, la dirección es exactamente la de siempre', () => {
     expect(localAddressText({ pickupAllowed: true })).toBe(localAddressText());
     expect(localAddressText()).not.toMatch(/recojo/);
   });
 
-  it('en noche de promoción la dirección avisa que hoy no hay recojo', () => {
+  it('sin recojo, la dirección lo aclara sin quitar nada de lo demás', () => {
     const texto = localAddressText({ pickupAllowed: false });
     expect(texto.startsWith(localAddressText())).toBe(true);
-    expect(texto).toMatch(/no hay recojo/);
+    expect(texto).toMatch(/no hacemos recojo/);
   });
 
   it('a "paso a recogerlo" se le dice que no, y que su pedido sale igual', () => {
     const texto = pickupUnavailableText('ORD-260914-012');
-    expect(texto).toMatch(/^Hoy, por la promoción, no hay recojo/);
+    expect(texto).toMatch(/^No hacemos recojo/);
     expect(texto).toMatch(/sigue igual/);
+    // Ya no dice "hoy, por la promoción": ese motivo prometía entre líneas que
+    // mañana vuelve, y el recojo no se apagó por una noche.
+    expect(texto).not.toMatch(/promoción|hoy/i);
     // No lo manda a hablar con nadie ni le promete una excepción.
     expect(texto).not.toMatch(/compañero|equipo|operador|excepción/i);
   });

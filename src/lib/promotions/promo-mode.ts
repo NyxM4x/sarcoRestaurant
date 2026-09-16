@@ -1,4 +1,5 @@
 import type { MenuCategory } from '@/types';
+import { PICKUP_ENABLED } from '@/lib/orders/pickup-enabled';
 import { evaluatePromotion, isPurchasable, type Promotion } from './promotion';
 
 /**
@@ -48,8 +49,10 @@ export interface PromoMode {
   /** ¿Se puede elegir efectivo? Solo fuera de la noche de promoción. */
   cashAllowed: boolean;
   /**
-   * ¿Se puede pasar a recoger? Solo fuera de la noche de promoción: esa noche
-   * todo sale con delivery. Cubre el checkout y el "paso yo a recogerlo".
+   * ¿Se puede pasar a recoger? Desde el 15-09-2026, NO: el negocio dejó de
+   * hacer recojo y todo sale con delivery. Lo decide `PICKUP_ENABLED`, no la
+   * promoción; este campo sigue siendo por dónde viaja esa respuesta hasta el
+   * checkout, el "paso yo a recogerlo", la dirección del local y el agente.
    */
   pickupAllowed: boolean;
   /**
@@ -59,11 +62,19 @@ export interface PromoMode {
   comboOnlyCodes: ReadonlySet<string>;
 }
 
-/** El menú de siempre. Es también lo que se usa si las promociones no se pueden leer. */
+/**
+ * El menú de siempre. Es también lo que se usa si las promociones no se pueden
+ * leer.
+ *
+ * `pickupAllowed` sale de `PICKUP_ENABLED` y no de un `true`: el recojo se
+ * apagó para todas las noches (15-09-2026), y este es el modo que se usa
+ * cuando la lectura de promociones falla. Escribir `true` aquí haría que un
+ * fallo de Supabase reabriera el recojo justo cuando nadie está mirando.
+ */
 export const NORMAL_MODE: PromoMode = {
   active: false,
   cashAllowed: true,
-  pickupAllowed: true,
+  pickupAllowed: PICKUP_ENABLED,
   comboOnlyCodes: new Set(),
 };
 

@@ -64,13 +64,16 @@ describe('prompt — hechos con respaldo', () => {
     expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/suenan a muro/);
   });
 
-  it('sabe explicar el recojo y que la cocina espera al pago', () => {
-    // Es un caso real y frecuente —el cliente manda su propio repartidor— y el
-    // dato que evita que alguien espere en la puerta es cuándo empieza a
-    // cocinarse. "Recojo" va con la misma palabra que ve en la pantalla.
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/"Recojo"/);
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/no se le cobra envío/);
-    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/la cocina empieza cuando el pago está confirmado/);
+  it('dice que no hay recojo, sin muro y sin prometer que vuelve', () => {
+    // El local dejó de entregar en mano (15-09-2026, `orders/pickup-enabled`).
+    // Es un caso frecuente —el cliente manda a su propio repartidor—, así que
+    // lo que se le exige al prompt es la salida: que lo pida con envío. Sin
+    // ella, un "no se puede" deja la conversación sin sitio a donde ir.
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/No hay recojo: el local no entrega pedidos en mano/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/lo pida con envío/);
+    expect(DON_ZARCO_SYSTEM_PROMPT).toMatch(/No prometas que el recojo/);
+    // Y ya no lo manda a elegir una opción que el checkout no pinta.
+    expect(DON_ZARCO_SYSTEM_PROMPT).not.toMatch(/"Recojo"/);
   });
 
   it('ante la frustración no repite la explicación', () => {
@@ -515,30 +518,38 @@ describe('prompt — la ubicación se responde entera', () => {
 
 describe('prompt — noche de promoción (14-09-2026)', () => {
   it('fuera de la promoción es exactamente el prompt de siempre', () => {
-    expect(systemPromptForMode({ cashAllowed: true, pickupAllowed: true })).toBe(
-      DON_ZARCO_SYSTEM_PROMPT,
-    );
+    expect(systemPromptForMode({ cashAllowed: true })).toBe(DON_ZARCO_SYSTEM_PROMPT);
   });
 
-  it('en noche de promoción avisa que no hay recojo ni efectivo, y que eso manda', () => {
-    const prompt = systemPromptForMode({ cashAllowed: false, pickupAllowed: false });
+  it('en noche de promoción avisa que no se acepta efectivo, y que eso manda', () => {
+    const prompt = systemPromptForMode({ cashAllowed: false });
     expect(prompt.startsWith(DON_ZARCO_SYSTEM_PROMPT)).toBe(true);
     const bloque = prompt.slice(DON_ZARCO_SYSTEM_PROMPT.length);
-    expect(bloque).toMatch(/No hay recojo/);
     expect(bloque).toMatch(/No se acepta efectivo/);
-    expect(bloque).toMatch(/Esto manda sobre lo que dicen arriba/);
+    expect(bloque).toMatch(/Esto manda sobre lo que dice arriba/);
+  });
+
+  it('el recojo ya no se anuncia aquí, sino en el prompt fijo (15-09-2026)', () => {
+    // Está apagado SIEMPRE (`orders/pickup-enabled`). Si siguiera colgando de
+    // este bloque, el modelo leería "hoy hay promoción vigente" en todos los
+    // turnos —también en los que no hay ninguna— y acabaría anunciándole una
+    // promoción inexistente a quien preguntó por el horario.
+    const bloque = systemPromptForMode({ cashAllowed: false }).slice(
+      DON_ZARCO_SYSTEM_PROMPT.length,
+    );
+    expect(bloque).not.toMatch(/recojo/i);
   });
 });
 
 describe('prompt — pedidos pausados por saturación (0038)', () => {
   it('sin pausa ni promoción es el prompt de siempre', () => {
-    expect(
-      systemPromptForMode({ cashAllowed: true, pickupAllowed: true, ordersPaused: false }),
-    ).toBe(DON_ZARCO_SYSTEM_PROMPT);
+    expect(systemPromptForMode({ cashAllowed: true, ordersPaused: false })).toBe(
+      DON_ZARCO_SYSTEM_PROMPT,
+    );
   });
 
   it('con pausa le dice que no invite a pedir y que lo ya pedido sigue', () => {
-    const bloque = systemPromptForMode({ cashAllowed: true, pickupAllowed: true, ordersPaused: true }).slice(
+    const bloque = systemPromptForMode({ cashAllowed: true, ordersPaused: true }).slice(
       DON_ZARCO_SYSTEM_PROMPT.length,
     );
     expect(bloque).toMatch(/pedidos nuevos están PAUSADOS/);

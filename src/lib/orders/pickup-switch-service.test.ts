@@ -74,7 +74,7 @@ beforeEach(() => {
   MEMORIA.length = 0;
 });
 
-describe('noche de promoción: no hay recojo', () => {
+describe('con el recojo apagado: no se convierte nada', () => {
   beforeEach(() => {
     MODO = { active: true, cashAllowed: false, pickupAllowed: false, comboOnlyCodes: new Set() };
   });
@@ -89,7 +89,7 @@ describe('noche de promoción: no hay recojo', () => {
 
     expect(resultado).toEqual({ ok: true, declined: true });
     expect(TEXTOS).toHaveLength(1);
-    expect(TEXTOS[0]).toMatch(/no hay recojo/);
+    expect(TEXTOS[0]).toMatch(/No hacemos recojo/);
     expect(TEXTOS[0]).toMatch(/sigue igual/);
   });
 
@@ -99,7 +99,13 @@ describe('noche de promoción: no hay recojo', () => {
   });
 });
 
-describe('fuera de la promoción: el recojo de siempre', () => {
+/**
+ * El camino de vuelta, que hoy no ocurre en producción: desde el 15-09-2026
+ * `pickupAllowed` es false siempre (`orders/pickup-enabled`). Se queda aquí
+ * porque este servicio obedece al modo, no a la constante: el día que el
+ * recojo se encienda, esto dice qué tiene que volver a pasar.
+ */
+describe('con el recojo encendido: el camino de siempre', () => {
   beforeEach(() => {
     MODO = { active: false, cashAllowed: true, pickupAllowed: true, comboOnlyCodes: new Set() };
   });

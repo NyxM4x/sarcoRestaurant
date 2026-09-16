@@ -222,18 +222,30 @@ describe('handleCreateWebOrder', () => {
       });
     });
 
-    it('pickup nuevo -> 201 con next_action order_confirmed', async () => {
+    /**
+     * El recojo se apagó (15-09-2026, `orders/pickup-enabled`). Antes esto
+     * comprobaba el 201 con `next_action: order_confirmed`; ahora comprueba lo
+     * contrario, que es lo que protege al cliente: nadie crea un pedido para
+     * ir a buscarlo a un local que ya no los entrega en mano.
+     *
+     * Sin `readPromoMode` cableado a propósito: esta barrera no depende de las
+     * promociones ni de que Supabase conteste.
+     */
+    it('recojo nuevo -> 422 sin llegar a la RPC', async () => {
       const deps = new FakeDeps();
-      deps.outcome = {
-        data: row({ delivery_type: 'pickup', status: 'confirmed', created: true }),
-        errorCode: null,
-      };
       const res = await handleCreateWebOrder(request(validBody({ delivery_type: 'pickup' })), deps);
-      expect(res.status).toBe(201);
-      const json = await res.json();
-      expect(json.created).toBe(true);
-      expect(json.next_action).toBe('order_confirmed');
-      expect(json.order.status).toBe('confirmed');
+      const json = (await res.json()) as {
+        error: string;
+        message: string;
+        issues: Array<{ field: string; message: string }>;
+      };
+
+      expect(res.status).toBe(422);
+      expect(deps.rpcCalls).toEqual([]);
+      expect(json.error).toBe('validation_error');
+      expect(json.message).toMatch(/No hacemos recojo/);
+      // En el campo de entrega: es el control que el cliente tiene que cambiar.
+      expect(json.issues.map((i) => i.field)).toEqual(['delivery_type']);
     });
   });
 
@@ -248,18 +260,22 @@ describe('handleCreateWebOrder', () => {
       expect(json.order.order_number).toBe('ORD-000123');
     });
 
-    it('pickup reintentado -> 200 con order_confirmed', async () => {
+    /**
+     * Insistir no lo abre. Quien reintenta con recojo tiene una pestaña de
+     * antes del cambio (15-09-2026), y el reintento pasa por la misma barrera
+     * que el primer envío: nunca llega a la RPC, así que no hay pedido que
+     * recuperar por idempotencia.
+     */
+    it('el reintento con recojo tampoco pasa', async () => {
       const deps = new FakeDeps();
       deps.outcome = {
         data: row({ delivery_type: 'pickup', status: 'confirmed', created: false }),
         errorCode: null,
       };
       const res = await handleCreateWebOrder(request(validBody({ delivery_type: 'pickup' })), deps);
-      expect(res.status).toBe(200);
-      await expect(res.json()).resolves.toMatchObject({
-        created: false,
-        next_action: 'order_confirmed',
-      });
+
+      expect(res.status).toBe(422);
+      expect(deps.rpcCalls).toEqual([]);
     });
   });
 
@@ -950,7 +966,7 @@ describe('noche de promoción', () => {
     expect(body.message).toContain('promoción');
   });
 
-  it('rechaza el recojo sin crear el pedido, y lo marca en el campo de entrega', async () => {
+  it('con la promoción encendida el recojo también se rechaza', async () => {
     const deps = new DepsConPromo();
 
     const response = await handleCreateWebOrder(
@@ -966,11 +982,18 @@ describe('noche de promoción', () => {
     expect(response.status).toBe(422);
     expect(deps.rpcCalls).toEqual([]);
     expect(body.error).toBe('validation_error');
-    expect(body.message).toMatch(/no hay recojo/);
+    expect(body.message).toMatch(/No hacemos recojo/);
     expect(body.issues.map((i) => i.field)).toEqual(['delivery_type']);
   });
 
-  it('fuera de la promoción el efectivo y el recojo vuelven a pasar', async () => {
+  /**
+   * El efectivo vuelve a medianoche; el recojo no (15-09-2026).
+   *
+   * Este es el test que separa las dos cosas: aunque el modo diga que se
+   * puede recoger —como decía hasta ayer fuera de la promoción—, la constante
+   * manda y el pedido se rechaza igual. Ver `orders/pickup-enabled`.
+   */
+  it('fuera de la promoción vuelve el efectivo, pero no el recojo', async () => {
     const deps = new DepsConPromo();
     deps.modo = { active: false, cashAllowed: true, pickupAllowed: true, comboOnlyCodes: new Set() };
 
@@ -978,7 +1001,8 @@ describe('noche de promoción', () => {
       request(validBody({ payment_method: 'cash', delivery_type: 'pickup' })),
       deps,
     );
-    expect(recojo.status).toBe(201);
+    expect(recojo.status).toBe(422);
+    expect(deps.rpcCalls).toEqual([]);
 
     const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
 

@@ -75,8 +75,10 @@ describe('promoModeAt — cuándo es noche de promoción', () => {
     const modo = promoModeAt([DOS_TRANCAPECHOS], MEDIANOCHE);
     expect(modo).toBe(NORMAL_MODE);
     expect(modo.cashAllowed).toBe(true);
-    expect(modo.pickupAllowed).toBe(true);
     expect(modo.comboOnlyCodes.size).toBe(0);
+    // El recojo NO vuelve a medianoche: desde el 15-09-2026 está apagado
+    // siempre y no depende de la promoción. Ver `orders/pickup-enabled`.
+    expect(modo.pickupAllowed).toBe(false);
   });
 
   it('una promoción apagada no activa nada', () => {

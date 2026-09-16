@@ -690,15 +690,19 @@ export function pickupSwitchText(
 }
 
 /**
- * "Paso yo a recogerlo" en noche de promoción: hoy no se puede (14-09-2026).
+ * "Paso yo a recogerlo": el local ya no hace recojo (15-09-2026).
  *
- * Empieza por el NO, como el efectivo, y sigue con lo que le importa: que su
- * pedido no se tocó y sale igual. Sin esa segunda mitad, un "no hay recojo"
- * suelto se lee como que algo le pasó al pedido.
+ * Empieza por el NO y sigue con lo que le importa: que su pedido no se tocó y
+ * sale igual. Sin esa segunda mitad, un "no hay recojo" suelto se lee como que
+ * algo le pasó al pedido.
+ *
+ * Ya no dice "hoy, por la promoción". Lo decía cuando el recojo se apagaba una
+ * noche (14-09); dar ese motivo ahora sería prometer entre líneas que mañana
+ * vuelve. Ver `orders/pickup-enabled`.
  */
 export function pickupUnavailableText(orderNumber: string): string {
   return (
-    `Hoy, por la promoción, no hay recojo: los pedidos salen solo con delivery. ` +
+    `No hacemos recojo: todos los pedidos salen con delivery. ` +
     `Tu pedido ${shortOrderNumber(orderNumber)} sigue igual y te lo llevamos 🛵`
   );
 }
@@ -800,11 +804,12 @@ export type KapsoSendResponse = z.infer<typeof kapsoSendResponseSchema>;
  */
 export function localAddressText(
   /**
-   * ¿Hay recojo ahora? En noche de promoción no (14-09-2026). Ausente = sí.
+   * ¿Hay recojo? Desde el 15-09-2026 no, nunca: ver `orders/pickup-enabled`.
+   * Ausente = sí, que es como quedan los tests que no hablan de esto.
    *
    * La dirección se manda igual —quien pregunta dónde queda puede querer otra
-   * cosa—, pero el mismo detector atiende "¿se puede pasar a recoger?", y la
-   * dirección sola le contestaría que sí.
+   * cosa, y sigue siendo el único local— pero el mismo detector atiende "¿se
+   * puede pasar a recoger?", y la dirección sola le contestaría que sí.
    */
   options: { pickupAllowed?: boolean } = {},
 ): string {
@@ -815,7 +820,7 @@ export function localAddressText(
 
   const sinRecojo =
     options.pickupAllowed === false
-      ? '\n\nHoy, por la promoción, no hay recojo: los pedidos salen solo con delivery.'
+      ? '\n\nEso sí: no hacemos recojo, todos los pedidos salen con delivery 🛵'
       : '';
 
   return (

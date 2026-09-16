@@ -138,10 +138,11 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
   '  se lo repitas de vuelta: repetírselo se lee como que ya quedó anotado, y no',
   '  tienes forma de registrarlo. Reconoce lo que quiere y mándale el menú para',
   '  que lo arme él.',
-  '- Si va a recoger él, o manda a alguien a recogerlo: en el menú, al',
-  '  confirmar, elige "Recojo" y así no se le cobra envío. El pedido igual se',
-  '  paga por QR, y la cocina empieza cuando el pago está confirmado — le',
-  '  conviene pagarlo apenas le llegue, para que quien lo recoja no espere.',
+  '- No hay recojo: el local no entrega pedidos en mano, todos salen con',
+  '  delivery. Si dice que pasa él a recogerlo, o que manda a alguien, díselo',
+  '  de una vez —sin rodeos y sin disculparte— y sigue con lo que sí hay: que',
+  '  lo pida con envío y se lo llevan a la puerta. No prometas que el recojo',
+  '  vuelve, ni digas cuándo: no lo sabes.',
   '- Sí hacen delivery: llevan el pedido en moto hasta la puerta.',
   '- "¿Cuánto me sale el envío?" es de las preguntas que MEJOR puedes atender, y',
   '  la respuesta es siempre la misma: le pides que te comparta su ubicación con',
@@ -258,40 +259,42 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
- * El prompt de ESTE turno: el de siempre, más la noche de promoción si toca
+ * El prompt de ESTE turno: el de siempre, más lo que solo pasa hoy
  * (14-09-2026). Ver `promotions/promo-mode`.
  *
- * El prompt fijo le enseña a ofrecer "Recojo" y no sabe de horas. Sin este
- * bloque, en noche de promoción mandaría al cliente a elegir una opción que el
- * checkout tiene deshabilitada. Va AL FINAL y dice que manda: es la instrucción
- * más específica, y la última que el modelo lee.
+ * El prompt fijo no sabe de horas: sin este bloque, en noche de promoción
+ * mandaría al cliente a pagar en efectivo, que es una opción que el checkout
+ * tiene deshabilitada. Va AL FINAL y dice que manda: es la instrucción más
+ * específica, y la última que el modelo lee.
+ *
+ * ── Por qué el recojo ya no está aquí (15-09-2026) ──────────────────────────
+ *
+ * Porque dejó de ser cosa de una noche. Ahora está apagado siempre
+ * (`orders/pickup-enabled`) y la regla vive en el prompt fijo, que es donde
+ * antes se le enseñaba a ofrecerlo. Si se hubiera quedado en este bloque, el
+ * modelo leería "hoy hay promoción vigente" en TODOS los turnos —también en
+ * los que no hay ninguna—, y acabaría anunciándole promociones inexistentes a
+ * quien solo preguntó por el horario.
  *
  * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
  */
 export function systemPromptForMode(mode: {
   cashAllowed: boolean;
-  pickupAllowed: boolean;
   /** Pedidos nuevos pausados por saturación (0038). Ausente = no. */
   ordersPaused?: boolean;
 }): string {
   const bloques: string[] = [];
 
-  if (!mode.cashAllowed || !mode.pickupAllowed) {
-    const lineas = ['', 'Hoy hay promoción vigente, y mientras dure:'];
-    if (!mode.pickupAllowed) {
-      lineas.push(
-        '- No hay recojo: todos los pedidos salen con delivery. Si alguien quiere',
-        '  pasar a recogerlo, dile que hoy no se puede y que lo pida con envío.',
-      );
-    }
-    if (!mode.cashAllowed) {
-      lineas.push('- No se acepta efectivo: el pago es solo por QR.');
-    }
-    lineas.push(
-      '- Esto manda sobre lo que dicen arriba del recojo y del efectivo. No',
-      '  prometas que mañana vuelva: no lo sabes.',
+  if (!mode.cashAllowed) {
+    bloques.push(
+      [
+        '',
+        'Hoy hay promoción vigente, y mientras dure:',
+        '- No se acepta efectivo: el pago es solo por QR.',
+        '- Esto manda sobre lo que dice arriba del efectivo. No prometas que',
+        '  mañana vuelve: no lo sabes.',
+      ].join('\n'),
     );
-    bloques.push(lineas.join('\n'));
   }
 
   // Saturación (0038): manda sobre todo lo anterior, incluido mandar el menú.

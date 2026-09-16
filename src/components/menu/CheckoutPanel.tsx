@@ -171,7 +171,7 @@ export function CheckoutPanel({
               aria-labelledby={deliveryId}
               aria-invalid={errors.delivery_type ? true : undefined}
               aria-describedby={errors.delivery_type ? `${deliveryId}-error` : undefined}
-              className="mt-1.5 grid grid-cols-2 gap-2"
+              className={`mt-1.5 grid gap-2 ${pickupAllowed ? 'grid-cols-2' : 'grid-cols-1'}`}
             >
               <DeliveryOption
                 label="Envío"
@@ -182,16 +182,23 @@ export function CheckoutPanel({
                 disabled={frozen}
                 onSelect={() => onChange('delivery_type', 'delivery')}
               />
-              {/* Igual que el efectivo: sin recojo se deshabilita, no desaparece. */}
-              <DeliveryOption
-                label="Recojo"
-                hint={pickupAllowed ? 'En el local' : 'Hoy no disponible'}
-                icon="🏠"
-                value="pickup"
-                active={pickupAllowed && fields.delivery_type === 'pickup'}
-                disabled={frozen || !pickupAllowed}
-                onSelect={() => onChange('delivery_type', 'pickup')}
-              />
+              {/* Sin recojo DESAPARECE, al revés que el efectivo (15-09-2026).
+                  El efectivo se apaga una noche y vuelve, así que dejarlo en
+                  gris le ahorra la pregunta a quien contaba con él. El recojo
+                  dejó de ser algo que el local hace: un botón muerto
+                  permanente es una pregunta con una sola respuesta, y encima
+                  invita a escribir por WhatsApp para pedir la excepción. */}
+              {pickupAllowed ? (
+                <DeliveryOption
+                  label="Recojo"
+                  hint="En el local"
+                  icon="🏠"
+                  value="pickup"
+                  active={fields.delivery_type === 'pickup'}
+                  disabled={frozen}
+                  onSelect={() => onChange('delivery_type', 'pickup')}
+                />
+              ) : null}
             </div>
             {errors.delivery_type ? (
               <p id={`${deliveryId}-error`} role="alert" className="mt-1.5 text-sm text-red-600">

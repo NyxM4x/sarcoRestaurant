@@ -6,6 +6,7 @@ import {
   promotionRejectionMessage,
 } from '@/lib/promotions/rejection';
 import { NORMAL_MODE, type PromoMode } from '@/lib/promotions/promo-mode';
+import { PICKUP_ENABLED } from './pickup-enabled';
 import { calculateCheckoutFingerprint } from './fingerprint';
 import { createWebOrderSchema } from './web-schema';
 import type { DeliveryType, OrderStatus, PaymentMethod } from '@/types';
@@ -193,9 +194,15 @@ const ORDER_ALREADY_PAID_MESSAGE =
  * debajo de "Método de pago", que es exactamente lo que hay que cambiar.
  */
 const CASH_UNAVAILABLE_MESSAGE = 'Hoy el pago es solo por QR. Elige QR y confirma de nuevo.';
-/** Noche de promoción: tampoco hay recojo. Mismo criterio: error del campo. */
+/**
+ * El recojo se apagó (15-09-2026). Mismo criterio que el efectivo: error del
+ * CAMPO, porque el formulario lo pinta debajo de "¿Cómo lo recibes?".
+ *
+ * Quien lo lee tiene una pestaña abierta de antes del cambio: la de ahora ni
+ * le ofrece el botón. Ver `orders/pickup-enabled`.
+ */
 const PICKUP_UNAVAILABLE_MESSAGE =
-  'Hoy no hay recojo: los pedidos salen solo con envío. Elige Envío y confirma de nuevo.';
+  'No hacemos recojo: los pedidos salen solo con envío. Elige Envío y confirma de nuevo.';
 /**
  * Noche de promoción: un producto del carrito hoy solo va dentro de su combo.
  *
@@ -388,6 +395,22 @@ export async function handleCreateWebOrder(
   if (deps.readOrdersPaused && (await deps.readOrdersPaused())) {
     log.warn('store.orders.paused');
     return jsonResponse(422, { error: 'validation_error', message: ORDERS_PAUSED_MESSAGE });
+  }
+
+  // 3b''. El recojo se apagó (15-09-2026): ningún pedido NUEVO puede serlo.
+  //
+  //       Va fuera del bloque de promociones de abajo a propósito. Esta
+  //       respuesta no depende de qué promoción haya ni de que Supabase
+  //       conteste, así que tampoco puede caerse con ellas: aquí llega el
+  //       cliente con la pestaña vieja —la nueva ni le ofrece el botón— y
+  //       cualquier POST hecho a mano. Ver `orders/pickup-enabled`.
+  if (body.delivery_type === 'pickup' && !PICKUP_ENABLED) {
+    log.warn('store.orders.pickup_disabled');
+    return jsonResponse(422, {
+      error: 'validation_error',
+      message: PICKUP_UNAVAILABLE_MESSAGE,
+      issues: [{ field: 'delivery_type', message: PICKUP_UNAVAILABLE_MESSAGE }],
+    });
   }
 
   // 3c. Noche de promoción (14-09-2026): sin efectivo, y el producto de un combo
