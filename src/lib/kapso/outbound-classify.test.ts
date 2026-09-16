@@ -54,6 +54,17 @@ describe('classifyOutboundType — clasificación determinista', () => {
     ).toBe('confirmation');
   });
 
+  it('confirmation QR con el envío aparte (sin desglose) → confirmation', () => {
+    const caption = buildQrPaymentCaption(CONF_DYNAMIC, {
+      orderNumber: ORD,
+      dueByQr: 90,
+      deliveryAmount: 16,
+    });
+    expect(
+      classifyOutboundType({ messageKind: 'image', interactiveType: null, bodyText: caption, orderNumber: ORD }),
+    ).toBe('confirmation');
+  });
+
   it('confirmation legacy («¡Recibí tu pedido…») → confirmation', () => {
     expect(
       classifyOutboundType({ messageKind: 'text', interactiveType: null, bodyText: CONF_LEGACY_PICKUP, orderNumber: ORD }),

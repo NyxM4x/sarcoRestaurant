@@ -9,6 +9,7 @@ import {
   CONFIRMATION_TOTAL_LABEL,
   DYNAMIC_CONFIRMATION_PREFIX,
   ORDER_RECEIVED_PREFIX,
+  QR_TRANSFER_NOW_LABEL,
 } from '@/lib/kapso/outbound-classify';
 /**
  * El cliente ve el número CORTO ("#7"), no el interno (`ORD-260828-007`).
@@ -320,38 +321,53 @@ export function orderCancelledByCustomerText(orderNumber: string): string {
 }
 
 /**
- * Caption de la confirmación cuando el pago es por QR (Fase 6D.1). Reutiliza el
- * texto de confirmación completo (que YA incluye el número de pedido, clave para
- * reconciliar) y añade la indicación de pago. La imagen del QR viaja aparte (es
- * el propio mensaje); esto solo es su pie.
+ * Caption de la confirmación cuando el pago es por QR (Fase 6D.1). La imagen del
+ * QR viaja aparte (es el propio mensaje); esto solo es su pie.
  *
- * ── Por QR se cobra la comida; el envío se paga al recibir ──────────────────
+ * ── Por QR se cobra la comida; el envío se paga al repartidor ──────────────
  *
- * El desglose ya se muestra arriba, y ahí conviven tres cifras. Decir solo
- * "escanea para pagar tu pedido" junto a un "Total: Bs 64" es pedirle al cliente
- * que transfiera 64 — y es lo que hacía. Por eso el importe a transferir se dice
- * EXPLÍCITO y con su número, en vez de dejarlo deducir del desglose.
+ * El QR es ESTÁTICO: no trae el importe dentro, lo escribe el cliente. Así que
+ * la cifra que teclee es la que lea en este mensaje, y hasta ahora leía tres.
  *
- * Que quede escrito en el mismo mensaje que el QR no es un detalle de redacción:
- * es lo que permite responder "se te avisó, y aquí está" cuando alguien discute
- * el cobro del envío en la puerta. Un segundo mensaje aparte podría no llegar, y
- * entonces el cliente tendría el QR y el total delante sin la advertencia.
+ * ── Por qué ya no va el desglose (16-09-2026) ───────────────────────────────
  *
- * `deliveryAmount` en 0 —o un recojo— vuelve al texto simple: sin envío que
- * cobrar aparte, el cliente paga todo por QR y no hay nada que explicar.
+ * Antes el pie repetía "Comida / Delivery / Total" y DEBAJO decía "paga SOLO la
+ * comida". La gente no llegaba a esa línea: veía "Total: Bs 61", transfería 61,
+ * y en la puerta volvía a pagar el envío. Ninguna advertencia debajo de un total
+ * gana a ese total.
+ *
+ * Por eso ahora la única cifra que se presenta como TOTAL es la que se
+ * transfiere, y va en la segunda línea. El envío sale con su propio número, pero
+ * aparte, con otro emoji y con a quién se le paga. La suma de los dos no aparece
+ * en ninguna parte: es el número que no queremos que nadie teclee.
+ *
+ * Que todo quede escrito en el mismo mensaje que el QR no es un detalle de
+ * redacción: es lo que permite responder "se te avisó, y aquí está" cuando
+ * alguien discute el cobro del envío en la puerta. Un segundo mensaje aparte
+ * podría no llegar.
+ *
+ * Es el texto provisional hasta tener la API del banco, con un QR por pedido que
+ * ya lleve el importe y deje de depender de que se lea.
+ *
+ * `deliveryAmount` en 0 es SOLO el recojo: un delivery cotizado nunca baja de
+ * la tarifa mínima (`DELIVERY_BASE_AMOUNT`, Bs 10) y la base rechaza cualquier
+ * importe fuera del tarifario. Ahí vuelve el texto de siempre, que no nombra el
+ * envío: sin envío que cobrar, mencionarlo solo haría dudar al cliente.
  */
 export function buildQrPaymentCaption(
   confirmationText: string,
-  amounts?: { dueByQr: number; deliveryAmount: number },
+  payment?: { orderNumber: string; dueByQr: number; deliveryAmount: number },
 ): string {
-  if (!amounts || amounts.deliveryAmount <= 0) {
+  if (!payment || payment.deliveryAmount <= 0) {
     return `${confirmationText}\n\n💳 Escanea este QR para pagar tu pedido.`;
   }
 
   return [
-    confirmationText,
+    `📦 ¡Hola! Tu pedido ${shortOrderNumber(payment.orderNumber)} está casi listo.`,
+    `✅ ${QR_TRANSFER_NOW_LABEL} ${formatBs(payment.dueByQr)} (*Solo Necesitamos el pago de la comida*).`,
+    '*Envíanos tu comprobante* para enviar la orden a cocina.',
     '',
-    `💳 Escanea el QR y paga SOLO la comida: ${formatBs(amounts.dueByQr)}`,
-    `🛵 Los ${formatBs(amounts.deliveryAmount)} del delivery los pagas al recibir tu pedido.`,
+    `🛵 *ENVÍO TE SALDRÁ (${formatBs(payment.deliveryAmount)})* lo pagas *directamente al repartidor* cuando te entregue el pedido.`,
+    '🛑 *Por favor, asegúrate de transferir únicamente el valor de la comida.*',
   ].join('\n');
 }

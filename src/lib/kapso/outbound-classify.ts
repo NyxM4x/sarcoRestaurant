@@ -28,6 +28,15 @@ export const CONFIRMATION_DELIVERY_LABEL = 'Delivery:';
 export const CONFIRMATION_TOTAL_LABEL = 'Total:';
 
 /**
+ * Marca del pie del QR cuando el envío se cobra aparte (16-09-2026).
+ *
+ * Ese mensaje ya no lleva el desglose Comida/Delivery/Total —el "Total" era
+ * justo la cifra que la gente transfería—, así que dejó de tener la forma de la
+ * confirmación dinámica. Se reconoce por esta línea, que el builder consume.
+ */
+export const QR_TRANSFER_NOW_LABEL = 'TOTAL A TRANSFERIR AHORA:';
+
+/**
  * Marca de las confirmaciones LEGACY (`buildConfirmationText`: pickup y delivery
  * legacy empiezan con «📦 ¡Recibí tu pedido …»). Se reconoce para no romper la
  * reconciliación de los pedidos que no son dynamic.
@@ -85,8 +94,8 @@ function isDynamicConfirmationBody(body: string): boolean {
  *   1. interactivo `location_request_message`, o cuerpo con la instrucción de
  *      cómo mandar la ubicación → location_request;
  *   2. cuerpo que empieza por la marca de recepción → order_received;
- *   3. texto/imagen con `ORD-XXXXXX` y forma de confirmación (dinámica o legacy)
- *      → confirmation;
+ *   3. texto/imagen con `ORD-XXXXXX` y forma de confirmación (dinámica, legacy
+ *      o pie del QR con envío aparte) → confirmation;
  *   4. cualquier otra cosa → unknown (NUNCA se inventa un tipo).
  *
  * Un texto genérico SIN forma reconocible NO es confirmation (a diferencia de la
@@ -114,10 +123,15 @@ export function classifyOutboundType(input: OutboundClassifyInput): OutboundMess
     return 'order_received';
   }
 
-  // 3. Confirmación final: exige número de pedido y forma (dinámica o legacy).
+  // 3. Confirmación final: exige número de pedido y forma (dinámica, legacy o
+  //    pie del QR con envío aparte).
   const isTextOrImage = input.messageKind === 'text' || input.messageKind === 'image';
   if (isTextOrImage && input.orderNumber !== null) {
-    if (isDynamicConfirmationBody(body) || body.includes(LEGACY_CONFIRMATION_MARKER)) {
+    if (
+      isDynamicConfirmationBody(body) ||
+      body.includes(LEGACY_CONFIRMATION_MARKER) ||
+      body.includes(QR_TRANSFER_NOW_LABEL)
+    ) {
       return 'confirmation';
     }
   }

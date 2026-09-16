@@ -191,37 +191,61 @@ describe('buildQrPaymentCaption (6D.1)', () => {
   });
 });
 
-describe('por QR se cobra la comida; el envío se paga al recibir', () => {
+describe('por QR se cobra la comida; el envío se paga al repartidor', () => {
   /**
-   * El desglose del mensaje trae tres cifras, y la instrucción tenía que decir
-   * CUÁL se transfiere. Diciendo solo "paga tu pedido" junto a un "Total: Bs 64"
-   * el cliente transfiere 64, que es lo que pasaba.
+   * El QR es estático: el cliente teclea la cifra que LEE. Con el desglose
+   * "Comida / Delivery / Total" delante, leía el total y transfería el total,
+   * aunque debajo pusiera "paga SOLO la comida" (16-09-2026).
    *
    * Que la advertencia viaje en el MISMO mensaje que el QR es lo que permite
    * responder "se te avisó" cuando alguien discute el cobro del envío en la
    * puerta. Un segundo mensaje podría no llegar.
    */
   const CONFIRMACION = '📦 Pedido ORD-000019\n\nComida: Bs. 48\nDelivery: Bs. 16\nTotal: Bs. 64';
+  const PAGO = { orderNumber: 'ORD-260916-038', dueByQr: 36, deliveryAmount: 25 };
 
-  it('dice el importe exacto a transferir, sin obligar a deducirlo del desglose', () => {
-    const caption = buildQrPaymentCaption(CONFIRMACION, { dueByQr: 48, deliveryAmount: 16 });
+  it('es exactamente el mensaje acordado', () => {
+    expect(buildQrPaymentCaption(CONFIRMACION, PAGO)).toBe(
+      [
+        '📦 ¡Hola! Tu pedido #38 está casi listo.',
+        '✅ TOTAL A TRANSFERIR AHORA: Bs. 36 (*Solo Necesitamos el pago de la comida*).',
+        '*Envíanos tu comprobante* para enviar la orden a cocina.',
+        '',
+        '🛵 *ENVÍO TE SALDRÁ (Bs. 25)* lo pagas *directamente al repartidor* cuando te entregue el pedido.',
+        '🛑 *Por favor, asegúrate de transferir únicamente el valor de la comida.*',
+      ].join('\n'),
+    );
+  });
 
-    expect(caption).toContain('SOLO la comida');
-    expect(caption).toContain('Bs. 48');
-    expect(caption).toContain('Bs. 16');
-    expect(caption).toContain('al recibir tu pedido');
-    // Y el desglose de arriba se conserva intacto: el cliente sigue sabiendo
-    // cuánto le va a costar el pedido entero.
-    expect(caption.startsWith(CONFIRMACION)).toBe(true);
+  it('la suma de comida y envío no aparece: es la cifra que no queremos que se teclee', () => {
+    const caption = buildQrPaymentCaption(CONFIRMACION, {
+      orderNumber: 'ORD-000019',
+      dueByQr: 48,
+      deliveryAmount: 16,
+    });
+
+    expect(caption).not.toContain('Bs. 64');
+    expect(caption).not.toContain('Total:');
+    expect(caption).not.toContain('Comida:');
+    // La única cifra que se llama TOTAL es la que se transfiere.
+    expect(caption).toContain('TOTAL A TRANSFERIR AHORA: Bs. 48');
+    expect(caption).toContain('ENVÍO TE SALDRÁ (Bs. 16)');
+    // Un número de antes de la numeración diaria se enseña entero.
     expect(caption).toContain('ORD-000019');
   });
 
-  it('sin envío que cobrar aparte, el texto vuelve al simple de siempre', () => {
-    // Recojo, o un delivery con envío gratis: no hay nada que explicar, y una
-    // frase sobre pagar el delivery "al recibir" solo confundiría.
-    const caption = buildQrPaymentCaption(CONFIRMACION, { dueByQr: 48, deliveryAmount: 0 });
+  it('en recojo no se nombra el envío: no hay envío que cobrar', () => {
+    // El único pedido con envío en 0 es el recojo: un delivery cotizado cuesta
+    // como mínimo Bs 10. Hablarle de repartidor o de envío a quien viene a
+    // buscarlo solo lo haría dudar de cuánto transferir.
+    const recojo = buildConfirmationText(input({ order_number: 'ORD-260916-038' }));
+    if (!recojo.ok) throw new Error('el recojo de prueba debería tener texto');
+
+    const caption = buildQrPaymentCaption(recojo.text, { ...PAGO, deliveryAmount: 0 });
+
     expect(caption).toContain('Escanea este QR para pagar tu pedido');
-    expect(caption).not.toContain('SOLO la comida');
+    expect(caption).not.toMatch(/env[ií]o|delivery|repartidor/i);
+    expect(caption.startsWith(recojo.text)).toBe(true);
   });
 
   it('sin montos se comporta como antes: los históricos no cambian', () => {

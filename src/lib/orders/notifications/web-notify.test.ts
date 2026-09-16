@@ -881,23 +881,23 @@ describe('dispatch dinámico — quoted: confirmation sí, sin reenviar ubicaci�
     expect(text).not.toMatch(/km|kil[oó]metro|Mapbox|tarifa/i);
   });
 
-  it('qr: envía imagen del QR con caption Comida/Delivery/Total + indicación de pago', async () => {
+  it('qr: envía imagen del QR con la cifra a transferir y el envío aparte', async () => {
     const h = harness({ loaded: dynamicQuoted({ payment_method: 'qr' }) });
     const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
 
     expect(res.confirmation).toBe('sent');
     expect(h.log).toContain('sendImage');
     const { caption } = h.sentImages[0];
-    expect(caption).toContain('Comida: Bs. 90');
-    expect(caption).toContain('Delivery: Bs. 16');
-    expect(caption).toContain('Total: Bs. 106');
 
-    // El desglose sigue, pero la instrucción dice CUÁL de las tres cifras se
-    // transfiere. Sin esto, un "Escanea este QR para pagar tu pedido" al lado de
-    // "Total: Bs. 106" hace que el cliente mande 106 — y el envío se cobra al
-    // entregar, así que pagaría dos veces el delivery.
-    expect(caption).toContain('SOLO la comida: Bs. 90');
-    expect(caption).toContain('Los Bs. 16 del delivery los pagas al recibir');
+    // La única cifra que se llama TOTAL es la comida, que es lo que se
+    // transfiere. El total con envío (106) no sale: con el QR estático el
+    // cliente teclea lo que lee, y leyendo 106 mandaba 106 y pagaba dos veces
+    // el delivery (16-09-2026).
+    expect(caption).toContain('TOTAL A TRANSFERIR AHORA: Bs. 90');
+    expect(caption).toContain('ENVÍO TE SALDRÁ (Bs. 16)');
+    expect(caption).toContain('directamente al repartidor');
+    expect(caption).not.toContain('Bs. 106');
+    expect(caption).toContain('ORD-000042');
   });
 
   it('qr en RECOJO: sin envío que cobrar aparte, la indicación es la simple', async () => {

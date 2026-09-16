@@ -466,9 +466,10 @@ async function processConfirmation(
           order.customer_phone,
           PAYMENT_QR_URL,
           // Por QR se cobra SOLO la comida cuando hay envío: el delivery se paga
-          // al recibir. En recojo no hay envío y `deliveryAmount` en 0 devuelve
-          // el texto simple de siempre.
+          // al repartidor. `deliveryAmount` en 0 solo lo tiene el recojo (el
+          // delivery mínimo es Bs 10), y ahí vuelve el texto sin envío.
           buildQrPaymentCaption(text, {
+            orderNumber: order.order_number,
             dueByQr: order.subtotal_amount,
             deliveryAmount: order.delivery_amount,
           }),
