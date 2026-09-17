@@ -253,6 +253,8 @@ export type SendProofReminder = (input: {
   /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
   sourceMessageId: string;
   orderNumber: string;
+  /** Lo que se transfiere por QR: la comida. */
+  foodAmount: number;
   totalAmount: number;
 }) => Promise<{ ok: boolean }>;
 
@@ -998,6 +1000,7 @@ async function responderPorDefecto(
       phoneNumberId: ctx.phoneNumberId,
       sourceMessageId,
       orderNumber: decision.order.orderNumber,
+      foodAmount: decision.order.foodAmount,
       totalAmount: decision.order.totalAmount,
     });
     log.info('webhook_proof_reminder', { result: avisado.ok ? 'sent' : 'failed' });

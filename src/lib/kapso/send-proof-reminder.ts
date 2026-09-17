@@ -47,6 +47,9 @@ export interface SendProofReminderInput {
   sourceMessageId: string;
   /** Número interno (`ORD-260903-007`); el copy lo acorta a `#7`. */
   orderNumber: string;
+  /** Lo que se transfiere por QR: la comida. Ver `proofReminderText`. */
+  foodAmount: number;
+  /** Solo para saber si hay envío que nombrar; nunca se le pide al cliente. */
   totalAmount: number;
 }
 
@@ -61,7 +64,7 @@ export interface SendProofReminderInput {
 export async function sendProofReminder(
   input: SendProofReminderInput,
 ): Promise<{ ok: boolean }> {
-  const texto = proofReminderText(input.orderNumber, input.totalAmount);
+  const texto = proofReminderText(input.orderNumber, input.foodAmount, input.totalAmount);
 
   let wamid: string;
   try {

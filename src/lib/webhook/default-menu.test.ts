@@ -268,9 +268,14 @@ describe('las excepciones, ejecutadas', () => {
 
   it('el que ya tiene su QR recibe el recordatorio del comprobante, no el menú', async () => {
     const cta = spyCta();
-    const recordatorios: Array<{ orderNumber: string; totalAmount: number }> = [];
+    const recordatorios: Array<{ orderNumber: string; foodAmount: number; totalAmount: number }> =
+      [];
     const sendProofReminder: SendProofReminder = async (input) => {
-      recordatorios.push({ orderNumber: input.orderNumber, totalAmount: input.totalAmount });
+      recordatorios.push({
+        orderNumber: input.orderNumber,
+        foodAmount: input.foodAmount,
+        totalAmount: input.totalAmount,
+      });
       return { ok: true };
     };
 
@@ -285,15 +290,19 @@ describe('las excepciones, ejecutadas', () => {
           orderNumber: 'ORD-260903-007',
           status: 'confirmed',
           totalAmount: 95,
+          foodAmount: 78,
           payment: 'no_proof',
           proofReceived: false,
-          paymentMethod: null,
+          paymentMethod: 'qr',
         },
       }),
     });
 
     expect(cta.enviados).toHaveLength(0);
-    expect(recordatorios).toEqual([{ orderNumber: 'ORD-260903-007', totalAmount: 95 }]);
+    // La comida viaja aparte del total: el recordatorio pide la cifra del QR.
+    expect(recordatorios).toEqual([
+      { orderNumber: 'ORD-260903-007', foodAmount: 78, totalAmount: 95 },
+    ]);
     expect(processed?.body).toMatchObject({ handled: 'proof_reminder', result: 'sent' });
   });
 
@@ -310,6 +319,7 @@ describe('las excepciones, ejecutadas', () => {
           orderNumber: 'ORD-260903-007',
           status: 'confirmed',
           totalAmount: 95,
+          foodAmount: 95,
           payment: 'no_proof',
           proofReceived: false,
           paymentMethod: null,
@@ -334,6 +344,7 @@ describe('las excepciones, ejecutadas', () => {
           orderNumber: 'ORD-260903-007',
           status: 'preparing',
           totalAmount: 95,
+          foodAmount: 95,
           payment: 'accepted',
           proofReceived: false,
           paymentMethod: null,
@@ -356,6 +367,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
       orderNumber: 'ORD-260903-007',
       status: 'confirmed',
       totalAmount: 95,
+      foodAmount: 95,
       payment: 'no_proof',
       proofReceived: false,
       paymentMethod: null,
@@ -376,6 +388,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
         orderNumber: 'ORD-260904-002',
         status: 'confirmed',
         totalAmount: 28,
+        foodAmount: 28,
         payment: 'no_proof',
         proofReceived: true,
         paymentMethod: null,
@@ -649,6 +662,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               orderNumber: 'ORD-260904-001',
               status: 'awaiting_location',
               totalAmount: 46,
+              foodAmount: 46,
               payment: 'no_proof',
               proofReceived: false,
               paymentMethod: null,
@@ -717,6 +731,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
               orderNumber: 'ORD-260903-007',
               status: 'confirmed',
               totalAmount: 95,
+              foodAmount: 95,
               payment: 'awaiting_review',
               proofReceived: false,
               paymentMethod: null,
@@ -741,6 +756,7 @@ describe('"sin cebolla" — la preferencia que no rearma el pedido', () => {
             orderNumber: 'ORD-260903-007',
             status: 'preparing',
             totalAmount: 95,
+            foodAmount: 95,
             payment: 'accepted',
             proofReceived: false,
             paymentMethod: null,
@@ -823,6 +839,7 @@ describe('las dos puertas, un solo filtro', () => {
           orderNumber: 'ORD-260903-007',
           status: 'confirmed',
           totalAmount: 95,
+          foodAmount: 95,
           payment: 'no_proof',
           proofReceived: false,
           paymentMethod: null,

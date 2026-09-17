@@ -523,12 +523,29 @@ export function buildMenuCtaPayload(
  * reconoce una confirmación, y un recordatorio que las llevara se emparejaría
  * con la notificación de otro mensaje al reconciliar. El número va en su forma
  * corta (`#7`), que además es la que el cliente reconoce.
+ *
+ * ── La cifra es la del QR, no el total (17-09-2026) ─────────────────────────
+ *
+ * Decía "está guardado por Bs. 71" —comida más envío— justo cuando el pie del
+ * QR ya había dejado de enseñar esa suma (ver `buildQrPaymentCaption`). La
+ * noche del 16-09 el cliente del #6 no recibió el QR, le llegó este texto, y
+ * transfirió Bs. 71: el envío que se paga al repartidor, cobrado por QR.
+ *
+ * Así que dice lo que se transfiere, `foodAmount`, que sale de la misma columna
+ * que el pie del QR (`subtotal_amount`). El envío se nombra sin cifra y con a
+ * quién se le paga; si no hay envío —el recojo— no se menciona.
  */
-export function proofReminderText(orderNumber: string, totalAmount: number): string {
+export function proofReminderText(
+  orderNumber: string,
+  foodAmount: number,
+  totalAmount: number,
+): string {
+  const envio =
+    totalAmount > foodAmount ? ' (solo la comida; el envío se lo pagas al repartidor)' : '';
   return (
-    `Tu pedido ${shortOrderNumber(orderNumber)} está guardado por ` +
-    `${formatBs(totalAmount)} 🙌 Falta que nos mandes la foto del comprobante ` +
-    'por acá y lo pasamos a la cocina al toque.'
+    `Tu pedido ${shortOrderNumber(orderNumber)} está guardado 🙌 ` +
+    `Falta que transfieras *${formatBs(foodAmount)}*${envio} y nos mandes la foto ` +
+    'del comprobante por acá. Con eso lo pasamos a la cocina al toque.'
   );
 }
 

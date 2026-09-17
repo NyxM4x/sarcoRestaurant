@@ -151,8 +151,16 @@ export interface OpenOrderSnapshot {
   /** Interno (`ORD-260903-007`). El copy lo acorta; aquí viaja entero. */
   orderNumber: string;
   status: OrderStatus;
-  /** Total ya cotizado, en Bs. Es la cifra que el cliente tiene que pagar. */
+  /** Total ya cotizado, en Bs: comida más envío. Por QR NO es lo que se transfiere. */
   totalAmount: number;
+  /**
+   * Lo que cuesta la comida, en Bs (`orders.subtotal_amount`, 17-09-2026).
+   *
+   * Es lo que se transfiere por QR: el envío se le paga al repartidor. Sale de
+   * la misma columna que el pie del QR, así que todo mensaje que le pida el pago
+   * a un cliente de QR usa esta cifra y no `totalAmount`.
+   */
+  foodAmount: number;
   /** Situación del pago, calculada con `paymentGateOf`: una sola regla. */
   payment: PaymentGateState;
   /**

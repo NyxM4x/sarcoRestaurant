@@ -62,6 +62,8 @@ interface FilaPedido {
   order_number: string;
   status: OrderStatus;
   total_amount: number;
+  /** La comida: lo que se transfiere por QR. Ver `foodAmount`. */
+  subtotal_amount: number;
   payment_method: PaymentMethod | null;
   /** 0036: cuándo el cliente confirmó su pedido en efectivo. `null` = aún no. */
   cash_confirmed_at: string | null;
@@ -93,7 +95,7 @@ async function pedidoAbierto(
   const { data, error } = await supabase
     .from('orders')
     .select(
-      'id, order_number, status, total_amount, payment_method, cash_confirmed_at, ' +
+      'id, order_number, status, total_amount, subtotal_amount, payment_method, cash_confirmed_at, ' +
         'delivery_type, delivery_latitude, created_at',
     )
     .eq('customer_phone', customerPhone)
@@ -357,6 +359,7 @@ export async function lookupCustomerState(
       orderNumber: pedido.order_number,
       status: pedido.status,
       totalAmount: Number(pedido.total_amount),
+      foodAmount: Number(pedido.subtotal_amount),
       payment: gate.state,
       proofReceived,
       paymentMethod: pedido.payment_method ?? null,

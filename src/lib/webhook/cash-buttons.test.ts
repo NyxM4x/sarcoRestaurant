@@ -33,6 +33,7 @@ function pedido(over: Partial<OpenOrderSnapshot> = {}): OpenOrderSnapshot {
     orderNumber: ORDEN,
     status: 'confirmed',
     totalAmount: 70,
+    foodAmount: 70,
     // Un pedido en efectivo NUNCA espera comprobante: `paymentGateOf` le da
     // `not_required`. Ponerle `no_proof` aquí lo mandaría a la rama del
     // recordatorio del pago, que es una que este cliente no puede pisar.

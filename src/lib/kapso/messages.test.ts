@@ -1,6 +1,8 @@
 import { orderReviewKeptText, orderReviewText } from './messages';
 import { localAddressText, ORDERS_PAUSED_TEXT, pickupUnavailableText } from './messages';
 import { CASH_WAIT_TEXT, PROOF_WAIT_TEXT, deliveryRelayText } from './messages';
+import { proofReminderText } from './messages';
+import { QR_TRANSFER_NOW_LABEL } from './outbound-classify';
 import { describe, it, expect } from 'vitest';
 import {
   buildImagePayload,
@@ -442,5 +444,50 @@ describe('pedidos pausados por saturación (0038)', () => {
     expect(ORDERS_PAUSED_TEXT).toMatch(/Escribinos de nuevo/);
     expect(ORDERS_PAUSED_TEXT).toMatch(/Si ya hiciste tu pedido, sigue en curso/);
     expect(ORDERS_PAUSED_TEXT).not.toMatch(/compañero|equipo|operador|persona/i);
+  });
+});
+
+/**
+ * El recordatorio del comprobante pide la cifra del QR (17-09-2026).
+ *
+ * El caso que lo abrió, pedido #6 del 16-09: comida Bs. 54, envío Bs. 17. El
+ * recordatorio decía "está guardado por Bs. 71" y el cliente transfirió 71.
+ */
+describe('proofReminderText — la cifra del QR, no el total', () => {
+  it('con envío pide solo la comida y dice a quién se le paga el envío', () => {
+    expect(proofReminderText('ORD-260916-006', 54, 71)).toBe(
+      'Tu pedido #6 está guardado 🙌 Falta que transfieras *Bs. 54* (solo la comida; ' +
+        'el envío se lo pagas al repartidor) y nos mandes la foto del comprobante por acá. ' +
+        'Con eso lo pasamos a la cocina al toque.',
+    );
+  });
+
+  it('la suma de comida y envío no aparece en ninguna parte', () => {
+    // Es el número que no queremos que nadie teclee. Ver `buildQrPaymentCaption`.
+    expect(proofReminderText('ORD-260916-006', 54, 71)).not.toContain('71');
+  });
+
+  it('sin envío no lo nombra: no hay nada que pagarle a nadie en la puerta', () => {
+    const texto = proofReminderText('ORD-260916-006', 54, 54);
+    expect(texto).toContain('*Bs. 54*');
+    expect(texto).not.toMatch(/envío|repartidor/);
+  });
+
+  it('no lleva las marcas canónicas de una confirmación', () => {
+    const marcas = [
+      '📦 Pedido ',
+      '📦 Recibimos tu pedido ',
+      'Comida:',
+      'Delivery:',
+      'Total:',
+      QR_TRANSFER_NOW_LABEL,
+    ];
+    const textos = [
+      proofReminderText('ORD-260916-006', 54, 71),
+      proofReminderText('ORD-260916-006', 54, 54),
+    ];
+    for (const texto of textos) {
+      for (const marca of marcas) expect(texto).not.toContain(marca);
+    }
   });
 });
