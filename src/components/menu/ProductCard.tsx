@@ -83,7 +83,7 @@ export function ProductCard({
      * contorno completo es justamente la señal que se quiere.
      */
     <article
-      className={`relative z-0 flex h-36 w-full items-center justify-end rounded-[2rem] bg-gradient-to-r from-red-900/0 from-10% via-red-900/90 via-45% to-red-700 pr-4 pl-24 transition-shadow sm:h-36 sm:pl-32 md:h-40 md:pl-36 ${
+      className={`relative z-0 flex h-36 w-full items-center justify-end rounded-[2rem] bg-gradient-to-r from-donzarco-red/0 from-8% via-donzarco-red/95 via-45% to-donzarco-red-hover pr-4 pl-36 transition-shadow sm:h-40 sm:pl-40 md:h-44 md:pl-44 ${
         inCart ? 'ring-2 ring-donzarco-gold' : ''
       } ${available ? '' : 'opacity-60 grayscale'}`}
     >
@@ -104,8 +104,13 @@ export function ProductCard({
        *
        * `-left-4` = 16px es EXACTAMENTE ese margen: la foto llega justo al
        * borde de la pantalla y nunca más allá, en cualquier tamaño. Lo que
-       * crece con la pantalla es el TAMAÑO de la foto (h-24 → sm:h-32 →
-       * md:h-36), nunca el desborde.
+       * crece con la pantalla es el TAMAÑO de la foto (h-40 → sm:h-44 →
+       * md:h-48), nunca el desborde.
+       *
+       * La foto es MÁS ALTA que la tarjeta a propósito (17-09-2026): 160px
+       * contra 144px en celular. Ese sobresalir arriba y abajo es lo que la
+       * despega del fondo; con la foto contenida dentro, la tarjeta parecía
+       * una lista con miniaturas.
        */}
       {breakoutSrc ? (
         <>
@@ -121,15 +126,15 @@ export function ProductCard({
            */}
           <span
             aria-hidden
-            className="pointer-events-none absolute -left-4 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,180,70,0.75)_0%,rgba(255,120,30,0.35)_55%,transparent_78%)] blur-lg sm:h-32 sm:w-32 md:h-36 md:w-36"
+            className="pointer-events-none absolute top-1/2 left-2 h-28 w-28 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,215,130,0.85)_0%,rgba(255,150,60,0.4)_38%,transparent_66%)] blur-md sm:h-32 sm:w-32 md:h-36 md:w-36"
           />
           <Image
             src={breakoutSrc}
             alt={item.name}
             width={400}
             height={400}
-            sizes="(min-width: 768px) 144px, (min-width: 640px) 128px, 96px"
-            className={`absolute -left-4 top-1/2 z-10 h-24 w-24 -translate-y-1/2 object-contain drop-shadow-2xl sm:h-32 sm:w-32 md:h-36 md:w-36 ${
+            sizes="(min-width: 768px) 192px, (min-width: 640px) 176px, 160px"
+            className={`absolute -left-4 top-1/2 z-10 h-40 w-40 -translate-y-1/2 object-contain drop-shadow-2xl sm:h-44 sm:w-44 md:h-48 md:w-48 ${
               available ? '' : 'grayscale'
             }`}
           />
@@ -139,13 +144,23 @@ export function ProductCard({
           <ProductImage
             item={item}
             unavailable={!available}
-            className="h-20 w-20 rounded-2xl shadow-xl ring-4 ring-donzarco-gold sm:h-24 sm:w-24"
+            className="h-28 w-28 rounded-2xl shadow-xl ring-4 ring-donzarco-gold sm:h-32 sm:w-32"
           />
         </div>
       )}
 
       <div className="flex w-full flex-col justify-center text-right">
-        <h3 className="font-display line-clamp-2 text-xl leading-tight tracking-wide text-white uppercase italic drop-shadow-[0_2px_0_rgba(0,0,0,0.5)]">
+        {/*
+         * `pr-1` no es aire decorativo: es lo que evita que se coma la última
+         * letra (17-09-2026).
+         *
+         * `line-clamp-2` recorta lo que se desborde, y la cursiva inclina cada
+         * glifo hacia la derecha: con el texto pegado al borde, la panza de la
+         * última letra caía justo fuera de la caja y se cortaba. Se veía
+         * "TRANCAPECHC" en vez de "TRANCAPECHO". El respiro va a la derecha
+         * porque es el lado hacia el que se inclina la cursiva.
+         */}
+        <h3 className="font-display line-clamp-2 pr-1 text-xl leading-tight tracking-wide text-white uppercase italic drop-shadow-[0_2px_0_rgba(0,0,0,0.5)]">
           {item.name}
         </h3>
 
