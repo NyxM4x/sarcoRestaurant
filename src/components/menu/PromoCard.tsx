@@ -109,7 +109,9 @@ export function PromoCard({
               <span className="text-xs text-white/40 line-through tabular-nums">
                 {formatMoney(pricing.normalPrice)}
               </span>
-              <span className="font-display text-xl tracking-wide text-yellow-400 tabular-nums">
+              {/* La plata no va en la display: en Bangers el 7 parece un 1.
+                  Ver `ProductCard`. */}
+              <span className="font-price text-xl tracking-wide text-yellow-400 tabular-nums">
                 {formatMoney(pricing.promoPrice)}
               </span>
             </p>

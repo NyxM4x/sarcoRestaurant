@@ -21,6 +21,19 @@ describe('6B.1R — moneda Bs en la presentación del menú', () => {
       expect(s, c).not.toContain('formatBs');
     }
   });
+
+  it('ninguna cifra de plata usa la tipografía de impacto (18-09-2026)', () => {
+    // En Bangers el 7 es casi un 1: la porción de papa a Bs 7 se leía "Bs 1".
+    // No es de ese precio, es del glifo, y los totales llevan 7 todo el tiempo
+    // —un pedido de Bs 71 leído como Bs 11 es una discusión en la puerta—.
+    // La plata va en la sans, gruesa y con `tabular-nums`.
+    for (const c of ['ProductCard', 'PromoCard', 'CartPanel']) {
+      const lineas = comp(c)
+        .split('\n')
+        .filter((l) => l.includes('font-display') && /formatMoney|tabular-nums/.test(l));
+      expect(lineas, `${c}: plata en font-display`).toEqual([]);
+    }
+  });
 });
 
 describe('6B.1R — ProductCard', () => {

@@ -272,7 +272,10 @@ export function CartPanel({
           )}
           <div className="mt-1 flex items-center justify-between text-white">
             <span className="text-lg font-bold">Total</span>
-            <span className="font-display text-2xl tracking-wide text-yellow-400 tabular-nums">
+            {/* La plata no va en la display: en Bangers el 7 parece un 1, y un
+                total de Bs 71 leído como Bs 11 es una discusión en la puerta.
+                Ver `ProductCard`. */}
+            <span className="font-price text-2xl tracking-wide text-yellow-400 tabular-nums">
               {formatMoney(totales.total)}
             </span>
           </div>

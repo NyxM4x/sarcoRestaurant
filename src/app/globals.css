@@ -13,6 +13,9 @@
   /* Genera `font-display`. EXPERIMENTAL (rediseno-menu-fastfood): solo la usa
      `ProductCard` en /menu; nada más en el sitio la pide. */
   --font-display: var(--font-bangers);
+  /* Genera `font-price`. Solo para cifras: en Bangers el 7 parece un 1 y los
+     totales llevan 7 todo el tiempo. Ver el comentario en `layout.tsx`. */
+  --font-price: var(--font-luckiest-guy);
 }
 
 /*

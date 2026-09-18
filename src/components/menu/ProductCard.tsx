@@ -65,26 +65,36 @@ export function ProductCard({
      * Con `z-0` la tarjeta abre su propio plano: el `z-10` de la foto solo vale
      * PUERTAS ADENTRO, y la tarjeta entera queda por debajo del encabezado.
      *
-     * ── El rojo NACE transparente, y eso se lleva la sombra y el borde ───────
+     * ── El rojo se ABRE y deja la comida sobre el fondo (18-09-2026) ────────
      *
-     * El degradado arranca en `red-900/0` —rojo con opacidad cero, no
-     * `transparent`— y recién cierra hacia la derecha. Así el plato queda sobre
-     * el fondo naranja de la página y el rojo aparece detrás del texto, como en
-     * la carta que se tomó de referencia. Es `/0` y no `transparent` a
-     * propósito: desvanecer hacia `transparent` mete un gris turbio en el medio
-     * del degradado; hacia el mismo rojo con alfa 0, el desvanecido es limpio.
+     * Esto costó tres intentos, y el error de fondo fue leer mal la carta de
+     * referencia: la zona clara detrás de la comida NO es una luz sobre el
+     * rojo, es el FONDO DE LA PÁGINA. El contenedor rojo se desvanece hacia la
+     * izquierda y a la altura de la mitad del plato ya no existe. Eso es lo
+     * que deja la comida respirar: el rojo sostiene el texto y se aparta de la
+     * foto, en vez de pasar por detrás de ella.
      *
-     * Consecuencia que no se ve venir: la sombra (`shadow-lg`) y el borde
-     * (`ring-1`) siguen el rectángulo COMPLETO, también donde ya no hay fondo.
-     * Dibujaban el contorno de una tarjeta invisible flotando junto al plato.
-     * Por eso el estado normal va sin ninguno de los dos; la profundidad la
-     * pone la sombra de la propia foto.
+     * De ahí las posiciones del degradado: transparente hasta el 20% —donde
+     * cae el centro de la foto—, cierra hacia el 50% y de ahí a la derecha es
+     * rojo firme, detrás del nombre y el precio.
      *
-     * El aro dorado se queda solo para "esto está en tu carrito": ahí el
-     * contorno completo es justamente la señal que se quiere.
+     * Es `red-600/0` y no `transparent`: desvanecer hacia `transparent` mete
+     * un gris turbio en medio del degradado, porque el navegador interpola
+     * pasando por un color neutro. Hacia el mismo rojo con alfa 0, limpio.
+     *
+     * Y por eso esta tarjeta NO lleva sombra ni borde en su estado normal: los
+     * dos siguen el rectángulo completo, también donde ya no hay fondo, y
+     * dibujaban el contorno de una tarjeta invisible junto al plato. La
+     * profundidad la pone la sombra de la propia foto.
+     *
+     * Rojo `red-600 → red-700` y no el `donzarco-red` del logo (#e8481f):
+     * aquel es un rojo anaranjado y sobre un fondo naranja se emparentaba con
+     * él en vez de destacar. El de la referencia es un rojo franco.
+     *
+     * El aro dorado sigue siendo solo "esto está en tu carrito".
      */
     <article
-      className={`relative z-0 flex h-36 w-full items-center justify-end rounded-[2rem] bg-gradient-to-r from-donzarco-red/0 from-8% via-donzarco-red/95 via-45% to-donzarco-red-hover pr-4 pl-36 transition-shadow sm:h-40 sm:pl-40 md:h-44 md:pl-44 ${
+      className={`relative z-0 flex h-36 w-full items-center justify-end rounded-[2rem] bg-gradient-to-r from-red-600/0 from-20% via-red-600 via-50% to-red-700 pr-4 pl-36 transition-shadow sm:h-40 sm:pl-40 md:h-44 md:pl-44 ${
         inCart ? 'ring-2 ring-donzarco-gold' : ''
       } ${available ? '' : 'opacity-60 grayscale'}`}
     >
@@ -116,19 +126,13 @@ export function ProductCard({
       {breakoutSrc ? (
         <>
           {/*
-           * Halo de luz detrás del plato: el fondo rojo se "aclara" donde está
-           * la comida, como en la carta del colega que se tomó de referencia.
-           * Hace que el plato se despegue del rojo en vez de quedar hundido.
-           *
-           * Ocupa EXACTAMENTE la misma caja que la foto, ni un píxel más: la
-           * suavidad la pone el desenfoque, que no cuenta para el ancho de la
-           * página. Un halo más grande que la foto se saldría de la pantalla
-           * por la izquierda y traería de vuelta el scroll horizontal.
+           * Aquí hubo un "halo" —un degradado claro detrás de la comida— y se
+           * quitó el 18-09-2026. Era una lectura equivocada de la carta de
+           * referencia: lo claro detrás del plato no es una luz sobre el rojo,
+           * es el fondo de la página, que se ve porque el contenedor rojo se
+           * abre (ver el degradado del `<article>`). Con el rojo abriéndose, un
+           * halo encima solo ensuciaba la zona que tiene que quedar limpia.
            */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2 h-28 w-28 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,215,130,0.85)_0%,rgba(255,150,60,0.4)_38%,transparent_66%)] blur-md sm:h-32 sm:w-32 md:h-36 md:w-36"
-          />
           <Image
             src={breakoutSrc}
             alt={item.name}
@@ -170,7 +174,20 @@ export function ProductCard({
         ) : null}
 
         <div className="mt-1 flex items-center justify-end gap-2">
-          <span className="font-display mt-1 text-2xl font-black text-yellow-400 tabular-nums">
+          {/*
+           * La PLATA no va en la display (18-09-2026).
+           *
+           * En Bangers el 7 es casi un 1: la porción de papa a Bs 7 se leía
+           * "Bs 1". No es un problema de ese precio, es del glifo — cualquier
+           * cifra con 7 lo tiene, y los totales lo llevan todo el tiempo (un
+           * pedido de Bs 71 leído como Bs 11 es una discusión en la puerta).
+           *
+           * Tampoco va en la sans de siempre: se probó y quedaba formal, de
+           * otra carta. Va en `font-price` (Luckiest Guy): mantiene el golpe de
+           * comida rápida con los dígitos sin ambigüedad. `tabular-nums` deja
+           * todos del mismo ancho, así los precios se alinean entre tarjetas.
+           */}
+          <span className="font-price mt-1 text-2xl tracking-wide text-yellow-400 tabular-nums">
             {formatMoney(item.price)}
           </span>
 
@@ -191,11 +208,19 @@ export function ProductCard({
               tone="inverse"
             />
           ) : (
+            /*
+             * Naranja, no el vidrio translúcido de antes (18-09-2026): sobre el
+             * rojo opaco, un botón translúcido se veía como una mancha del
+             * mismo color. El naranja es el único acento cálido que se separa
+             * del rojo sin salirse de la paleta, y el "+" en blanco puro es lo
+             * que se ve primero. Es la acción principal de la tarjeta: tiene
+             * que gritar dónde tocar.
+             */
             <button
               type="button"
               onClick={onAdd}
               aria-label={`Agregar ${item.name} al carrito`}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-lg font-bold text-white ring-1 ring-white/30 backdrop-blur-sm transition-transform active:scale-90"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-500 text-xl font-bold text-white shadow-lg shadow-black/30 ring-2 ring-white/25 transition-transform active:scale-90"
             >
               +
             </button>
