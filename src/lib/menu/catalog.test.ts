@@ -45,12 +45,15 @@ const MENU: MenuItem[] = [
 
 describe('categorías', () => {
   it('expone las 4 pestañas en orden', () => {
-    expect(CATEGORY_TABS.map((t) => t.id)).toEqual(['all', 'plato', 'bebida', 'extra']);
+    // 17-09-2026: los extras subieron delante de las bebidas, para ir en el
+    // MISMO orden que las secciones (`CATEGORY_SECTION_ORDER`). Si discrepan,
+    // tocar "Extras" lleva a un sitio distinto del que se ve al desplazarse.
+    expect(CATEGORY_TABS.map((t) => t.id)).toEqual(['all', 'plato', 'extra', 'bebida']);
     expect(CATEGORY_TABS.map((t) => t.label)).toEqual([
       'Todo',
       'Platos',
-      'Bebidas',
       'Extras',
+      'Bebidas',
     ]);
   });
 
@@ -63,7 +66,7 @@ describe('categorías', () => {
   it('no expone categorías ficticias (Combos, Papas, Promos…)', () => {
     // Solo existen 3 categorías reales en el esquema + la pestaña "all".
     const realIds = CATEGORY_TABS.map((t) => t.id);
-    expect(realIds).toEqual(['all', 'plato', 'bebida', 'extra']);
+    expect(realIds).toEqual(['all', 'plato', 'extra', 'bebida']);
     expect(realIds).toHaveLength(4);
 
     const labels = CATEGORY_TABS.map((t) => t.label.toLowerCase());
@@ -177,13 +180,16 @@ describe('descripciones e imágenes', () => {
 });
 
 describe('groupByCategory', () => {
-  it('agrupa conservando el orden de llegada', () => {
+  it('agrupa en el orden de secciones: platos, extras, bebidas', () => {
+    // 17-09-2026: el orden ya NO es el de llegada (que era el del `sort_order`
+    // y dejaba los extras al final, detrás de los jugos). Los extras van entre
+    // los platos y las bebidas porque la porción de papa acompaña a la comida.
     const groups = groupByCategory(MENU);
-    expect(groups.map((g) => g.category)).toEqual(['plato', 'bebida', 'extra']);
-    expect(groups.map((g) => g.label)).toEqual(['Platos', 'Bebidas', 'Extras']);
-    expect(groups[0].items).toHaveLength(6);
-    expect(groups[1].items).toHaveLength(2);
-    expect(groups[2].items).toHaveLength(1);
+    expect(groups.map((g) => g.category)).toEqual(['plato', 'extra', 'bebida']);
+    expect(groups.map((g) => g.label)).toEqual(['Platos', 'Extras', 'Bebidas']);
+    expect(groups.find((g) => g.category === 'plato')?.items).toHaveLength(6);
+    expect(groups.find((g) => g.category === 'bebida')?.items).toHaveLength(2);
+    expect(groups.find((g) => g.category === 'extra')?.items).toHaveLength(1);
   });
 
   it('con lista vacía devuelve ningún grupo', () => {

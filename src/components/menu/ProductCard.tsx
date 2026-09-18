@@ -30,6 +30,7 @@ import { QuantityControl } from './QuantityControl';
 const BREAKOUT_IMAGES: Record<string, string> = {
   hamburguesa: '/menu/breakout/hamburguesa.webp',
   lomito: '/menu/breakout/lomito.webp',
+  porcion_papas: '/menu/breakout/porcion-papas.webp',
   salchiburguer: '/menu/breakout/salchiburguer.webp',
   salchipapa: '/menu/breakout/salchipapa.webp',
   trancaburguer: '/menu/breakout/trancaburguer.webp',

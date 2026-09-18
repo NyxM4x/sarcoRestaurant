@@ -14,11 +14,17 @@ import type { MenuCategory, MenuItem } from '@/types';
 /** Pestaña "Todo" + las 3 categorías reales del esquema. */
 export type CategoryFilter = 'all' | MenuCategory;
 
+/**
+ * Las pestañas siguen el MISMO orden que las secciones
+ * (`CATEGORY_SECTION_ORDER`, 17-09-2026): platos, extras, bebidas. Si las dos
+ * listas discrepan, el cliente toca "Extras" y el menú salta a un sitio que no
+ * es donde estaban los extras al desplazarse.
+ */
 export const CATEGORY_TABS: ReadonlyArray<{ id: CategoryFilter; label: string }> = [
   { id: 'all', label: 'Todo' },
   { id: 'plato', label: 'Platos' },
-  { id: 'bebida', label: 'Bebidas' },
   { id: 'extra', label: 'Extras' },
+  { id: 'bebida', label: 'Bebidas' },
 ] as const;
 
 const CATEGORY_LABELS: Record<MenuCategory, string> = {
@@ -211,6 +217,21 @@ function ordenDeVitrina(code: string): number {
   return i === -1 ? Number.MAX_SAFE_INTEGER : i;
 }
 
+/**
+ * Orden de las SECCIONES del menú (17-09-2026).
+ *
+ * Los extras van entre los platos y las bebidas: la porción de papa acompaña a
+ * la comida, así que se ofrece junto a ella y no al final, después de los jugos.
+ *
+ * Como `PLATO_ORDER`, vive aquí y no en `sort_order` porque la base es
+ * producción y esto nació en un rediseño. Si se queda, baja a una migración
+ * (bastaría mover los extras al rango 65-69) y esta lista se borra.
+ *
+ * En noche de promoción `orderSectionsForMode` sube las bebidas al principio,
+ * y eso sigue mandando por encima de este orden.
+ */
+const CATEGORY_SECTION_ORDER: readonly MenuCategory[] = ['plato', 'extra', 'bebida'];
+
 export function groupByCategory(
   items: MenuItem[],
 ): Array<{ category: MenuCategory; label: string; items: MenuItem[] }> {
@@ -222,16 +243,23 @@ export function groupByCategory(
     else groups.set(item.category, [item]);
   }
 
-  return [...groups.entries()].map(([category, groupItems]) => ({
-    category,
-    label: categoryLabel(category),
-    // `sort` sobre una copia: la lista de entrada es la del llamador.
-    items: [...groupItems].sort(
-      (a, b) =>
-        // El agotado SIEMPRE al final, antes que cualquier otro criterio: es lo
-        // que el cliente no puede pedir.
-        Number(b.is_active) - Number(a.is_active) ||
-        ordenDeVitrina(a.code) - ordenDeVitrina(b.code),
-    ),
-  }));
+  const ordenDeSeccion = (category: MenuCategory) => {
+    const i = CATEGORY_SECTION_ORDER.indexOf(category);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => ordenDeSeccion(a) - ordenDeSeccion(b))
+    .map(([category, groupItems]) => ({
+      category,
+      label: categoryLabel(category),
+      // `sort` sobre una copia: la lista de entrada es la del llamador.
+      items: [...groupItems].sort(
+        (a, b) =>
+          // El agotado SIEMPRE al final, antes que cualquier otro criterio: es
+          // lo que el cliente no puede pedir.
+          Number(b.is_active) - Number(a.is_active) ||
+          ordenDeVitrina(a.code) - ordenDeVitrina(b.code),
+      ),
+    }));
 }
