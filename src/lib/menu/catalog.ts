@@ -148,7 +148,12 @@ export function normalizeText(value: string): string {
 export function filterMenuItems(
   items: MenuItem[],
   category: CategoryFilter,
-  query: string,
+  /**
+   * Texto a buscar. Opcional desde el 17-09-2026: la vitrina retiró su
+   * buscador y filtra solo por categoría. La búsqueda sigue aquí —probada— por
+   * si vuelve, y porque no cuesta nada mantenerla.
+   */
+  query: string = '',
 ): MenuItem[] {
   const needle = normalizeText(query);
 
@@ -175,6 +180,37 @@ export function filterMenuItems(
  * El orden entre ellos NO se toca: dentro de cada mitad manda el `sort_order`
  * de siempre. Es un desempate, no una reordenación.
  */
+/**
+ * Orden de vitrina de los platos (17-09-2026), de mayor a menor prioridad.
+ *
+ * ── Por qué aquí y no en `menu_items.sort_order` ────────────────────────────
+ *
+ * Porque `sort_order` es PRODUCCIÓN: cambiarlo mueve el menú que los clientes
+ * están viendo en este momento, y este orden nació dentro de un rediseño que
+ * todavía se está probando. Vive aquí mientras el rediseño no se decida.
+ *
+ * Si el rediseño se adopta, lo correcto es bajar este orden a `sort_order` con
+ * una migración y borrar esta lista: dos fuentes de verdad para lo mismo
+ * terminan discrepando, y la de la base es la que ven las demás vías (el
+ * agente, el panel).
+ *
+ * Un `code` que no esté aquí no se pierde: va después, con el orden de la base.
+ */
+const PLATO_ORDER: readonly string[] = [
+  'trancapecho',
+  'trancaburguer',
+  'lomito',
+  'hamburguesa',
+  'salchiburguer',
+  'salchipapa',
+];
+
+/** Posición de vitrina de un `code`; los no listados van al final. */
+function ordenDeVitrina(code: string): number {
+  const i = PLATO_ORDER.indexOf(code);
+  return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+}
+
 export function groupByCategory(
   items: MenuItem[],
 ): Array<{ category: MenuCategory; label: string; items: MenuItem[] }> {
@@ -190,6 +226,12 @@ export function groupByCategory(
     category,
     label: categoryLabel(category),
     // `sort` sobre una copia: la lista de entrada es la del llamador.
-    items: [...groupItems].sort((a, b) => Number(b.is_active) - Number(a.is_active)),
+    items: [...groupItems].sort(
+      (a, b) =>
+        // El agotado SIEMPRE al final, antes que cualquier otro criterio: es lo
+        // que el cliente no puede pedir.
+        Number(b.is_active) - Number(a.is_active) ||
+        ordenDeVitrina(a.code) - ordenDeVitrina(b.code),
+    ),
   }));
 }

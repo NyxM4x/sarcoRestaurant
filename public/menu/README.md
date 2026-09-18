@@ -72,3 +72,65 @@ ignora y se cae al componente (ver `isAllowedImageUrl`).
 - El logo de marca vive en [`public/brand/logo-don-zarco.png`](../brand/); ver
   el comentario en
   [`MenuHeader.tsx`](../../src/components/menu/MenuHeader.tsx).
+
+## `breakout/` — recortes con fondo transparente (EXPERIMENTAL, 17-09-2026)
+
+Fotos SIN fondo (WebP con alfa, no cuadradas: cada una conserva la forma real
+del plato) para la tarjeta "out of bounds" de la rama `rediseno-menu-fastfood`
+— NO fusionada a `main`. No reemplazan a las de arriba: `ProductCard` las usa
+como `src` que GANA a la del catálogo (mismo mecanismo que ya usan las
+promociones), y solo para los `code` que tienen aquí su recorte. Todo lo demás
+sigue con su foto cuadrada de siempre.
+
+### El recorte se hace FUERA, con una herramienta de verdad
+
+Las fotos llegaron primero como JPEG con un cuadriculado "de transparencia"
+pintado en los propios píxeles (JPEG no admite canal alfa; quien las exportó
+las aplanó). Se intentó quitar ese cuadriculado con un script propio, por
+color: relleno por inundación desde el borde. **No alcanza, y no es cuestión
+de afinarlo** — quedó documentado porque es un pozo en el que es fácil volver a
+caer:
+
+- Un plato BLANCO tiene casi la misma saturación que el gris del cuadriculado.
+  El relleno cruzaba de uno al otro sin encontrar pared y se comía el plato
+  entero en las tres fotos que lo tienen.
+- Cerrar ese cruce con una apertura morfológica (erosionar la máscara antes de
+  rellenar, dilatarla después) salvó los platos… y dejó islas de cuadriculado
+  sin limpiar en la esquina de las dos fotos con tabla de madera, donde la
+  tabla casi toca el borde.
+- Cada ajuste arreglaba una foto y rompía otra. Un método que solo mira COLOR
+  no puede distinguir "gris de fondo" de "objeto que es casi gris"; le falta la
+  noción de qué es un plato.
+
+Desde el 17-09-2026 el recorte se hace con **Photoroom** (cualquier herramienta
+de segmentación sirve) y aquí solo se recorta el aire transparente sobrante y
+se convierte a WebP con alfa. Ninguna heurística de color.
+
+**Qué pedir al recortar una foto nueva:** fondo completamente transparente,
+conservando el plato o la tabla (no solo la comida), exportado como **PNG con
+canal alfa — nunca JPEG**, sin cuadriculado de "vista previa" en el archivo, y
+con el lado más largo entre 1000 y 1500 px.
+
+| `code` | Archivo | Origen | Recorte |
+|---|---|---|---|
+| `hamburguesa` | `hamburguesa.webp` | `hamburguesaSimple.jpg` (con tabla) | script (pendiente) |
+| `lomito` | `lomito.webp` | `lomito...-Photoroom.png` | Photoroom ✅ |
+| `salchiburguer` | `salchiburguer.webp` | `salchiburguer.jpg` | script (pendiente) |
+| `salchipapa` | `salchipapa.webp` | `salchipapa...-Photoroom.png` | Photoroom ✅ |
+| `trancaburguer` | `trancaburguer.webp` | `trancaburguer...-Photoroom.png` | Photoroom ✅ |
+| `trancapecho` | `trancapecho.webp` | `trancapecho...-Photoroom.png` | Photoroom ✅ |
+
+Las dos marcadas "script (pendiente)" salieron aceptables —tabla de madera, que
+tiene color propio y el método de color sí distingue— pero conviene rehacerlas
+con Photoroom cuando se pueda, por consistencia.
+
+`hamburguesa-alt.webp`: la otra foto de hamburguesa que llegó (sin tabla), sin
+usar — por si se prefiere a la de arriba. Ningún código la referencia.
+
+Los seis platos ya tienen recorte. Sin recorte propio quedan las bebidas y los
+extras: siguen con su foto cuadrada de siempre, dentro de su cajita redondeada.
+
+**Al reemplazar un archivo de aquí, borrar `.next/dev/cache/images`.** Next
+guarda cada tamaño optimizado por separado y la ruta no cambia, así que el
+navegador puede seguir recibiendo la versión vieja durante horas. Costó una
+ronda entera de "sigue mal" el 17-09-2026.

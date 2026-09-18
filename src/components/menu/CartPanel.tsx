@@ -124,21 +124,27 @@ export function CartPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Tu carrito"
-        className="relative flex max-h-[85vh] flex-col rounded-t-3xl bg-white shadow-xl lg:h-full lg:max-h-none lg:w-[520px] lg:max-w-[92vw] lg:rounded-none lg:rounded-l-3xl"
+        // EXPERIMENTAL (rediseno-menu-fastfood): mismo lenguaje que la tarjeta
+        // del menú —fondo oscuro cálido, títulos en la display, dorado para lo
+        // que es plata—. La DISPOSICIÓN no cambia: hoja inferior en móvil,
+        // drawer lateral desde `lg:`.
+        className="relative flex max-h-[85vh] flex-col rounded-t-3xl bg-gradient-to-b from-red-950 to-donzarco-ink shadow-xl lg:h-full lg:max-h-none lg:w-[520px] lg:max-w-[92vw] lg:rounded-none lg:rounded-l-3xl"
       >
-        <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-4">
-          <h2 className="text-lg font-bold text-zinc-900">Tu pedido</h2>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+          <h2 className="font-display text-2xl tracking-wide text-donzarco-gold uppercase">
+            Tu pedido
+          </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Volver al menú"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-lg leading-none text-zinc-600"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-lg leading-none text-white ring-1 ring-white/20 backdrop-blur-sm"
           >
             ✕
           </button>
         </div>
 
-        <ul className="flex-1 divide-y divide-zinc-100 overflow-y-auto px-4">
+        <ul className="flex-1 divide-y divide-white/10 overflow-y-auto px-4">
           {/* Los combos van primero, como en el menú: es el orden en el que el
               cliente los vio, y el que explica por qué el total es más bajo de
               lo que suman los productos. */}
@@ -172,17 +178,17 @@ export function CartPanel({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-zinc-900">{line.name}</p>
-                  <p className="text-xs text-zinc-500 tabular-nums">
+                  <p className="truncate text-sm font-semibold text-white">{line.name}</p>
+                  <p className="text-xs text-white/60 tabular-nums">
                     {line.quantity} × {formatMoney(line.unitPrice)}
                   </p>
                   {vence !== null && (
-                    <p className="text-[11px] font-medium text-donzarco-red">{vence}</p>
+                    <p className="text-[11px] font-medium text-donzarco-gold">{vence}</p>
                   )}
                 </div>
 
                 <div className="flex flex-col items-end gap-1.5">
-                  <span className="text-sm font-bold text-zinc-900 tabular-nums">
+                  <span className="text-sm font-bold text-white tabular-nums">
                     {formatMoney(line.subtotal)}
                   </span>
                   <QuantityControl
@@ -191,6 +197,7 @@ export function CartPanel({
                     onAdd={() => onAddPromo(line.promotionId)}
                     onRemove={() => onRemovePromo(line.promotionId)}
                     size="sm"
+                    tone="inverse"
                   />
                 </div>
               </li>
@@ -210,16 +217,16 @@ export function CartPanel({
                 ) : null}
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-zinc-900">
+                  <p className="truncate text-sm font-semibold text-white">
                     {line.product_name_snapshot}
                   </p>
-                  <p className="text-xs text-zinc-500 tabular-nums">
+                  <p className="text-xs text-white/60 tabular-nums">
                     {line.quantity} × {formatMoney(line.unit_price_snapshot)}
                   </p>
                 </div>
 
                 <div className="flex flex-col items-end gap-1.5">
-                  <span className="text-sm font-bold text-zinc-900 tabular-nums">
+                  <span className="text-sm font-bold text-white tabular-nums">
                     {formatMoney(line.subtotal)}
                   </span>
                   <QuantityControl
@@ -228,6 +235,7 @@ export function CartPanel({
                     onAdd={() => onAdd(line.product_code)}
                     onRemove={() => onRemove(line.product_code)}
                     size="sm"
+                    tone="inverse"
                   />
                 </div>
               </li>
@@ -238,7 +246,7 @@ export function CartPanel({
             <li className="py-3">
               <p
                 role="status"
-                className="rounded-xl bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-800"
+                className="rounded-xl bg-amber-400/15 px-3 py-2 text-sm leading-relaxed text-amber-200 ring-1 ring-amber-300/30"
               >
                 Se {agotados.length === 1 ? 'agotó' : 'agotaron'}{' '}
                 <span className="font-semibold">{listaDe(agotados)}</span>.{' '}
@@ -249,24 +257,26 @@ export function CartPanel({
           )}
         </ul>
 
-        <div className="border-t border-zinc-100 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="border-t border-white/10 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Las dos listas suman juntas. Pintar aquí solo `summary` dejaría un
               carrito con un combo mostrando "Bs 0,00". */}
-          <div className="flex items-center justify-between text-sm text-zinc-500">
+          <div className="flex items-center justify-between text-sm text-white/60">
             <span>Subtotal</span>
             <span className="tabular-nums">{formatMoney(totales.subtotal)}</span>
           </div>
           {ahorro > 0 && (
-            <div className="mt-0.5 flex items-center justify-between text-sm font-semibold text-emerald-700">
+            <div className="mt-0.5 flex items-center justify-between text-sm font-semibold text-emerald-300">
               <span>Ahorras</span>
               <span className="tabular-nums">{formatMoney(ahorro)}</span>
             </div>
           )}
-          <div className="mt-1 flex items-center justify-between text-lg font-bold text-zinc-900">
-            <span>Total</span>
-            <span className="tabular-nums">{formatMoney(totales.total)}</span>
+          <div className="mt-1 flex items-center justify-between text-white">
+            <span className="text-lg font-bold">Total</span>
+            <span className="font-display text-2xl tracking-wide text-yellow-400 tabular-nums">
+              {formatMoney(totales.total)}
+            </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-white/50">
             El costo de envío se define al finalizar el pedido.
           </p>
 
@@ -275,7 +285,7 @@ export function CartPanel({
             onClick={onContinue}
             disabled={!canCheckout}
             aria-describedby={checkoutNotice ? 'cart-checkout-notice' : undefined}
-            className="mt-4 w-full rounded-full bg-donzarco-red-dark px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active disabled:pointer-events-none disabled:opacity-40"
+            className="mt-4 w-full rounded-full bg-donzarco-gold px-5 py-4 text-base font-bold text-donzarco-ink shadow-lg shadow-black/30 transition-transform active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
           >
             Continuar pedido
           </button>
@@ -284,7 +294,7 @@ export function CartPanel({
             <p
               id="cart-checkout-notice"
               role="status"
-              className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-center text-sm leading-relaxed text-amber-800"
+              className="mt-3 rounded-xl bg-amber-400/15 px-3 py-2 text-center text-sm leading-relaxed text-amber-200 ring-1 ring-amber-300/30"
             >
               {checkoutNotice}
             </p>

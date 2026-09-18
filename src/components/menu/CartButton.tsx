@@ -15,7 +15,9 @@ export function CartButton({
 }) {
   const productLabel = `${units} ${units === 1 ? 'producto' : 'productos'}`;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-donzarco-surface via-donzarco-surface/95 to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    // EXPERIMENTAL (rediseno-menu-fastfood): el difuminado ahora se funde con
+    // el amarillo del fondo inmersivo, no con el crema de siempre.
+    <div className="fixed inset-x-0 bottom-0 z-30 bg-gradient-to-t from-yellow-500 via-yellow-500/95 to-transparent px-4 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <button
         type="button"
         onClick={onOpen}

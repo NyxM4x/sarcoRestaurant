@@ -59,9 +59,21 @@ export function PromoCard({
       : { code: '', category: 'plato' as const, name: promotion.name };
 
   return (
+    /*
+     * EXPERIMENTAL (rediseno-menu-fastfood, 17-09-2026): fondo oscuro, como la
+     * tarjeta del producto, pero MÁS oscuro (tinta → rojo profundo) en vez del
+     * rojo vivo. La tipografía es la misma a propósito —display dorada para el
+     * nombre, amarilla para el precio—: lo que distingue al combo es el marco,
+     * no un idioma tipográfico aparte.
+     *
+     * El aro cambió de significado con el fondo oscuro: el dorado permanente
+     * sigue siendo "esto es una promoción", pero "esto está en tu carrito" ya
+     * no puede ser el rojo de siempre (invisible sobre rojo profundo). Pasa a
+     * blanco, que es lo único que contrasta contra ambos.
+     */
     <article
-      className={`flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-2 transition-shadow hover:shadow-md ${
-        enCarrito ? 'ring-donzarco-red-dark' : 'ring-donzarco-gold/70'
+      className={`flex gap-3 rounded-3xl bg-gradient-to-br from-donzarco-ink to-red-950 p-3 shadow-lg shadow-black/40 ring-2 transition-shadow hover:shadow-xl ${
+        enCarrito ? 'ring-white' : 'ring-donzarco-gold/80'
       }`}
     >
       <div className="relative shrink-0">
@@ -69,7 +81,7 @@ export function PromoCard({
           item={item}
           src={imagen.kind === 'url' ? imagen.url : undefined}
           alt={promotion.name}
-          className="h-24 w-24 rounded-xl"
+          className="h-24 w-24 rounded-2xl ring-2 ring-donzarco-gold/40"
           sizes="(max-width: 640px) 30vw, 120px"
         />
         <span className="absolute left-1 top-1 rounded-full bg-donzarco-gold px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-donzarco-ink shadow-sm">
@@ -78,32 +90,30 @@ export function PromoCard({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <h3 className="line-clamp-2 text-base leading-tight font-semibold text-zinc-900">
+        <h3 className="font-display line-clamp-2 text-lg leading-tight tracking-wide text-donzarco-gold uppercase drop-shadow-[0_2px_0_rgba(0,0,0,0.5)]">
           {promotion.name}
         </h3>
 
         {/* `title` conserva el texto completo para el puntero; el DOM lo tiene
             entero para los lectores de pantalla aunque el CSS lo recorte. */}
-        <p className="mt-1 line-clamp-2 text-sm leading-snug text-zinc-500" title={composicion}>
+        <p className="mt-1 line-clamp-2 text-xs leading-snug text-white/70" title={composicion}>
           {composicion}
         </p>
 
         {/* Sin vencimiento no se pinta nada: ni etiqueta, ni hueco reservado. */}
-        {vence !== null && (
-          <p className="mt-1 text-xs font-medium text-donzarco-red">{vence}</p>
-        )}
+        {vence !== null && <p className="mt-1 text-xs font-medium text-amber-300">{vence}</p>}
 
-        <div className="mt-auto flex items-end justify-between gap-2 border-t border-zinc-100 pt-2">
+        <div className="mt-auto flex items-end justify-between gap-2 border-t border-white/10 pt-2">
           <div className="min-w-0">
             <p className="flex items-baseline gap-1.5">
-              <span className="text-xs text-zinc-400 line-through tabular-nums">
+              <span className="text-xs text-white/40 line-through tabular-nums">
                 {formatMoney(pricing.normalPrice)}
               </span>
-              <span className="text-lg font-extrabold text-donzarco-red-dark tabular-nums">
+              <span className="font-display text-xl tracking-wide text-yellow-400 tabular-nums">
                 {formatMoney(pricing.promoPrice)}
               </span>
             </p>
-            <p className="text-xs font-semibold text-emerald-700 tabular-nums">
+            <p className="text-xs font-semibold text-emerald-300 tabular-nums">
               Ahorras {formatMoney(pricing.savings)}
             </p>
           </div>
@@ -115,13 +125,14 @@ export function PromoCard({
               onAdd={onAdd}
               onRemove={onRemove}
               size="sm"
+              tone="inverse"
             />
           ) : (
             <button
               type="button"
               onClick={onAdd}
               aria-label={`Agregar la promoción ${promotion.name} al carrito`}
-              className="shrink-0 rounded-full bg-donzarco-red-dark px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-donzarco-red-hover active:bg-donzarco-red-active"
+              className="shrink-0 rounded-full bg-donzarco-gold px-5 py-2.5 text-sm font-bold text-donzarco-ink shadow-lg shadow-black/30 transition-transform active:scale-95"
             >
               Agregar
             </button>

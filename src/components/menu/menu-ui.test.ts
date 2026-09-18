@@ -34,8 +34,14 @@ describe('6B.1R — ProductCard', () => {
 
   it('controla nombres y descripciones largas con line-clamp', () => {
     const s = comp('ProductCard');
-    expect(s).toMatch(/line-clamp-2[^"]*font-semibold/); // nombre
-    expect(s).toMatch(/line-clamp-2 text-sm/); // descripción
+    // EXPERIMENTAL (rediseno-menu-fastfood, 17-09-2026): el nombre pasó de
+    // `font-semibold` a `font-display` (Bangers), la tipografía de alto
+    // impacto del rediseño. Lo que este test protege sigue siendo lo mismo:
+    // que el nombre se recorte a dos líneas.
+    expect(s).toMatch(/line-clamp-2[^"]*font-display|font-display[^"]*line-clamp-2/); // nombre
+    // `text-xs` y no `text-sm`: la tarjeta "out of bounds" deja el nombre y el
+    // precio más grandes, y la descripción baja de tamaño para que quepan.
+    expect(s).toMatch(/line-clamp-2 text-xs/); // descripción
   });
 
   it('un producto agotado no ofrece CTA activo', () => {
@@ -277,8 +283,15 @@ describe('6B.2A — catálogo responsive (grid)', () => {
 describe('6B.2A — sticky y sesión intactos', () => {
   it('la barra de búsqueda + categorías sigue sticky con fondo propio', () => {
     const s = comp('MenuStore');
-    expect(s).toMatch(/sticky top-0[^"]*bg-donzarco-surface/);
-    expect(s).toContain('<SearchBar');
+    // EXPERIMENTAL (rediseno-menu-fastfood, 17-09-2026): el fondo crema de
+    // siempre pasó a un vidrio oscuro (`bg-donzarco-ink/85`), para no chocar
+    // con el degradado inmersivo de `page.tsx`. Sigue siendo sticky y con
+    // fondo propio, que es lo que este test protege.
+    expect(s).toMatch(/sticky top-0[^"]*bg-donzarco-ink\/85/);
+    // El buscador se retiró el 17-09-2026 (el catálogo son 15 productos en
+    // tres categorías: se recorre antes de terminar de escribir). Lo que la
+    // barra conserva —y este test protege— son las categorías.
+    expect(s).not.toContain('<SearchBar');
     expect(s).toContain('<CategoryTabs');
   });
 
@@ -328,7 +341,7 @@ describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () =>
   it('la parrilla y el carrito SÍ ven la lista entera: hay que pintarlo y nombrarlo', () => {
     const s = comp('MenuStore');
     // Sin esto el agotado no se pintaría en gris: volvería a desaparecer.
-    expect(s).toContain('groupByCategory(filterMenuItems(visibles, category, query))');
+    expect(s).toContain('groupByCategory(filterMenuItems(visibles, category))');
     // Y `visibles` solo quita lo que va en combo (14-09), NUNCA lo agotado: si
     // filtrara por `is_active`, el gris volvería a desaparecer por la puerta de atrás.
     const visibles = s.slice(s.indexOf('const visibles = useMemo'), s.indexOf('const aLaVenta'));
@@ -344,5 +357,60 @@ describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () =>
     expect(s).toMatch(/agot[óa]/);
     // Nombres, no códigos: un "se agotó producto_x" es peor que callarse.
     expect(s).toContain('itemsByCode.get(code)?.name');
+  });
+});
+
+/**
+ * ENCABEZADOS DE CATEGORÍA ANCLADOS (EXPERIMENTAL, rediseno-menu-fastfood,
+ * 17-09-2026).
+ *
+ * El arrastre —cada título se queda bajo la barra hasta que el siguiente lo
+ * empuja— es de CSS puro, y por eso se rompe en silencio: no hay error, no hay
+ * excepción, simplemente el título deja de quedarse quieto. Estos tests fijan
+ * las tres condiciones que lo sostienen.
+ */
+describe('17-09 — encabezados de categoría anclados', () => {
+  it('cada encabezado es sticky, y NO a top-0: iría tapado por la barra', () => {
+    const s = comp('MenuStore');
+    expect(s).toContain('sticky top-[var(--menu-bar-h)]');
+  });
+
+  it('el encabezado pasa por DEBAJO de la barra, no por encima', () => {
+    const s = comp('MenuStore');
+    // La barra es z-20; el encabezado tiene que quedarse por debajo al ser
+    // empujado, o se montaría sobre el buscador.
+    expect(s).toMatch(/sticky top-0 z-20/); // la barra
+    expect(s).toMatch(/sticky top-\[var\(--menu-bar-h\)\] z-10/); // el encabezado
+  });
+
+  it('`--menu-bar-h` se mide del DOM, no es un número mágico escrito a mano', () => {
+    const s = comp('MenuStore');
+    expect(s).toContain("setProperty('--menu-bar-h'");
+    expect(s).toContain('barra.offsetHeight');
+    // Y se mantiene: el alto cambia al rotar el teléfono.
+    expect(s).toContain('ResizeObserver');
+  });
+
+  it('la tarjeta encierra su apilado: la foto no puede montarse sobre el título', () => {
+    // La foto flotante lleva `z-10` para montarse sobre SU tarjeta. El
+    // encabezado también es `z-10`. Sin un plano propio en la tarjeta, ambos
+    // compiten en el mismo nivel y gana la foto por ir después en el
+    // documento: al desplazarse, las fotos tapaban el título de la categoría.
+    const s = comp('ProductCard');
+    expect(s).toMatch(/<article\s+className={`relative z-0 /);
+  });
+
+  it('ningún ancestro del encabezado recorta con overflow: rompería el anclaje', () => {
+    // `position: sticky` deja de funcionar si CUALQUIER ancestro tiene overflow
+    // distinto de `visible`. El fondo inmersivo de `page.tsx` es el candidato
+    // natural a llevarse un `overflow-hidden` "para recortar la textura": este
+    // test existe para que ese día se entere alguien.
+    const page = src('../../app/menu/page.tsx');
+    expect(page).not.toContain('overflow-hidden');
+
+    const store = comp('MenuStore');
+    // El contenedor del catálogo y las secciones tampoco.
+    const catalogo = store.slice(store.indexOf('max-w-5xl space-y-6'), store.indexOf('</section>'));
+    expect(catalogo).not.toContain('overflow-hidden');
   });
 });

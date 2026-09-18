@@ -26,7 +26,6 @@ import { CheckoutPanel } from './CheckoutPanel';
 import { OrderSuccess } from './OrderSuccess';
 import { ProductCard } from './ProductCard';
 import { PromoCard } from './PromoCard';
-import { SearchBar } from './SearchBar';
 
 const NO_SESSION_NOTICE = 'Abre el menú desde WhatsApp para confirmar tu pedido.';
 /** Pedidos nuevos pausados por saturación (0038, 14-09-2026). */
@@ -103,8 +102,36 @@ export function MenuStore({
   } | null;
 }) {
   const [category, setCategory] = useState<CategoryFilter>('all');
-  const [query, setQuery] = useState('');
   const [cartOpen, setCartOpen] = useState(false);
+
+  /**
+   * El alto REAL de la barra fija, publicado como `--menu-bar-h`
+   * (EXPERIMENTAL, rediseno-menu-fastfood, 17-09-2026).
+   *
+   * Los encabezados de categoría se anclan justo debajo de la barra, así que
+   * necesitan su alto. Escribirlo a mano como número mágico envejece mal: basta
+   * que alguien cambie el padding del buscador para que los títulos queden
+   * tapados a medias, y es de esas cosas que nadie vuelve a mirar.
+   *
+   * Medirlo en vivo lo mantiene correcto solo. `globals.css` trae un valor de
+   * arranque para el primer render (aquí todavía no hay DOM que medir).
+   */
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const barra = barRef.current;
+    if (!barra) return;
+
+    const publicar = () => {
+      document.documentElement.style.setProperty('--menu-bar-h', `${barra.offsetHeight}px`);
+    };
+    publicar();
+
+    // El alto cambia al rotar el teléfono o si el texto crece: no basta medirlo
+    // una vez al montar.
+    const observer = new ResizeObserver(publicar);
+    observer.observe(barra);
+    return () => observer.disconnect();
+  }, []);
 
   // El instante del servidor, avanzando. Sin esto, una pestaña abierta desde
   // hace horas seguiría mostrando una promoción que ya venció.
@@ -198,10 +225,10 @@ export function MenuStore({
     () =>
       // En noche de promoción las bebidas suben debajo de Promociones: son lo
       // que acompaña al combo. A las 00:00 vuelve el orden de siempre.
-      orderSectionsForMode(groupByCategory(filterMenuItems(visibles, category, query)), {
+      orderSectionsForMode(groupByCategory(filterMenuItems(visibles, category)), {
         active: modoActivo,
       }),
-    [visibles, category, query, modoActivo],
+    [visibles, category, modoActivo],
   );
 
   /**
@@ -363,10 +390,14 @@ export function MenuStore({
 
   return (
     <>
-      {/* Barra fija: fondo a todo el ancho, contenido centrado con el catálogo. */}
-      <div className="sticky top-0 z-20 bg-donzarco-surface px-4 pt-4 pb-3">
+      {/* Barra fija: fondo a todo el ancho, contenido centrado con el catálogo.
+          EXPERIMENTAL (rediseno-menu-fastfood): vidrio oscuro en vez del crema
+          de siempre, para no desentonar con el degradado de `page.tsx`. */}
+      <div
+        ref={barRef}
+        className="sticky top-0 z-20 bg-donzarco-ink/85 px-4 pt-4 pb-3 shadow-lg shadow-black/20 backdrop-blur-md"
+      >
         <div className="mx-auto max-w-5xl space-y-3">
-          <SearchBar value={query} onChange={setQuery} />
           <CategoryTabs active={category} onChange={setCategory} />
         </div>
       </div>
@@ -377,10 +408,7 @@ export function MenuStore({
             "PROMOCIONES" promete algo que no existe. */}
         {vendibles.length > 0 && (
           <section aria-label="Promociones">
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wide text-donzarco-red-dark uppercase">
-              <span className="h-4 w-1 rounded-full bg-donzarco-gold" aria-hidden />
-              Promociones
-            </h2>
+            <SectionHeader label="Promociones" tone="promo" />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {vendibles.map(({ promotion, pricing }) => (
                 <PromoCard
@@ -400,10 +428,7 @@ export function MenuStore({
         {hasResults ? (
           groups.map((group) => (
             <section key={group.category} aria-label={group.label}>
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-bold tracking-wide text-donzarco-red-dark uppercase">
-                <span className="h-4 w-1 rounded-full bg-donzarco-red" aria-hidden />
-                {group.label}
-              </h2>
+              <SectionHeader label={group.label} />
               {/* Móvil: 1 columna (igual que antes). Tablet: 2. Desktop amplio: 3. */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {group.items.map((item) => (
@@ -419,9 +444,10 @@ export function MenuStore({
             </section>
           ))
         ) : (
-          <p className="rounded-2xl bg-white px-4 py-10 text-center text-sm text-zinc-500 ring-1 ring-zinc-200">
-            No encontramos nada con “{query.trim()}”. Prueba con otra palabra o
-            elige otra categoría.
+          <p className="rounded-3xl bg-donzarco-ink/80 px-4 py-10 text-center text-sm text-white/80 ring-1 ring-white/15 backdrop-blur-sm">
+            {/* Sin buscador (17-09-2026) esto ya solo puede pasar si la
+                categoría elegida quedó sin nada que ofrecer. */}
+            Por ahora no hay nada en esta categoría. Elige otra.
           </p>
         )}
       </div>
@@ -474,5 +500,47 @@ export function MenuStore({
         <OrderSuccess order={checkout.order} onBackToMenu={handleBackToMenu} />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Encabezado de categoría, anclado mientras dura su sección (EXPERIMENTAL,
+ * rediseno-menu-fastfood, 17-09-2026).
+ *
+ * ── El arrastre y el empujón son de CSS, no de JavaScript ───────────────────
+ *
+ * Antes era texto suelto que se perdía al primer deslizamiento: a media lista
+ * uno ya no sabía si seguía en Platos o en Bebidas. Ahora cada encabezado es
+ * `sticky` DENTRO de su propia `<section>`, y ahí está todo el truco:
+ *
+ *   - mientras se recorre su sección, se queda clavado bajo la barra;
+ *   - cuando la sección se acaba, su propio borde inferior lo empuja hacia
+ *     arriba, y el encabezado de la siguiente ocupa el lugar.
+ *
+ * No hace falta escuchar el scroll ni medir posiciones: el navegador lo hace
+ * solo porque el contenedor que lo limita es su sección. Por eso importa que
+ * ningún ancestro entre la sección y aquí tenga `overflow` distinto de
+ * `visible` — eso rompería el anclaje sin decir nada (ver `page.tsx`, que
+ * evita `overflow-hidden` en el `<main>` a propósito).
+ *
+ * `z-10` contra el `z-20` de la barra: al ser empujado, el encabezado pasa por
+ * DEBAJO del vidrio del buscador en vez de encima.
+ */
+function SectionHeader({ label, tone = 'catalogo' }: { label: string; tone?: 'catalogo' | 'promo' }) {
+  const fondo =
+    tone === 'promo'
+      ? 'from-donzarco-gold via-orange-500 to-red-600'
+      : 'from-red-700 via-red-600 to-orange-500';
+
+  return (
+    <h2
+      className={`sticky top-[var(--menu-bar-h)] z-10 -mx-4 mb-3 overflow-hidden bg-gradient-to-r px-4 py-2 shadow-lg shadow-black/30 ring-1 ring-black/20 ${fondo}`}
+    >
+      {/* La trama de puntos va en su propia capa para que el texto no la herede. */}
+      <span className="menu-halftone pointer-events-none absolute inset-0 opacity-40" aria-hidden />
+      <span className="font-display relative text-2xl tracking-wider text-yellow-300 italic uppercase drop-shadow-[0_2px_0_rgba(0,0,0,0.55)]">
+        {label}
+      </span>
+    </h2>
   );
 }

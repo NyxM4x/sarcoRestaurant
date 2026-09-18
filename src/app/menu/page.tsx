@@ -127,48 +127,66 @@ export default async function MenuPage(props: {
   const ordersPaused = await readOrdersPaused();
 
   return (
-    <main className="flex-1 bg-donzarco-surface text-zinc-900">
-      <MenuHeader />
-      {ordersPaused && (
-        <div role="status" className="bg-red-600 px-4 py-3 text-center text-sm font-semibold text-white">
-          Estamos con demasiados pedidos y pausamos los nuevos por un rato. Vuelve a intentarlo en
-          unos minutos. Si ya hiciste tu pedido, sigue en curso.
-        </div>
-      )}
-      <ServiceNoticeBanner serverNow={serverNow} />
-      {replacingOrder && <ReplacingOrderBanner orderNumber={replacingOrder.orderNumber} />}
+    // ── Fondo inmersivo (EXPERIMENTAL, rediseno-menu-fastfood, 17-09-2026) ──
+    //
+    // El patrón NO se desplaza con el contenido: va en una capa `fixed`, así que
+    // el catálogo se desliza POR ENCIMA de un fondo quieto. Es el efecto que se
+    // buscaba al scrollear, y de paso evita el problema de repetir una imagen
+    // con degradado (las costuras se ven en cada repetición).
+    //
+    // El degradado del `<main>` queda debajo como respaldo: si la imagen no
+    // carga —datos móviles flojos—, el fondo sigue siendo cálido y no blanco.
+    //
+    // `isolate` mantiene el apilado dentro de este `<main>`: sin él, la capa de
+    // z-0 podría irse detrás del fondo del `<body>` y no verse nunca.
+    <main className="relative isolate flex-1 bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 text-white">
+      <div
+        className="pointer-events-none fixed inset-0 z-0 bg-[url('/menu/fondo-patron.webp')] bg-cover bg-center"
+        aria-hidden
+      />
+      <div className="relative z-10">
+        <MenuHeader />
+        {ordersPaused && (
+          <div role="status" className="bg-red-600 px-4 py-3 text-center text-sm font-semibold text-white">
+            Estamos con demasiados pedidos y pausamos los nuevos por un rato. Vuelve a intentarlo en
+            unos minutos. Si ya hiciste tu pedido, sigue en curso.
+          </div>
+        )}
+        <ServiceNoticeBanner serverNow={serverNow} />
+        {replacingOrder && <ReplacingOrderBanner orderNumber={replacingOrder.orderNumber} />}
 
-      {items === null ? (
-        <MenuUnavailable
-          title="No pudimos cargar el menú"
-          body="Estamos teniendo un problema para mostrar los productos. Intenta de nuevo en un momento o escríbenos por WhatsApp."
-        />
-      ) : items.length === 0 ? (
-        <MenuUnavailable
-          title="No hay productos disponibles"
-          body="Por ahora no tenemos nada cargado en el menú. Escríbenos por WhatsApp y te contamos."
-        />
-      ) : (
-        // El token solo se propaga si la sesión ya quedó validada arriba. Sin
-        // sesión va `null`: el menú sigue siendo público, pero no se puede
-        // confirmar un pedido. No se registra ni se persiste en ningún sitio.
-        <MenuStore
-          ordersPaused={ordersPaused}
-          items={items}
-          promotions={promotions}
-          serverNow={serverNow}
-          sessionToken={sessionToken}
-          // 0035: cuando el enlace viene a cambiar un pedido, el carrito se
-          // siembra con lo que ya había dentro.
-          replacingOrder={
-            replacingOrder && {
-              orderNumber: replacingOrder.orderNumber,
-              items: replacingOrder.items,
-              promotions: replacingOrder.promotions,
+        {items === null ? (
+          <MenuUnavailable
+            title="No pudimos cargar el menú"
+            body="Estamos teniendo un problema para mostrar los productos. Intenta de nuevo en un momento o escríbenos por WhatsApp."
+          />
+        ) : items.length === 0 ? (
+          <MenuUnavailable
+            title="No hay productos disponibles"
+            body="Por ahora no tenemos nada cargado en el menú. Escríbenos por WhatsApp y te contamos."
+          />
+        ) : (
+          // El token solo se propaga si la sesión ya quedó validada arriba. Sin
+          // sesión va `null`: el menú sigue siendo público, pero no se puede
+          // confirmar un pedido. No se registra ni se persiste en ningún sitio.
+          <MenuStore
+            ordersPaused={ordersPaused}
+            items={items}
+            promotions={promotions}
+            serverNow={serverNow}
+            sessionToken={sessionToken}
+            // 0035: cuando el enlace viene a cambiar un pedido, el carrito se
+            // siembra con lo que ya había dentro.
+            replacingOrder={
+              replacingOrder && {
+                orderNumber: replacingOrder.orderNumber,
+                items: replacingOrder.items,
+                promotions: replacingOrder.promotions,
+              }
             }
-          }
-        />
-      )}
+          />
+        )}
+      </div>
     </main>
   );
 }
@@ -176,13 +194,17 @@ export default async function MenuPage(props: {
 /** Sesión expirada o inválida. */
 function MenuSessionExpired() {
   return (
-    <div className="flex-1 bg-donzarco-surface px-4 py-16">
-      <div className="mx-auto max-w-sm rounded-2xl bg-white px-6 py-10 text-center ring-1 ring-zinc-200">
+    // Trae su propio degradado: esta rama devuelve ANTES del `<main>` de arriba,
+    // así que sin esto sería la única pantalla de /menu con el fondo viejo.
+    <div className="flex-1 bg-gradient-to-br from-orange-400 via-orange-500 to-yellow-500 px-4 py-16">
+      <div className="mx-auto max-w-sm rounded-3xl bg-donzarco-ink/85 px-6 py-10 text-center ring-1 ring-white/15 backdrop-blur-sm">
         <span className="text-4xl" aria-hidden>
           ⏱️
         </span>
-        <h2 className="mt-4 text-lg font-semibold text-zinc-900">Enlace expirado</h2>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+        <h2 className="font-display mt-4 text-2xl tracking-wide text-donzarco-gold uppercase">
+          Enlace expirado
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-white/75">
           Este enlace ya no es válido. Vuelve a WhatsApp y solicita nuevamente el menú.
         </p>
       </div>
@@ -194,12 +216,14 @@ function MenuSessionExpired() {
 function MenuUnavailable({ title, body }: { title: string; body: string }) {
   return (
     <div className="px-4 py-16">
-      <div className="mx-auto max-w-sm rounded-2xl bg-white px-6 py-10 text-center ring-1 ring-zinc-200">
+      <div className="mx-auto max-w-sm rounded-3xl bg-donzarco-ink/85 px-6 py-10 text-center ring-1 ring-white/15 backdrop-blur-sm">
         <span className="text-4xl" aria-hidden>
           🍔
         </span>
-        <h2 className="mt-4 text-lg font-semibold text-zinc-900">{title}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-500">{body}</p>
+        <h2 className="font-display mt-4 text-2xl tracking-wide text-donzarco-gold uppercase">
+          {title}
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-white/75">{body}</p>
       </div>
     </div>
   );

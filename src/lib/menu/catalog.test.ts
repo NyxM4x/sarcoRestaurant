@@ -218,13 +218,34 @@ describe('groupByCategory', () => {
     ]);
   });
 
-  it('no reordena entre iguales: dentro de cada mitad manda el sort_order', () => {
-    // El desempate es SOLO por disponibilidad. Un `sort` que además tocara el
-    // orden del panel movería el menú cada vez que se agota cualquier cosa.
+  it('los platos salen en el orden de vitrina, no en el de la base', () => {
+    // EXPERIMENTAL (rediseno-menu-fastfood, 17-09-2026): el orden de los platos
+    // lo fija `PLATO_ORDER` en el código, NO `sort_order`. Es a propósito y es
+    // temporal: `sort_order` es producción, y este orden nació dentro de un
+    // rediseño que todavía se está probando. Si el rediseño se adopta, esto
+    // baja a una migración y la lista del código desaparece.
     const groups = groupByCategory(MENU);
-    expect(groups[0].items.map((i) => i.code)).toEqual(
-      MENU.filter((i) => i.category === 'plato').map((i) => i.code),
-    );
+    expect(groups[0].items.map((i) => i.code)).toEqual([
+      'trancapecho',
+      'trancaburguer',
+      'lomito',
+      'hamburguesa',
+      'salchiburguer',
+      'salchipapa',
+    ]);
+  });
+
+  it('un plato que no esté en el orden de vitrina va al final, no se pierde', () => {
+    const groups = groupByCategory([
+      item('nuevo_plato', 'Plato nuevo', 'plato', 20, 5),
+      item('lomito', 'Lomito', 'plato', 18, 50),
+      item('trancapecho', 'Trancapecho', 'plato', 18, 20),
+    ]);
+    expect(groups[0].items.map((i) => i.code)).toEqual([
+      'trancapecho',
+      'lomito',
+      'nuevo_plato',
+    ]);
   });
 
   it('no muta la lista que recibe', () => {
