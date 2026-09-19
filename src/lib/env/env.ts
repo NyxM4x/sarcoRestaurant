@@ -32,6 +32,16 @@ const serverEnvSchema = z.object({
   KAPSO_API_KEY: optionalString,
   KAPSO_WEBHOOK_SECRET: optionalString,
   KAPSO_PHONE_NUMBER_ID: optionalString,
+  /**
+   * El número de WhatsApp del negocio, el que ve el cliente (19-09-2026). No es
+   * `KAPSO_PHONE_NUMBER_ID`: aquel es un ID interno de Meta y con él no se abre
+   * ningún chat.
+   *
+   * Lo usa el botón de "Pedido registrado" para llevar al cliente al chat. Si
+   * falta, esa pantalla se queda sin botón y solo dice en texto que vuelva a
+   * WhatsApp; nada más depende de ella. Ver `menu/whatsapp-chat`.
+   */
+  WHATSAPP_BUSINESS_NUMBER: optionalString,
   /** Override opcional de la URL base de la API de Kapso (ver client.ts). */
   KAPSO_API_BASE_URL: optionalUrl,
   APP_BASE_URL: optionalUrl,

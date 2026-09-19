@@ -13,13 +13,25 @@ import { shortOrderNumber } from '@/lib/orders/order-number';
  * - pickup: el pedido queda confirmado para recoger.
  * - delivery: queda registrado, pero falta la ubicación por WhatsApp. El envío
  *   de esa solicitud es de la Fase 5.2D; aquí solo se instruye al usuario.
+ *
+ * ── Tampoco hay salida al menú (19-09-2026) ─────────────────────────────────
+ *
+ * El botón era "Volver al menú", y el menú volvía con el carrito vacío. Quien no
+ * veía llegar el mensaje del QR —notificaciones en "no molestar"— lo leía como
+ * un pedido que no salió, pedía otro enlace y lo mandaba de nuevo. Ahora el
+ * único botón lleva al chat, que es donde sigue el pedido, y esta pantalla no se
+ * cierra: si el cliente vuelve a la pestaña, sigue viendo su número de pedido.
+ *
+ * Sin número del negocio configurado no hay botón: queda el texto que manda a
+ * WhatsApp, y la pantalla sigue sin dar pie a un segundo pedido.
  */
 export function OrderSuccess({
   order,
-  onBackToMenu,
+  whatsappChatUrl,
 }: {
   order: CheckoutOrder;
-  onBackToMenu: () => void;
+  /** `https://wa.me/…` del negocio, o `null` si no está configurado. */
+  whatsappChatUrl: string | null;
 }) {
   const isPickup = order.delivery_type === 'pickup';
 
@@ -100,15 +112,20 @@ export function OrderSuccess({
           </p>
         </div>
 
-        <div className="border-t border-zinc-100 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <button
-            type="button"
-            onClick={onBackToMenu}
-            className="w-full rounded-full bg-zinc-100 px-5 py-4 text-base font-semibold text-zinc-700 transition-colors hover:bg-zinc-200 active:bg-zinc-300"
-          >
-            Volver al menú
-          </button>
-        </div>
+        {whatsappChatUrl ? (
+          <div className="border-t border-zinc-100 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* Un enlace y no un botón: es navegación. En el mismo tab, para que
+                el celular lo entregue directo a la app de WhatsApp. */}
+            <a
+              href={whatsappChatUrl}
+              className="block w-full rounded-full bg-green-700 px-5 py-4 text-center text-base font-bold text-white transition-colors hover:bg-green-800 active:bg-green-900"
+            >
+              Ir a WhatsApp para pagar
+            </a>
+          </div>
+        ) : (
+          <div className="pb-[max(1rem,env(safe-area-inset-bottom))]" />
+        )}
       </section>
     </div>
   );

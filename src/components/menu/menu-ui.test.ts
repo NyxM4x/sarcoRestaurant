@@ -427,3 +427,26 @@ describe('17-09 — encabezados de categoría anclados', () => {
     expect(catalogo).not.toContain('overflow-hidden');
   });
 });
+
+describe('Pedido registrado — el botón lleva al chat, no al menú (19-09-2026)', () => {
+  it('no hay salida al menú: volver dejaba el carrito listo para un segundo pedido', () => {
+    const s = stripComments(comp('OrderSuccess'));
+    expect(s).not.toContain('Volver al menú');
+    expect(s).not.toContain('onBackToMenu');
+    expect(stripComments(comp('MenuStore'))).not.toContain('handleBackToMenu');
+  });
+
+  it('el único botón abre el chat del negocio', () => {
+    const s = comp('OrderSuccess');
+    expect(s).toContain('href={whatsappChatUrl}');
+    expect(s).toContain('Ir a WhatsApp para pagar');
+    // En el mismo tab: una pestaña nueva deja la del pedido atrás y confunde.
+    expect(s).not.toContain('target="_blank"');
+  });
+
+  it('el número del negocio llega armado desde el servidor', () => {
+    expect(comp('MenuStore')).toContain('whatsappChatUrl={whatsappChatUrl}');
+    const page = src('../../app/menu/page.tsx');
+    expect(page).toContain('businessChatUrl(getServerEnv().WHATSAPP_BUSINESS_NUMBER)');
+  });
+});

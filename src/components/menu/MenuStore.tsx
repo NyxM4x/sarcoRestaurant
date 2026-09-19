@@ -69,7 +69,13 @@ export function MenuStore({
   sessionToken,
   replacingOrder = null,
   ordersPaused = false,
+  whatsappChatUrl = null,
 }: {
+  /**
+   * El chat de WhatsApp del negocio (`wa.me`), armado en el servidor. Es el
+   * botón de la pantalla de "Pedido registrado"; `null` = número sin configurar.
+   */
+  whatsappChatUrl?: string | null;
   /**
    * ¿Pedidos nuevos pausados por saturación? (0038) Leído en el servidor. Se
    * puede mirar el menú y armar el carrito, pero no confirmar.
@@ -363,11 +369,6 @@ export function MenuStore({
     dispatch({ type: 'CLOSE' });
   }, []);
 
-  const handleBackToMenu = useCallback(() => {
-    dispatch({ type: 'CLOSE' });
-    setCartOpen(false);
-  }, []);
-
   /**
    * Las promociones que se pueden comprar AHORA.
    *
@@ -497,7 +498,7 @@ export function MenuStore({
       />
 
       {checkout.step === 'success' && checkout.order ? (
-        <OrderSuccess order={checkout.order} onBackToMenu={handleBackToMenu} />
+        <OrderSuccess order={checkout.order} whatsappChatUrl={whatsappChatUrl} />
       ) : null}
     </>
   );

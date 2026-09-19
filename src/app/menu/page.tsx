@@ -6,7 +6,9 @@ import { createPromotionsRepository } from '@/lib/promotions/repository';
 import type { Promotion } from '@/lib/promotions/promotion';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { readOrdersPaused } from '@/lib/delivery/settings';
+import { getServerEnv } from '@/lib/env/env';
 import { log } from '@/lib/log';
+import { businessChatUrl } from '@/lib/menu/whatsapp-chat';
 import { createMenuSessionRepository } from '@/lib/menu/session-repository';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
 import { loadOrderCart, type OrderCart } from '@/lib/orders/order-cart';
@@ -126,6 +128,15 @@ export default async function MenuPage(props: {
   // 0038: pedidos nuevos pausados por saturación. Nunca lanza; si falla, abierto.
   const ordersPaused = await readOrdersPaused();
 
+  // El chat del negocio, adonde lleva el botón de "Pedido registrado". Sin el
+  // número configurado, esa pantalla se queda sin botón pero el menú abre igual.
+  let whatsappChatUrl: string | null = null;
+  try {
+    whatsappChatUrl = businessChatUrl(getServerEnv().WHATSAPP_BUSINESS_NUMBER);
+  } catch {
+    whatsappChatUrl = null;
+  }
+
   return (
     // ── Fondo inmersivo (EXPERIMENTAL, rediseno-menu-fastfood, 17-09-2026) ──
     //
@@ -175,6 +186,7 @@ export default async function MenuPage(props: {
             promotions={promotions}
             serverNow={serverNow}
             sessionToken={sessionToken}
+            whatsappChatUrl={whatsappChatUrl}
             // 0035: cuando el enlace viene a cambiar un pedido, el carrito se
             // siembra con lo que ya había dentro.
             replacingOrder={

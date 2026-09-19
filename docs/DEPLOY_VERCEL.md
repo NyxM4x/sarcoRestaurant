@@ -79,6 +79,7 @@ En **Project Settings → Environment Variables**, agrega (ver también
 | `KAPSO_API_KEY` | ✅ | Del panel de Kapso. |
 | `KAPSO_WEBHOOK_SECRET` | ⏳ | **Todavía no la tienes** — se copia recién en el paso 11, después de crear el webhook. Por ahora puedes dejarla vacía o con un valor temporal; sin ella, el webhook rechaza todo con 401 (comportamiento seguro por defecto). |
 | `KAPSO_PHONE_NUMBER_ID` | ✅ | Del panel de Kapso. |
+| `WHATSAPP_BUSINESS_NUMBER` | ✅ | El número de WhatsApp del negocio con código de país (`591…`). Es el botón "Ir a WhatsApp para pagar" tras confirmar el pedido; sin ella esa pantalla queda sin botón. |
 | `KAPSO_API_BASE_URL` | ⬜ | **Omítela.** Sin esta variable, el cliente usa la URL oficial de Kapso por defecto. |
 | `APP_BASE_URL` | ✅ | Déjala provisional (p. ej. `https://placeholder.vercel.app`) — la actualizas en el paso 10 con el dominio real. |
 | `MENU_SESSION_SECRET` | ✅ | Firma los tokens de sesión del menú. Genera uno con `openssl rand -hex 32`. |
