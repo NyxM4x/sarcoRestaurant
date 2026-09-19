@@ -4,12 +4,16 @@ import { MAX_QUANTITY_PER_ITEM } from '@/lib/orders/calculate';
 import {
   CART_STORAGE_KEY,
   EMPTY_CART,
+  NO_LINK_CART_OWNER,
+  cartOwnerKey,
+  cartOwnerTag,
   clearCart,
   decrement,
   increment,
   isEmpty,
   parseStoredCart,
   quantityOf,
+  rawForOwner,
   removeItem,
   serializeCart,
   setQuantity,
@@ -223,5 +227,33 @@ describe('persistencia en localStorage', () => {
       soda_peque: 10,
     });
     expect(parseStoredCart(stored)).toEqual({ la_fija: 2, soda_peque: 10 });
+  });
+});
+
+describe('carrito por enlace: lo que quedó a medias no reaparece (19-09-2026)', () => {
+  const guardado = serializeCart({ TRANCAPECHO: 2 });
+
+  it('con el mismo enlace se recupera el carrito guardado', () => {
+    expect(rawForOwner('sesion-a', guardado, 'sesion-a')).toBe(guardado);
+  });
+
+  it('con un enlace nuevo el carrito empieza vacío', () => {
+    expect(rawForOwner('sesion-a', guardado, 'sesion-b')).toBeNull();
+    expect(parseStoredCart(rawForOwner('sesion-a', guardado, 'sesion-b'))).toEqual(EMPTY_CART);
+  });
+
+  it('un carrito guardado antes de este cambio (sin dueño) no se recupera', () => {
+    expect(rawForOwner(null, guardado, 'sesion-a')).toBeNull();
+    expect(rawForOwner(null, guardado, cartOwnerTag(null))).toBeNull();
+  });
+
+  it('lo armado sin enlace no pasa al primer enlace que se abra', () => {
+    expect(cartOwnerTag(null)).toBe(NO_LINK_CART_OWNER);
+    expect(cartOwnerTag('sesion-a')).toBe('sesion-a');
+    expect(rawForOwner(cartOwnerTag(null), guardado, cartOwnerTag('sesion-a'))).toBeNull();
+  });
+
+  it('el dueño se anota en su propia clave, junto a la del carrito', () => {
+    expect(cartOwnerKey(CART_STORAGE_KEY)).toBe(`${CART_STORAGE_KEY}:owner`);
   });
 });

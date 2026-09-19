@@ -195,4 +195,45 @@ export function serializeCart(cart: CartState): string {
   return JSON.stringify(cart);
 }
 
+// ── De qué enlace es el carrito guardado (19-09-2026) ───────────────────────
+//
+// El carrito vivía en el navegador sin fecha ni dueño, así que sobrevivía a
+// todos los enlaces: quien armó algo y lo dejó a medias —cerró la pestaña, no
+// mandó la ubicación, no pagó el QR— se lo volvía a encontrar una semana
+// después, al abrir un enlace nuevo. Los pedidos completos no tenían el
+// problema porque confirmar ya vacía el carrito.
+//
+// Ahora cada carrito guardado lleva anotado el enlace (la sesión del menú) en
+// el que se armó, y solo se lee con ESE enlace. Pedir el botón de nuevo
+// mientras el enlace sigue vigente devuelve el mismo enlace, así que el carrito
+// sigue ahí; cuando vence o ya se usó, el enlace es otro y se empieza vacío.
+//
+// Lo del otro enlace no se borra, se ignora: la próxima escritura lo pisa.
+
+/** Dueño de los carritos armados sin enlace (menú abierto sin `?session`). */
+export const NO_LINK_CART_OWNER = 'sin-enlace';
+
+/** Con qué se anota el dueño: la sesión del menú, o el menú sin enlace. */
+export function cartOwnerTag(sessionId: string | null): string {
+  return sessionId ?? NO_LINK_CART_OWNER;
+}
+
+/** Clave de `localStorage` donde se anota el dueño de un carrito guardado. */
+export function cartOwnerKey(storageKey: string): string {
+  return `${storageKey}:owner`;
+}
+
+/**
+ * El carrito guardado, solo si se armó con este mismo enlace; si no, `null`
+ * (carrito vacío). Un carrito guardado antes de este cambio no tiene dueño y
+ * cuenta como de otro enlace.
+ */
+export function rawForOwner(
+  storedOwner: string | null,
+  storedRaw: string | null,
+  owner: string,
+): string | null {
+  return storedOwner === owner ? storedRaw : null;
+}
+
 export { MAX_QUANTITY_PER_ITEM };

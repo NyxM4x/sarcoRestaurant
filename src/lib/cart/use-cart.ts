@@ -12,6 +12,8 @@
  *   el botón de carrito con un total equivocado durante un frame.
  * - Si `localStorage` no está disponible (modo privado, storage bloqueado),
  *   se usa una copia en memoria: la tienda sigue funcionando en esa sesión.
+ * - El carrito guardado es del enlace con el que se armó (19-09-2026): con
+ *   otro enlace se lee vacío. Ver `rawForOwner` en `./cart`.
  */
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { MenuItem } from '@/types';
@@ -19,11 +21,14 @@ import {
   CART_STORAGE_KEY,
   type CartState,
   type CartSummary,
+  cartOwnerKey,
+  cartOwnerTag,
   clearCart as clearCartState,
   decrement as decrementItem,
   increment as incrementItem,
   parseStoredCart,
   quantityOf,
+  rawForOwner,
   removeItem as removeCartItem,
   serializeCart,
   summarizeCart,
@@ -32,23 +37,29 @@ import {
 
 // ── Almacén externo sobre localStorage ──────────────────────────────────────
 
+const OWNER_KEY = cartOwnerKey(CART_STORAGE_KEY);
+
 const listeners = new Set<() => void>();
 
 /** Copia en memoria: única fuente si `localStorage` falla. */
 let memoryRaw: string | null = null;
+let memoryOwner: string | null = null;
 
-function readRaw(): string | null {
+function readRaw(owner: string): string | null {
   try {
-    return window.localStorage.getItem(CART_STORAGE_KEY);
+    const storage = window.localStorage;
+    return rawForOwner(storage.getItem(OWNER_KEY), storage.getItem(CART_STORAGE_KEY), owner);
   } catch {
-    return memoryRaw;
+    return rawForOwner(memoryOwner, memoryRaw, owner);
   }
 }
 
-function writeRaw(raw: string): void {
+function writeRaw(raw: string, owner: string): void {
   memoryRaw = raw;
+  memoryOwner = owner;
   try {
     window.localStorage.setItem(CART_STORAGE_KEY, raw);
+    window.localStorage.setItem(OWNER_KEY, owner);
   } catch {
     // Sin persistencia: seguimos con `memoryRaw`.
   }
@@ -97,29 +108,39 @@ export interface UseCart {
   seed: (next: CartState) => void;
 }
 
-export function useCart(items: MenuItem[]): UseCart {
-  const raw = useSyncExternalStore(subscribe, readRaw, serverRaw);
+/**
+ * @param sessionId La sesión del menú con la que se abrió la página, o `null`
+ *   sin enlace. Solo se usa para saber de quién es el carrito guardado.
+ */
+export function useCart(items: MenuItem[], sessionId: string | null): UseCart {
+  const owner = cartOwnerTag(sessionId);
+  const readOwn = useCallback(() => readRaw(owner), [owner]);
+
+  const raw = useSyncExternalStore(subscribe, readOwn, serverRaw);
   const hydrated = useSyncExternalStore(subscribe, clientHydrated, serverHydrated);
 
   const cart = useMemo(() => parseStoredCart(raw), [raw]);
 
-  const update = useCallback((next: CartState) => {
-    writeRaw(serializeCart(next));
-  }, []);
+  const update = useCallback(
+    (next: CartState) => {
+      writeRaw(serializeCart(next), owner);
+    },
+    [owner],
+  );
 
   const add = useCallback(
-    (code: string) => update(incrementItem(parseStoredCart(readRaw()), code)),
-    [update],
+    (code: string) => update(incrementItem(parseStoredCart(readOwn()), code)),
+    [update, readOwn],
   );
 
   const remove = useCallback(
-    (code: string) => update(decrementItem(parseStoredCart(readRaw()), code)),
-    [update],
+    (code: string) => update(decrementItem(parseStoredCart(readOwn()), code)),
+    [update, readOwn],
   );
 
   const drop = useCallback(
-    (code: string) => update(removeCartItem(parseStoredCart(readRaw()), code)),
-    [update],
+    (code: string) => update(removeCartItem(parseStoredCart(readOwn()), code)),
+    [update, readOwn],
   );
 
   const clear = useCallback(() => update(clearCartState()), [update]);

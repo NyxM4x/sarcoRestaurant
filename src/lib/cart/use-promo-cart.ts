@@ -20,11 +20,14 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { Promotion } from '@/lib/promotions/promotion';
 import {
   type CartState,
+  cartOwnerKey,
+  cartOwnerTag,
   clearCart as clearCartState,
   decrement as decrementItem,
   increment as incrementItem,
   parseStoredCart,
   quantityOf,
+  rawForOwner,
   removeItem as removeCartItem,
   serializeCart,
 } from './cart';
@@ -32,23 +35,34 @@ import { summarizePromoCart, type PromoCartSummary } from './promo-cart';
 
 export const PROMO_CART_STORAGE_KEY = 'la-fija:promos:v1';
 
+/**
+ * Dueño propio y no el del carrito de productos: si fuera uno solo, agregar un
+ * producto con el enlace nuevo lo anotaría como dueño y resucitaría los combos
+ * que quedaron guardados del enlace anterior.
+ */
+const OWNER_KEY = cartOwnerKey(PROMO_CART_STORAGE_KEY);
+
 const listeners = new Set<() => void>();
 
 /** Copia en memoria: única fuente si `localStorage` falla (modo privado). */
 let memoryRaw: string | null = null;
+let memoryOwner: string | null = null;
 
-function readRaw(): string | null {
+function readRaw(owner: string): string | null {
   try {
-    return window.localStorage.getItem(PROMO_CART_STORAGE_KEY);
+    const storage = window.localStorage;
+    return rawForOwner(storage.getItem(OWNER_KEY), storage.getItem(PROMO_CART_STORAGE_KEY), owner);
   } catch {
-    return memoryRaw;
+    return rawForOwner(memoryOwner, memoryRaw, owner);
   }
 }
 
-function writeRaw(raw: string): void {
+function writeRaw(raw: string, owner: string): void {
   memoryRaw = raw;
+  memoryOwner = owner;
   try {
     window.localStorage.setItem(PROMO_CART_STORAGE_KEY, raw);
+    window.localStorage.setItem(OWNER_KEY, owner);
   } catch {
     // Sin persistencia: seguimos con `memoryRaw`.
   }
@@ -78,28 +92,39 @@ export interface UsePromoCart {
   seed: (next: CartState) => void;
 }
 
-export function usePromoCart(promotions: Promotion[], now: number): UsePromoCart {
-  const raw = useSyncExternalStore(subscribe, readRaw, serverRaw);
+/** `sessionId`: de qué enlace es el carrito guardado. Ver `useCart`. */
+export function usePromoCart(
+  promotions: Promotion[],
+  now: number,
+  sessionId: string | null,
+): UsePromoCart {
+  const owner = cartOwnerTag(sessionId);
+  const readOwn = useCallback(() => readRaw(owner), [owner]);
+
+  const raw = useSyncExternalStore(subscribe, readOwn, serverRaw);
   const state = useMemo(() => parseStoredCart(raw), [raw]);
 
-  const update = useCallback((next: CartState) => {
-    writeRaw(serializeCart(next));
-  }, []);
+  const update = useCallback(
+    (next: CartState) => {
+      writeRaw(serializeCart(next), owner);
+    },
+    [owner],
+  );
 
   // Cada operación relee el almacén antes de escribir, igual que en `useCart`:
   // así dos toques seguidos no se pisan aunque React todavía no haya aplicado
   // el estado del primero.
   const add = useCallback(
-    (id: string) => update(incrementItem(parseStoredCart(readRaw()), id)),
-    [update],
+    (id: string) => update(incrementItem(parseStoredCart(readOwn()), id)),
+    [update, readOwn],
   );
   const remove = useCallback(
-    (id: string) => update(decrementItem(parseStoredCart(readRaw()), id)),
-    [update],
+    (id: string) => update(decrementItem(parseStoredCart(readOwn()), id)),
+    [update, readOwn],
   );
   const drop = useCallback(
-    (id: string) => update(removeCartItem(parseStoredCart(readRaw()), id)),
-    [update],
+    (id: string) => update(removeCartItem(parseStoredCart(readOwn()), id)),
+    [update, readOwn],
   );
   const clear = useCallback(() => update(clearCartState()), [update]);
 

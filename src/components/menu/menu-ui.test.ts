@@ -346,9 +346,9 @@ describe('07-09 — agotados: se ven en la vitrina, no entran al carrito', () =>
     // esa noche va solo en combo. El filtro por `is_active` sigue siendo este.
     expect(s).toMatch(/visibles\.filter\(\(item\) => item\.is_active\)/);
     // El carrito recibe la lista filtrada...
-    expect(s).toContain('useCart(aLaVenta)');
+    expect(s).toContain('useCart(aLaVenta,');
     // ...y NUNCA la lista entera: es la línea que volvería a cobrar lo agotado.
-    expect(s).not.toContain('useCart(items)');
+    expect(s).not.toContain('useCart(items');
   });
 
   it('la parrilla y el carrito SÍ ven la lista entera: hay que pintarlo y nombrarlo', () => {
@@ -448,5 +448,29 @@ describe('Pedido registrado — el botón lleva al chat, no al menú (19-09-2026
     expect(comp('MenuStore')).toContain('whatsappChatUrl={whatsappChatUrl}');
     const page = src('../../app/menu/page.tsx');
     expect(page).toContain('businessChatUrl(getServerEnv().WHATSAPP_BUSINESS_NUMBER)');
+  });
+});
+
+describe('carrito por enlace (19-09-2026)', () => {
+  it('los dos carritos guardados se leen con la sesión de la página', () => {
+    const s = comp('MenuStore');
+    expect(s).toContain('useCart(aLaVenta, cartSessionId)');
+    expect(s).toContain('usePromoCart(promotions, ahora, cartSessionId)');
+    expect(src('../../app/menu/page.tsx')).toContain('cartSessionId = session.id');
+  });
+
+  it('cada carrito anota su dueño en su propia clave', () => {
+    // Con una clave compartida, agregar un producto con el enlace nuevo
+    // resucitaría los combos guardados del enlace anterior.
+    expect(src('../../lib/cart/use-cart.ts')).toContain('cartOwnerKey(CART_STORAGE_KEY)');
+    expect(src('../../lib/cart/use-promo-cart.ts')).toContain('cartOwnerKey(PROMO_CART_STORAGE_KEY)');
+  });
+
+  it('el token del enlace nunca se usa como dueño del carrito', () => {
+    // El token es la credencial que confirma pedidos: no entra en localStorage.
+    for (const f of ['../../lib/cart/use-cart.ts', '../../lib/cart/use-promo-cart.ts']) {
+      expect(src(f), f).not.toMatch(/sessionToken|token/i);
+    }
+    expect(comp('MenuStore')).not.toMatch(/useCart\([^)]*sessionToken/);
   });
 });

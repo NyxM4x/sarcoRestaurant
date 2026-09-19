@@ -64,6 +64,12 @@ export default async function MenuPage(props: {
    * cambiándose un parámetro de la URL.
    */
   let replacingOrder: OrderCart | null = null;
+  /**
+   * De qué enlace es el carrito guardado en el navegador (19-09-2026): el id de
+   * la sesión, que no sirve para confirmar nada (eso pide el token). Con un
+   * enlace nuevo el carrito empieza vacío. Ver `rawForOwner` en `cart/cart`.
+   */
+  let cartSessionId: string | null = null;
   if (sessionToken) {
     try {
       const tokenHash = hashMenuSessionToken(sessionToken);
@@ -71,10 +77,13 @@ export default async function MenuPage(props: {
       const session = await repo.findByHash(tokenHash);
       if (!session) {
         sessionValid = false;
-      } else if (session.replaces_order_id) {
-        // Si esto falla, el menú se abre igual y vacío: tener que rearmar es
-        // peor que hoy, pero mucho mejor que una pantalla de error.
-        replacingOrder = await loadOrderCart(session.replaces_order_id);
+      } else {
+        cartSessionId = session.id;
+        if (session.replaces_order_id) {
+          // Si esto falla, el menú se abre igual y vacío: tener que rearmar es
+          // peor que hoy, pero mucho mejor que una pantalla de error.
+          replacingOrder = await loadOrderCart(session.replaces_order_id);
+        }
       }
     } catch (error) {
       log.error('menu.page.validateSession', {
@@ -186,6 +195,7 @@ export default async function MenuPage(props: {
             promotions={promotions}
             serverNow={serverNow}
             sessionToken={sessionToken}
+            cartSessionId={cartSessionId}
             whatsappChatUrl={whatsappChatUrl}
             // 0035: cuando el enlace viene a cambiar un pedido, el carrito se
             // siembra con lo que ya había dentro.

@@ -70,7 +70,15 @@ export function MenuStore({
   replacingOrder = null,
   ordersPaused = false,
   whatsappChatUrl = null,
+  cartSessionId = null,
 }: {
+  /**
+   * La sesión del menú con que se abrió la página (19-09-2026), o `null` sin
+   * enlace. El carrito guardado en el navegador solo se recupera con el mismo
+   * enlace con que se armó: un enlace nuevo empieza vacío, y así no reaparece
+   * lo que quedó a medias hace días.
+   */
+  cartSessionId?: string | null;
   /**
    * El chat de WhatsApp del negocio (`wa.me`), armado en el servidor. Es el
    * botón de la pantalla de "Pedido registrado"; `null` = número sin configurar.
@@ -185,8 +193,8 @@ export function MenuStore({
    */
   const aLaVenta = useMemo(() => visibles.filter((item) => item.is_active), [visibles]);
 
-  const cart = useCart(aLaVenta);
-  const promos = usePromoCart(promotions, ahora);
+  const cart = useCart(aLaVenta, cartSessionId);
+  const promos = usePromoCart(promotions, ahora, cartSessionId);
 
   /**
    * El pedido que se está cambiando, de vuelta en el carrito (0035).
@@ -195,8 +203,10 @@ export function MenuStore({
    *
    * Una vez, porque si no cada render devolvería el carrito a su estado
    * original y el cliente no podría quitar nada. Y solo si está vacío, porque
-   * un carrito con cosas dentro es del cliente: puede haber empezado a armar
-   * algo antes de tocar el botón, y pisarle eso sería borrarle trabajo.
+   * un carrito con cosas dentro es del cliente: ya lo retocó con este mismo
+   * enlace —recargó, volvió a tocar el botón— y pisarle eso sería borrarle
+   * trabajo. Lo que quedó de un enlace anterior no cuenta: el carrito es por
+   * enlace (19-09-2026), así que aquí llega vacío.
    *
    * Se espera a `hydrated`: hasta entonces `cart.cart` está vacío por
    * construcción —el snapshot del servidor es siempre nulo— y sembrar ahí
