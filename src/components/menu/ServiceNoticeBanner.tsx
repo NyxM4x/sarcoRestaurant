@@ -42,27 +42,43 @@ import { useServerClock } from '@/lib/menu/use-server-clock';
  * no leyendo la fecha del sistema— así que el aviso aparece y desaparece solo.
  */
 
-/** Cómo se ve cada aviso. El `kind` lo decide `service-hours`, no la vista. */
+/**
+ * Cómo se ve cada aviso. El `kind` lo decide `service-hours`, no la vista.
+ *
+ * ── El relleno tiene que TAPAR (20-09-2026) ─────────────────────────────────
+ *
+ * Estos tres avisos nacieron sobre el menú blanco de antes, con rellenos al
+ * 10 % y letra oscura. Debajo del fondo inmersivo de `page.tsx` —naranja con
+ * patrón— ese 10 % no tapa nada: el patrón se ve a través del cartel y el
+ * texto casi negro se pierde encima. Así que las cajas pasan a ser OPACAS y la
+ * letra, clara, igual que la barra de categorías y las tarjetas de promoción.
+ *
+ * El acento de cada aviso no se va: vive ahora en el borde, el punto y el
+ * título, que es donde se lee sin necesidad de que el relleno sea de color.
+ */
 const ESTILOS = {
+  // Rojo PLENO, no un tinte: es el mismo peso que el aviso de pedidos pausados
+  // en `page.tsx`, y por la misma razón: contradice a una vitrina que invita a
+  // comer ya.
   closed: {
-    caja: 'border-2 border-donzarco-red bg-donzarco-red/10',
-    punto: 'bg-donzarco-red',
-    titulo: 'text-base uppercase tracking-wide text-donzarco-red-dark',
-    cuerpo: 'text-zinc-700',
+    caja: 'border-2 border-donzarco-red bg-donzarco-red-dark shadow-lg shadow-black/30',
+    punto: 'bg-donzarco-gold',
+    titulo: 'text-base uppercase tracking-wide text-white',
+    cuerpo: 'text-white/85',
   },
   // Ámbar: "puede que sí, puede que no". El rojo se reserva para lo único que
   // no admite duda, que es el local cerrado.
   after_hours: {
-    caja: 'border border-donzarco-gold/40 bg-donzarco-gold/10',
+    caja: 'border border-donzarco-gold/50 bg-donzarco-ink/90 shadow-lg shadow-black/25 backdrop-blur-sm',
     punto: 'bg-donzarco-gold',
-    titulo: 'text-sm text-donzarco-ink',
-    cuerpo: 'text-zinc-600',
+    titulo: 'text-sm text-donzarco-gold',
+    cuerpo: 'text-white/80',
   },
   opening: {
-    caja: 'border border-donzarco-red/25 bg-white',
+    caja: 'border border-white/15 bg-donzarco-ink/90 shadow-lg shadow-black/25 backdrop-blur-sm',
     punto: 'bg-donzarco-red',
-    titulo: 'text-sm text-donzarco-ink',
-    cuerpo: 'text-zinc-600',
+    titulo: 'text-sm text-white',
+    cuerpo: 'text-white/80',
   },
 } as const;
 

@@ -24,13 +24,17 @@ export function ReplacingOrderBanner({ orderNumber }: { orderNumber: string }) {
         // `status` y no `alert`: informa del contexto de la pantalla, no
         // interrumpe una tarea en curso.
         role="status"
-        className="mx-auto max-w-5xl rounded-2xl border border-donzarco-gold/40 bg-donzarco-gold/10 px-4 py-3"
+        // Caja OPACA y letra clara (20-09-2026): el relleno de oro al 10 % que
+        // tenía antes dejaba ver el fondo con patrón de `page.tsx` a través del
+        // aviso, con el texto oscuro encima. El oro sigue marcando el aviso,
+        // pero desde el borde, el punto y el título.
+        className="mx-auto max-w-5xl rounded-2xl border border-donzarco-gold/50 bg-donzarco-ink/90 px-4 py-3 shadow-lg shadow-black/25 backdrop-blur-sm"
       >
-        <p className="flex items-center gap-2 text-sm font-semibold text-donzarco-ink">
+        <p className="flex items-center gap-2 text-sm font-semibold text-donzarco-gold">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-donzarco-gold" aria-hidden />
           Estás cambiando tu pedido {shortOrderNumber(orderNumber)}
         </p>
-        <p className="mt-1 text-sm leading-relaxed text-zinc-600">
+        <p className="mt-1 text-sm leading-relaxed text-white/80">
           Ya te pusimos dentro lo que habías pedido: agregá o quitá lo que quieras. Al
           confirmar, este pedido reemplaza al anterior y te mandamos el total actualizado
           con el QR por WhatsApp.
