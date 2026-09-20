@@ -338,6 +338,20 @@ describe('extractOrderNumber', () => {
     expect(extractOrderNumber('📍 Pedido ORD-000123: envíame…')).toBe('ORD-000123');
   });
 
+  it('extrae ENTERO el número con jornada (0026)', () => {
+    // Se leía `ORD-260919` —la jornada sola— y ese pedido no existe: el evento
+    // de envío daba `order_not_found` y el mensaje se reenviaba (20-09-2026).
+    expect(extractOrderNumber('Pedido ORD-260919-042')).toBe('ORD-260919-042');
+    expect(extractOrderNumber('📦 Recibimos tu pedido #42.\nPedido ORD-260919-042')).toBe(
+      'ORD-260919-042',
+    );
+    expect(extractOrderNumber('ORD-260919-1042 y algo más')).toBe('ORD-260919-1042');
+  });
+
+  it('sigue leyendo el formato viejo tal cual', () => {
+    expect(extractOrderNumber('Pedido ORD-000042 confirmado')).toBe('ORD-000042');
+  });
+
   it('no confunde coincidencias parciales', () => {
     expect(extractOrderNumber('XORD-000006')).toBeNull();
     expect(extractOrderNumber('ORD-123')).toBeNull();

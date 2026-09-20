@@ -219,8 +219,26 @@ export interface NormalizedOutboundMessage {
   conversationId: string | null;
 }
 
-/** Formato de `next_order_number()`: ORD- + al menos 6 dígitos. */
-const ORDER_NUMBER_RE = /\bORD-\d{6,}\b/;
+/**
+ * Los DOS formatos que ha tenido un número de pedido:
+ *
+ *   - `ORD-000042`      — el correlativo eterno de `next_order_number()`.
+ *   - `ORD-260919-042`  — con la jornada dentro, desde 0026 (26-08-2026).
+ *
+ * ── El sufijo NO es opcional por elegancia (20-09-2026) ─────────────────────
+ *
+ * Sin él, `\bORD-\d{6,}\b` leía `ORD-260919-042` y devolvía `ORD-260919`: los
+ * seis dígitos de la jornada, y el `\b` cortando justo en el guion. Ese número
+ * no existe en la base.
+ *
+ * Y este token es lo único que empareja un mensaje que SALIÓ con la
+ * notificación que lo esperaba. Con él roto, las dos vías que comprueban un
+ * envío ambiguo quedaban ciegas —el evento `sent` del proveedor daba
+ * `order_not_found`, y la reconciliación contra el historial no encontraba
+ * candidato—, así que el worker volvía a mandar un mensaje que el cliente ya
+ * tenía. Pasó desapercibido porque los tests solo usaban el formato viejo.
+ */
+const ORDER_NUMBER_RE = /\bORD-\d{6,}(?:-\d{3,})?\b/;
 
 /**
  * Rango de validez razonable. Fuera de él, el valor se considera basura en vez
