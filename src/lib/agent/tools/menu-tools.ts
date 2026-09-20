@@ -332,7 +332,13 @@ export function createSendMenuTool(
       // ahí el proveedor no nos dio certeza, y cerrar el turno como éxito
       // silencioso dejaría al cliente sin nada y sin rastro de que faltó algo.
       // La incertidumbre la sigue custodiando el ledger del menú.
-      const sent = result.result === 'sent' || result.result === 'duplicate';
+      // `echo` (20-09-2026) cuenta igual que `duplicate`, y por el mismo
+      // motivo: el botón está en la pantalla del cliente —salió hace
+      // segundos—, así que el efecto que el modelo quería provocar existe.
+      // Contarlo como fallo le haría buscar otra forma de mandar lo que ya
+      // mandó.
+      const sent =
+        result.result === 'sent' || result.result === 'duplicate' || result.result === 'echo';
 
       const toolResult: SendMenuToolResult = { sent, status: result.result };
 

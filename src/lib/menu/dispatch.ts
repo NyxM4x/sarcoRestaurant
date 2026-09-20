@@ -10,22 +10,23 @@ import type { MenuCtaContext } from './cta-context';
  * llevara su propia idempotencia acabarían discrepando justo el día en que un
  * cliente escriba dos veces.
  *
- * ── La ÚNICA protección contra duplicados ───────────────────────────────────
+ * ── Las DOS protecciones contra duplicados ──────────────────────────────────
  *
  *   IDEMPOTENCIA TÉCNICA   mismo WAMID entrante → jamás dos CTAs.
+ *   VENTANA DE ECO         el mismo botón, al mismo teléfono, en segundos → no.
  *
- * Un mensaje NUEVO del cliente es un evento nuevo y puede producir un CTA
- * nuevo. No hay ventana temporal que lo impida: hasta 6D.2F.5B existió un
- * cooldown de quince minutos para `agent_suggestion`, y se eliminó porque
- * bloqueaba interacciones legítimas. Que alguien acabe de recibir el menú no
- * lo descalifica para volver a pedirlo dos minutos después —el enlace no le
- * cargó, cerró la ventana, cambió de idea— y adivinar cuál de esas cosas pasó
- * con un reloj es adivinar mal.
+ * La primera es absoluta. La segunda se añadió el 20-09-2026 y es de SEGUNDOS,
+ * no de minutos: hasta 6D.2F.5B existió un cooldown de quince minutos para
+ * `agent_suggestion` y se eliminó porque bloqueaba interacciones legítimas
+ * —que alguien acabe de recibir el menú no lo descalifica para volver a pedirlo
+ * dos minutos después: no le cargó el enlace, cerró la ventana, cambió de
+ * idea—. Dentro de la ventana de eco no cabe ninguno de esos motivos: el
+ * cliente sigue escribiendo su segundo mensaje.
  *
- * Contener ráfagas y bucles NO es trabajo de esta función: el buffering nativo
- * de Kapso reduce varios mensajes seguidos a un turno lógico, y el Conversation
- * Guard se ocupará del flood real. Mezclar eso aquí ya se probó y penalizaba a
- * quien no había hecho nada.
+ * Existe porque el buffering de Kapso NO siempre agrupa la ráfaga: "Hola" y
+ * "Disculpe cual es su menú?" llegaron como dos entregas y el cliente recibió
+ * el mismo saludo dos veces (01:29). Cuando Kapso sí agrupa, esto no hace falta
+ * —el lote ya manda un solo botón— y tampoco estorba. Ver `isMenuCtaEcho`.
  *
  * ── Por qué el orden es este ────────────────────────────────────────────────
  *
@@ -79,7 +80,14 @@ export type MenuDeliveryStatus =
   | 'sent'
   | 'failed'
   | 'send_unknown'
-  /** LEGACY. Ninguna ejecución lo escribe desde que se quitó el cooldown. */
+  /**
+   * No se mandó porque el mismo botón acababa de salir (20-09-2026).
+   *
+   * El estado venía del cooldown de quince minutos que se quitó en 6D.2F.5B y
+   * estuvo sin producirse desde entonces. Lo escribe otra vez la ventana de
+   * eco, que mide SEGUNDOS y no minutos: el nombre sigue queriendo decir lo
+   * mismo —"bloqueado por reciente"— y el CHECK de 0015 ya lo admite.
+   */
   | 'blocked_recent';
 
 export interface ClaimMenuDeliveryInput {
@@ -106,6 +114,55 @@ export interface MenuDeliveryStore {
   /** INSERT ... ON CONFLICT DO NOTHING sobre `source_message_id`. */
   claim(input: ClaimMenuDeliveryInput): Promise<ClaimMenuDeliveryResult>;
   finish(input: FinishMenuDeliveryInput): Promise<void>;
+  /**
+   * Cuándo salió el ÚLTIMO botón a este teléfono (ISO), o `null` si ninguno.
+   *
+   * Opcional: sin este puerto no hay ventana de eco y el despacho se comporta
+   * exactamente como antes del 20-09-2026. Ver `isMenuCtaEcho`.
+   */
+  lastSentAt?(customerPhone: string): Promise<string | null>;
+}
+
+// ── El eco del botón (20-09-2026) ───────────────────────────────────────────
+//
+// "Hola" y "Disculpe cual es su menú?" escritos seguidos son dos entregas
+// distintas cuando Kapso no las agrupa, y cada una se ganaba su botón: el
+// cliente recibía el mismo saludo dos veces en el mismo minuto (visto a las
+// 01:29).
+//
+// ── Por qué segundos y no minutos ──────────────────────────────────────────
+//
+// Hasta 6D.2F.5B hubo un cooldown de QUINCE MINUTOS y se quitó porque bloqueaba
+// interacciones legítimas: que alguien acabe de recibir el menú no lo
+// descalifica para volver a pedirlo dos minutos después —no le cargó el enlace,
+// cerró la ventana, cambió de idea—, y adivinar cuál de esas cosas pasó con un
+// reloj es adivinar mal.
+//
+// Media docena de segundos no adivina nada: en ese rato el cliente todavía está
+// escribiendo su segundo mensaje. No le ha dado tiempo ni a abrir el enlace, así
+// que ninguno de aquellos motivos legítimos cabe dentro de la ventana.
+
+/** Cuánto dura el eco: lo que se tarda en escribir dos mensajes seguidos. */
+export const MENU_CTA_ECHO_WINDOW_MS = 30_000;
+
+/**
+ * ¿Este botón sería el mismo que acaba de salir?
+ *
+ * Fail-safe hacia MANDARLO: sin fecha previa, con una fecha ilegible o con una
+ * fecha en el futuro (reloj desajustado) responde `false`. Ante la duda se
+ * envía, que es el comportamiento de siempre.
+ */
+export function isMenuCtaEcho(
+  lastSentAt: string | null,
+  nowMs: number,
+  windowMs: number = MENU_CTA_ECHO_WINDOW_MS,
+): boolean {
+  if (lastSentAt === null) return false;
+  const ms = Date.parse(lastSentAt);
+  if (Number.isNaN(ms)) return false;
+  const transcurrido = nowMs - ms;
+  if (transcurrido < 0) return false;
+  return transcurrido <= windowMs;
 }
 
 export interface MenuSessionPort {
@@ -230,6 +287,12 @@ export type DispatchMenuResult =
   | { result: 'sent'; deliveryId: string; wamid: string }
   /** Este WAMID ya fue procesado. Nunca se reenvía. */
   | { result: 'duplicate'; deliveryId: string; status: MenuDeliveryStatus }
+  /**
+   * El cliente recibió este mismo botón hace segundos (20-09-2026). No se manda
+   * nada y NO es un fallo: el turno queda atendido, porque lo que se iba a
+   * decir ya está en su pantalla. Su fila queda en `blocked_recent`.
+   */
+  | { result: 'echo'; deliveryId: string }
   | { result: 'failed'; deliveryId: string; error: string }
   | { result: 'send_unknown'; deliveryId: string; error: string };
 
@@ -263,6 +326,35 @@ export async function dispatchMenu(
     return { result: 'duplicate', deliveryId: claim.deliveryId, status: claim.status };
   }
   const deliveryId = claim.deliveryId;
+
+  // ── 2b. El eco ────────────────────────────────────────────────────────────
+  //
+  // Después del claim y no antes, aunque el claim cueste una escritura de más:
+  // así el MISMO WAMID sigue contestando `duplicate` —que es lo que pasó de
+  // verdad— en vez de confundirse con un eco, y el salto queda anotado en el
+  // ledger en vez de solo en un log.
+  //
+  // Solo el botón GENÉRICO. Un `bodyText` propio significa que el mensaje lleva
+  // algo que solo existe ahora —la tarifa del envío, el pedido que se está
+  // cambiando— y callar eso no sería ahorrar un mensaje, sería tragarse la
+  // respuesta. Igual `explicit_resend`: ese cliente acaba de decir que no le
+  // llegó, y es exactamente a quien hay que reenviárselo.
+  if (
+    input.bodyText === undefined &&
+    input.replacesOrderId == null &&
+    input.reason !== 'explicit_resend' &&
+    deps.deliveries.lastSentAt !== undefined
+  ) {
+    const ultimo = await deps.deliveries.lastSentAt(input.customerPhone);
+    if (isMenuCtaEcho(ultimo, Date.parse(now()))) {
+      await deps.deliveries.finish({
+        deliveryId,
+        status: 'blocked_recent',
+        completedAt: now(),
+      });
+      return { result: 'echo', deliveryId };
+    }
+  }
 
   // ── 3. Envío ──────────────────────────────────────────────────────────────
   const sent = await deps.send.sendCta({

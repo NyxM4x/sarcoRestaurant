@@ -9,6 +9,8 @@ import {
   type MenuDeliveryStatus,
   type MenuDispatchDeps,
   type MenuSendResult,
+  isMenuCtaEcho,
+  MENU_CTA_ECHO_WINDOW_MS,
 } from './dispatch';
 
 /**
@@ -385,15 +387,17 @@ describe('dispatch — memoria del automatismo', () => {
   });
 });
 
-describe('dispatch — sin ventana temporal (6D.2F.5B)', () => {
+describe('dispatch — sin cooldown de minutos (6D.2F.5B)', () => {
   /**
    * El cooldown de quince minutos para `agent_suggestion` se eliminó: bloqueaba
    * interacciones legítimas. Que a alguien le acabe de llegar el menú no lo
    * descalifica para volver a pedirlo — el enlace no le cargó, cerró la
    * ventana, cambió de idea— y adivinar cuál de esas cosas pasó con un reloj es
-   * adivinar mal.
+   * adivinar mal. Ese cooldown no vuelve.
    *
-   * Lo único que impide un segundo CTA es el mismo WAMID.
+   * Este bloque prueba la puerta ABSOLUTA, que es el WAMID, sobre un ledger que
+   * a propósito no expone `lastSentAt`: así el eco no interfiere. La ventana de
+   * eco —segundos, otra cosa— tiene su propio bloque al final del archivo.
    */
   async function seedSentAt(completedAt: string) {
     const claim = await ledger.claim({
@@ -475,19 +479,21 @@ describe('dispatch — sin ventana temporal (6D.2F.5B)', () => {
     expect(send.calls).toHaveLength(1);
   });
 
-  it('E · no queda ninguna lectura temporal: el reloj no decide nada', async () => {
-    // `dispatchMenu` ya no consulta cuándo fue el último envío, así que el
-    // ledger no necesita ni exponer esa pregunta. Si alguien reintrodujera un
-    // cooldown, tendría que volver a añadir el método — y este test lo vería.
-    expect('lastSentAt' in ledger).toBe(false);
+  it('E · el reloj solo puede decidir en SEGUNDOS, nunca en minutos', async () => {
+    // Desde el 20-09-2026 el despacho sí mira cuándo salió el último botón,
+    // pero con una ventana de segundos: dentro de ella el cliente todavía está
+    // escribiendo su segundo mensaje, así que ninguno de los motivos legítimos
+    // que el cooldown viejo pisaba cabe dentro. Si alguien la sube a minutos,
+    // este test lo ve.
+    expect(MENU_CTA_ECHO_WINDOW_MS).toBeLessThanOrEqual(60_000);
 
     const fuente = readFileSync(new URL('./dispatch.ts', import.meta.url), 'utf8');
 
     expect(fuente).not.toMatch(/cooldownMinutes/);
     expect(fuente).not.toMatch(/COOLDOWN/);
-    expect(fuente).not.toMatch(/lastSentAt/);
-    // Y ninguna ejecución puede escribir ya el estado que producía la ventana.
-    expect(fuente).not.toMatch(/status: 'blocked_recent'/);
+    // `blocked_recent` vuelve a escribirse, pero SOLO desde el eco: una sola
+    // aparición en todo el módulo. Dos serían dos caminos que bloquean.
+    expect(fuente.match(/status: 'blocked_recent'/g) ?? []).toHaveLength(1);
   });
 });
 
@@ -665,5 +671,106 @@ describe('dispatch — el cuerpo ya redactado', () => {
     expect(segunda).toMatchObject({ result: 'duplicate' });
     expect(send.calls).toHaveLength(1);
     expect(send.calls[0].bodyText).toBe('primero');
+  });
+});
+
+describe('la ventana de eco del botón (20-09-2026)', () => {
+  const AHORA_MS = Date.parse(NOW);
+  const hace = (ms: number) => new Date(AHORA_MS - ms).toISOString();
+
+  /** El ledger de siempre, con la fecha del último botón enviado. */
+  function conUltimoEnvio(lastSentAt: string | null) {
+    return {
+      claim: (i: ClaimMenuDeliveryInput) => ledger.claim(i),
+      finish: (i: FinishMenuDeliveryInput) => ledger.finish(i),
+      // La fecha del último botón la da el test; el resto del ledger es el real.
+      lastSentAt: async () => lastSentAt,
+    };
+  }
+
+  it('la decisión pura: segundos sí, minutos no', () => {
+    expect(isMenuCtaEcho(hace(3_000), AHORA_MS)).toBe(true);
+    expect(isMenuCtaEcho(hace(MENU_CTA_ECHO_WINDOW_MS), AHORA_MS)).toBe(true);
+    expect(isMenuCtaEcho(hace(MENU_CTA_ECHO_WINDOW_MS + 1), AHORA_MS)).toBe(false);
+    expect(isMenuCtaEcho(hace(5 * 60_000), AHORA_MS)).toBe(false);
+  });
+
+  it('ante la duda se manda: sin fecha, ilegible o en el futuro', () => {
+    // El cooldown de quince minutos se quitó porque callaba a quien tenía
+    // derecho a su botón. Esta ventana falla hacia el mismo lado.
+    expect(isMenuCtaEcho(null, AHORA_MS)).toBe(false);
+    expect(isMenuCtaEcho('no es una fecha', AHORA_MS)).toBe(false);
+    expect(isMenuCtaEcho(new Date(AHORA_MS + 60_000).toISOString(), AHORA_MS)).toBe(false);
+  });
+
+  it('"Hola" y "cuál es su menú" seguidos: un solo botón', async () => {
+    // Las dos entregas del 01:29. La segunda no manda nada y no toca el
+    // ledger: no hay sesión, ni claim, ni llamada a Kapso.
+    const send = fakeSend();
+    const res = await dispatchMenu(
+      input({ sourceMessageId: 'wamid.SEGUNDO' }),
+      deps({ deliveries: conUltimoEnvio(hace(8_000)), send: send.port }),
+    );
+
+    expect(res.result).toBe('echo');
+    expect(send.calls).toHaveLength(0);
+    // La fila queda anotada como lo que fue, para poder contestar después
+    // "¿por qué este cliente no recibió el botón?" sin leer su conversación.
+    expect(ledger.rows.at(-1)).toMatchObject({ status: 'blocked_recent' });
+  });
+
+  it('pasada la ventana, el botón vuelve a salir', async () => {
+    const send = fakeSend();
+    const res = await dispatchMenu(
+      input(),
+      deps({ deliveries: conUltimoEnvio(hace(5 * 60_000)), send: send.port }),
+    );
+
+    expect(res.result).toBe('sent');
+    expect(send.calls).toHaveLength(1);
+  });
+
+  it('la cotización NUNCA se traga: lleva su propio texto', async () => {
+    // `bodyText` significa que el mensaje trae algo que solo existe ahora
+    // —la tarifa del envío—. Callarlo no sería ahorrar un mensaje, sería
+    // tragarse la respuesta.
+    const send = fakeSend();
+    const res = await dispatchMenu(
+      input({ bodyText: 'El envío hasta tu ubicación sale Bs 27 🛵' }),
+      deps({ deliveries: conUltimoEnvio(hace(2_000)), send: send.port }),
+    );
+
+    expect(res.result).toBe('sent');
+    expect(send.calls[0].bodyText).toContain('Bs 27');
+  });
+
+  it('el enlace de cambiar un pedido tampoco', async () => {
+    const send = fakeSend();
+    const res = await dispatchMenu(
+      input({ replacesOrderId: 'order-1' }),
+      deps({ deliveries: conUltimoEnvio(hace(2_000)), send: send.port }),
+    );
+
+    expect(res.result).toBe('sent');
+  });
+
+  it('a quien dice que no le llegó, se le reenvía', async () => {
+    const send = fakeSend();
+    const res = await dispatchMenu(
+      input({ reason: 'explicit_resend' }),
+      deps({ deliveries: conUltimoEnvio(hace(2_000)), send: send.port }),
+    );
+
+    expect(res.result).toBe('sent');
+  });
+
+  it('sin el puerto, el despacho se comporta como antes', async () => {
+    // `lastSentAt` es opcional: un adaptador que no lo implemente no puede
+    // quedarse sin mandar el menú.
+    const send = fakeSend();
+    const res = await dispatchMenu(input(), deps({ send: send.port }));
+
+    expect(res.result).toBe('sent');
+    expect(send.calls).toHaveLength(1);
   });
 });

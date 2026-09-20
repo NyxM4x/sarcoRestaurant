@@ -395,7 +395,7 @@ function wireRealDispatch() {
   return { tool, ledger, ctas };
 }
 
-describe('sin ventana temporal — un mensaje nuevo puede traer CTA nuevo', () => {
+describe('sin cooldown de minutos — un mensaje nuevo puede traer CTA nuevo', () => {
   it('C · una petición explícita con un CTA de hace dos minutos SÍ se envía', async () => {
     const { tool, ledger, ctas } = wireRealDispatch();
     ledger.seedSent(CTX.customerPhone, HACE_DOS_MINUTOS);
@@ -431,14 +431,19 @@ describe('sin ventana temporal — un mensaje nuevo puede traer CTA nuevo', () =
     expect(ctas).toHaveLength(1);
   });
 
-  it('A · dos sugerencias seguidas, WAMID distintos, mandan las dos', async () => {
+  it('A · dos sugerencias en el mismo segundo mandan UN botón (20-09-2026)', async () => {
+    // Dos mensajes escritos seguidos son dos eventos, y hasta hoy cada uno se
+    // ganaba su botón: el cliente recibía el mismo saludo dos veces (01:29).
+    // Dentro de la ventana de eco el segundo no manda nada — y cuenta como
+    // enviado, porque el botón está en su pantalla.
     const { tool, ctas } = wireRealDispatch();
 
     await tool.execute!(ctx('q tienen?', 'wamid.IN_1'));
     const segunda = await tool.execute!(ctx('qué opciones tienen?', 'wamid.IN_2'));
 
-    expect(segunda.result).toEqual({ sent: true, status: 'sent' });
-    expect(ctas).toHaveLength(2);
+    expect(segunda.result).toEqual({ sent: true, status: 'echo' });
+    expect(segunda.userVisibleEffectConfirmed).toBe(true);
+    expect(ctas).toHaveLength(1);
   });
 
   it('F · el MISMO WAMID no manda dos CTAs, aunque sea petición explícita', async () => {
@@ -456,18 +461,19 @@ describe('sin ventana temporal — un mensaje nuevo puede traer CTA nuevo', () =
     expect(ctas).toHaveLength(1);
   });
 
-  it('G · dos WAMID distintos con petición explícita mandan los dos', async () => {
+  it('G · pasada la ventana, una petición nueva vuelve a mandar el botón', async () => {
     // Un mensaje nuevo del cliente es un evento nuevo. Que el enlace anterior
-    // no le cargara es de las cosas más normales que pasan en WhatsApp.
+    // no le cargara es de las cosas más normales que pasan en WhatsApp, y por
+    // eso la ventana de eco se mide en segundos: a los dos minutos ya no hay
+    // eco que valga, hay alguien que volvió a pedirlo.
     const { tool, ctas, ledger } = wireRealDispatch();
+    ledger.seedSent(CTX.customerPhone, HACE_DOS_MINUTOS);
 
-    const primera = await tool.execute!(ctx('pasame el menu', 'wamid.IN_1'));
     const segunda = await tool.execute!(ctx('no me abre, mandame la carta', 'wamid.IN_2'));
 
-    expect(primera.result).toEqual({ sent: true, status: 'sent' });
     expect(segunda.result).toEqual({ sent: true, status: 'sent' });
-    expect(ctas).toHaveLength(2);
-    expect(ledger.rows.every((r) => r.reason === 'explicit_request')).toBe(true);
+    expect(ctas).toHaveLength(1);
+    expect(ledger.rows.at(-1)).toMatchObject({ reason: 'explicit_request', status: 'sent' });
   });
 
   it('E · el modelo no puede pedir un motivo ni forzar nada', async () => {

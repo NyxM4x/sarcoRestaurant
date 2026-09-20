@@ -59,6 +59,37 @@ export function createMenuDeliveryStore(supabase: SupabaseClient): MenuDeliveryS
       };
     },
 
+    /**
+     * Cuándo salió el último botón a este teléfono (20-09-2026).
+     *
+     * Solo `sent`: un intento fallido no llegó a la pantalla de nadie, y
+     * contarlo dejaría al cliente sin el botón por un error nuestro. Se mira
+     * `completed_at`, que es cuando Kapso aceptó el envío — `claimed_at` sería
+     * cuando empezamos a intentarlo.
+     *
+     * `null` ante cualquier fallo de lectura: sin dato no hay eco, y el botón
+     * sale como salía antes de existir esta ventana.
+     */
+    async lastSentAt(customerPhone: string): Promise<string | null> {
+      try {
+        const { data, error } = await supabase
+          .from('menu_send_deliveries')
+          .select('completed_at')
+          .eq('customer_phone', customerPhone)
+          .eq('status', 'sent')
+          .not('completed_at', 'is', null)
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error || !data) return null;
+        const valor = (data as { completed_at: unknown }).completed_at;
+        return typeof valor === 'string' ? valor : null;
+      } catch {
+        return null;
+      }
+    },
+
     async finish(input: FinishMenuDeliveryInput): Promise<void> {
       const { error } = await supabase
         .from('menu_send_deliveries')
