@@ -40,7 +40,7 @@ export const BUSINESS_DESCRIPTION =
  * momento: no tiene reloj confiable, no sabe de feriados y no sabe si hoy
  * cerraron antes. Esa restricción viaja en el prompt.
  */
-export const BUSINESS_HOURS = 'todos los días, de seis de la tarde a cuatro de la madrugada';
+export const BUSINESS_HOURS = 'todos los días, de siete de la tarde a cuatro de la madrugada';
 
 /**
  * El mismo horario en números, para lo que no es conversación.
@@ -50,11 +50,12 @@ export const BUSINESS_HOURS = 'todos los días, de seis de la tarde a cuatro de 
  * día se cambie uno y no el otro, y entonces el agente diría una hora mientras
  * el sistema opera con otra.
  */
-export const BUSINESS_OPENS_HOUR = 18;
+// 20-09-2026: la apertura pasó de las 18:00 a las 19:00. El cierre no se movió.
+export const BUSINESS_OPENS_HOUR = 19;
 export const BUSINESS_CLOSES_HOUR = 4;
 
 /**
- * El horario en formato reloj: `18:00 a 04:00`.
+ * El horario en formato reloj: `19:00 a 04:00`.
  *
  * Lo usan los mensajes automáticos, que no conversan y donde la prosa sobra.
  * Se DERIVA de las horas de arriba en vez de escribirse aparte: la copia a mano

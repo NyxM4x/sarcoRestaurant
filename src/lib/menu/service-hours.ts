@@ -3,24 +3,28 @@ import { BOLIVIA_UTC_OFFSET_MS } from '@/lib/orders/business-day';
 /**
  * El aviso de horario del menú — módulo PURO.
  *
- * Don Zarco atiende de 18:00 a 04:00. El menú está abierto a cualquier hora
- * —el enlace llega por WhatsApp y la gente lo abre cuando quiere— así que hay
- * dos momentos en los que hace falta decir algo, y solo dos:
+ * Don Zarco atiende de 19:00 a 04:00 (20-09-2026: antes abría a las 18:00). El
+ * menú está abierto a cualquier hora —el enlace llega por WhatsApp y la gente
+ * lo abre cuando quiere—, así que fuera del servicio hay que decirle al cliente
+ * en qué momento entró:
  *
- *   · 17:30–18:00  el local está por abrir. Se puede ir armando el pedido.
+ *   · 18:30–19:00  el local está por abrir. Se puede ir armando el pedido.
+ *   · 19:00–03:50  se está sirviendo: NO se muestra nada.
  *   · 03:50–04:15  el cierre está encima. Se acepta la solicitud, pero se
  *                  advierte de que hay que consultar si todavía da tiempo.
+ *   · 04:15–18:30  cerrado. Es la franja larga, y la que más se ve.
  *
- * Fuera de esas dos franjas NO se muestra nada. Ni de madrugada cerrada, ni a
- * media tarde: un cartel permanente deja de leerse a los dos días, y el resto
- * del horario ya se responde por WhatsApp cuando alguien pregunta.
+ * Las cuatro se tocan sin pisarse y sin dejar un minuto mudo: de las 03:50 a
+ * las 19:00 SIEMPRE hay un cartel. Es deliberado — un hueco de quince minutos
+ * con el local cerrado deja el menú exactamente igual que cuando está abierto,
+ * que es el engaño que todo esto vino a corregir.
  *
  * ── Por qué franjas y no "¿está abierto?" ───────────────────────────────────
  *
- * Un indicador de abierto/cerrado tendría que aparecer siempre —el estado
- * siempre existe— y contestaría a una pregunta que nadie hizo. Estas dos franjas
- * son las ÚNICAS en las que el cliente puede llevarse una sorpresa: pedir tres
- * minutos antes de abrir, o cinco antes de cerrar. El aviso existe para eso.
+ * Un indicador de abierto/cerrado sería un semáforo: mismo peso a las tres de
+ * la tarde que a las 03:55, cuando lo que el cliente necesita saber en cada
+ * momento es distinto. Cada franja dice qué le va a pasar a SU pedido si lo
+ * manda ahora, que es la única pregunta que se está haciendo.
  *
  * ── La hora ─────────────────────────────────────────────────────────────────
  *
@@ -48,9 +52,9 @@ function boliviaMinutes(ms: number): number {
 
 const hm = (h: number, m: number): number => h * 60 + m;
 
-/** Apertura: media hora antes de las 18:00. */
-export const OPENING_NOTICE_FROM = hm(17, 30);
-export const OPENING_NOTICE_UNTIL = hm(18, 0);
+/** Apertura: media hora antes de las 19:00. */
+export const OPENING_NOTICE_FROM = hm(18, 30);
+export const OPENING_NOTICE_UNTIL = hm(19, 0);
 
 /** Cierre: desde diez minutos antes de las 04:00 y hasta el cuarto de hora. */
 /**
@@ -61,22 +65,31 @@ export const OPENING_NOTICE_UNTIL = hm(18, 0);
  * que no hay nadie en la plancha. El cliente que entra a media tarde arma su
  * pedido creyendo que le llega, y lo que recibe es silencio hasta las seis.
  *
- * ── Por qué empieza a las 05:00 y no a las 04:00 ────────────────────────────
+ * ── Por qué empieza a las 04:15 y no a las 04:00 ────────────────────────────
  *
- * Porque el tramo del cierre tiene su propio aviso: hasta las 05:00 la plancha
+ * Porque el tramo del cierre tiene su propio aviso: hasta las 04:15 la plancha
  * puede seguir prendida y lo que se le dice al cliente es que preguntamos
- * (`AFTER_HOURS`). A las 05:00 ya no hay nada que preguntar.
+ * (`AFTER_HOURS`). A las 04:15 ya no hay nada que preguntar.
  *
- * ── Y por qué termina a las 17:30 ───────────────────────────────────────────
+ * Empieza EXACTAMENTE donde termina aquel, no un minuto después. El 20-09-2026
+ * se propuso dejarlo arrancar a las 04:30, y eso abría un hueco de quince
+ * minutos con el local ya cerrado en el que el menú —precios, fotos, botón de
+ * pedir— se veía igual que a las diez de la noche.
+ *
+ * ── Y por qué termina a las 18:30 ───────────────────────────────────────────
  *
  * Porque ahí empieza el aviso de apertura, que dice algo mejor: que ya se puede
  * ir armando el pedido. Las dos franjas se tocan sin pisarse.
  */
-export const CLOSED_NOTICE_FROM = hm(5, 0);
-export const CLOSED_NOTICE_UNTIL = hm(17, 30);
+export const CLOSED_NOTICE_FROM = hm(4, 15);
+export const CLOSED_NOTICE_UNTIL = hm(18, 30);
 
 /**
- * La hora larga en la que la plancha PUEDE seguir prendida (03:50–05:00).
+ * El rato en el que la plancha PUEDE seguir prendida (03:50–04:15).
+ *
+ * 20-09-2026: llegaba hasta las 05:00 y se recortó a las 04:15. El local pasó a
+ * cerrar de verdad más temprano, y una hora entera de "puede que alcancemos"
+ * prometía una gracia que ya casi nunca se cumple.
  *
  * El horario termina a las 04:00, pero no todas las noches a la misma hora
  * real: hay días en que se sigue sirviendo un rato. Ese tramo no es "abierto"
@@ -93,20 +106,20 @@ export const CLOSED_NOTICE_UNTIL = hm(17, 30);
  * —puede que alcance, puede que no— y merecen la misma frase.
  */
 export const AFTER_HOURS_NOTICE_FROM = hm(3, 50);
-export const AFTER_HOURS_NOTICE_UNTIL = hm(5, 0);
+export const AFTER_HOURS_NOTICE_UNTIL = hm(4, 15);
 
 const OPENING: ServiceNotice = {
   kind: 'opening',
   title: 'Estamos abriendo',
   // Se le dice qué PUEDE hacer ya, no solo que espere. Quien abre el menú a las
   // 17:45 viene decidido: si lo único que lee es "todavía no", se va.
-  body: 'Abrimos a las 18:00, pero ya puedes ir armando tu pedido.',
+  body: 'Abrimos a las 19:00, pero ya puedes ir armando tu pedido.',
 };
 
 /**
  * Qué aviso toca en este instante, o `null` si ninguno.
  *
- * Las dos franjas son cerradas por abajo y ABIERTAS por arriba: a las 18:00 en
+ * Las franjas son cerradas por abajo y ABIERTAS por arriba: a las 19:00 en
  * punto el local ya abrió y el cartel de "estamos abriendo" sobra. Es el mismo
  * criterio que gobierna el vencimiento de una promoción.
  */
@@ -121,7 +134,7 @@ const CLOSED: ServiceNotice = {
   kind: 'closed',
   title: 'Estamos cerrados',
   body:
-    'Abrimos hoy a las 18:00. Puedes dejar tu pedido armado, pero recién lo ' +
+    'Abrimos hoy a las 19:00. Puedes dejar tu pedido armado, pero recién lo ' +
     'preparamos cuando abramos.',
 };
 

@@ -186,7 +186,7 @@ describe('createKapsoTransport.sendMenuCtaUrl (Fase 5.2A)', () => {
     // el primer mensaje que recibe un cliente nuevo, y es la única ocasión de
     // explicárselo — un `send_menu` confirmado no redacta nada después.
     expect(MENU_CTA_BODY_TEXT).toBe(
-      'Hola, soy Don Zarco 👋 Atendemos todos los días de 18:00 a 04:00. ' +
+      'Hola, soy Don Zarco 👋 Atendemos todos los días de 19:00 a 04:00. ' +
         'Toca el botón para ver el menú, elegir lo que quieras y mandar tu pedido desde ahí mismo.',
     );
     expect(MENU_CTA_BUTTON_TEXT).toBe('Ver menú');
