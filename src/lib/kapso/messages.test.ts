@@ -107,10 +107,26 @@ ${LOCATION_HOW_TO_TEXT}`);
 });
 
 describe('buildWebLocationRequestBodyText', () => {
-  it('produce el copy exacto con el número de pedido', () => {
-    expect(buildWebLocationRequestBodyText('ORD-000006')).toBe(
-      '📍 Pedido ORD-000006: envíame tu ubicación GPS, por favor, para calcular el costo del envío 😊',
+  it('es UN SOLO mensaje: saluda el pedido y pide la ubicación (0039)', () => {
+    // Antes salían dos globos seguidos y el segundo repetía al primero.
+    expect(buildWebLocationRequestBodyText('ORD-260919-042')).toBe(
+      [
+        '📦 Recibimos tu pedido #42.',
+        '',
+        '📍 Ahora envíanos tu *UBICACIÓN ACTUAL* por GPS para calcular el costo del envío 😊',
+        'Pedido ORD-260919-042',
+      ].join('\n'),
     );
+  });
+
+  it('el número corto encabeza y el largo queda al final, como referencia', () => {
+    const texto = buildWebLocationRequestBodyText('ORD-260919-042');
+    const lineas = texto.split('\n');
+    // El corto es el que la gente dice en voz alta; el largo es el token con
+    // el que se reconcilia un envío ambiguo, y por eso no se puede quitar.
+    expect(lineas[0]).toContain('#42');
+    expect(lineas[0]).not.toContain('ORD-260919-042');
+    expect(lineas[lineas.length - 1]).toBe('Pedido ORD-260919-042');
   });
 
   it('incluye exactamente el order_number recibido, sin fijarlo', () => {

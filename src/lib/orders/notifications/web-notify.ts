@@ -708,15 +708,38 @@ async function dispatchDynamic(
     return makeDynamicResult(order.id, 'already_sent', 'already_sent', confirmation);
   }
 
-  // Fases 1 y 2: esperando ubicación, aún sin cotizar.
+  // Fase 1: esperando ubicación, aún sin cotizar. UN SOLO MENSAJE (0039).
+  //
+  // El de ingreso lleva dentro lo que antes iba en dos: saluda el pedido y pide
+  // la ubicación. Por eso se intenta la ubicación DIRECTAMENTE, sin pasar antes
+  // por la recepción.
   if (order.status === 'awaiting_location' && (quote === 'pending' || quote === 'failed')) {
-    const orderReceived = (await processOrderReceived(store, sender, order)).outcome;
-    if (orderReceived !== 'sent' && orderReceived !== 'already_sent') {
-      // La ubicación NO se adelanta a la recepción; la confirmación espera la quote.
-      return makeDynamicResult(order.id, orderReceived, 'blocked_by_order_received', 'blocked_by_quote');
-    }
     const locationRequest = (await processLocationRequest(store, sender, order)).outcome;
-    return makeDynamicResult(order.id, orderReceived, locationRequest, 'blocked_by_quote');
+
+    // ── La base todavía puede ser la de antes (0039) ──────────────────────
+    //
+    // `blocked_by_order_received` solo lo contesta una base sin la migración
+    // aplicada, o un pedido que ya nació con su fila de recepción pendiente. En
+    // los dos casos se hace lo de siempre: recepción primero, ubicación
+    // después. Así el despliegue puede ir antes o después del SQL sin que
+    // ningún pedido se quede mudo, que es el fallo que no se puede correr.
+    if (locationRequest === 'blocked_by_order_received') {
+      const orderReceived = (await processOrderReceived(store, sender, order)).outcome;
+      if (orderReceived !== 'sent' && orderReceived !== 'already_sent') {
+        return makeDynamicResult(
+          order.id,
+          orderReceived,
+          'blocked_by_order_received',
+          'blocked_by_quote',
+        );
+      }
+      const reintento = (await processLocationRequest(store, sender, order)).outcome;
+      return makeDynamicResult(order.id, orderReceived, reintento, 'blocked_by_quote');
+    }
+
+    // Sin fila de recepción no hay nada que informar de ella: `already_sent` es
+    // lo que el resto del sistema ya entiende como "esto no está pendiente".
+    return makeDynamicResult(order.id, 'already_sent', locationRequest, 'blocked_by_quote');
   }
 
   // out_of_coverage u otro estado no despachable: nada que enviar aquí.

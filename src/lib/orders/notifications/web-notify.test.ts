@@ -823,42 +823,68 @@ function dynamicQuoted(over: Partial<LoadedOrder> = {}): LoadedOrder {
   });
 }
 
-describe('dispatch dinámico — pending/failed: order_received → location, confirmation NO', () => {
-  it('pending: envía order_received y LUEGO location_request; confirmation blocked_by_quote', async () => {
+describe('dispatch dinámico — pending/failed: UN SOLO mensaje de ingreso (0039)', () => {
+  it('pending: manda la ubicación directamente, sin pasar por la recepción', async () => {
     const h = harness({ loaded: dynamicPending() });
     const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
 
-    expect(res.orderReceived).toBe('sent');
     expect(res.locationRequest).toBe('sent');
     expect(res.confirmation).toBe('blocked_by_quote');
-    // Orden estricto: recepción (texto) antes que la solicitud de ubicación.
-    expect(h.claimed).toEqual(['order_received', 'location_request']);
-    expect(h.log.indexOf('sendText')).toBeLessThan(h.log.indexOf('sendLocationRequest'));
+    // Una sola fila reclamada y un solo mensaje: el de ingreso lleva dentro
+    // lo que antes iba en dos globos seguidos.
+    expect(h.claimed).toEqual(['location_request']);
+    expect(h.log).toContain('sendLocationRequest');
+    expect(h.log).not.toContain('sendText');
     expect(h.log).not.toContain('sendImage');
-    // El texto de recepción, no una confirmación.
-    expect(h.sentTexts[0]).toContain('Recibimos tu pedido');
   });
 
-  it('failed: mismo comportamiento (order_received → location, confirmation diferida)', async () => {
+  it('failed: mismo camino que pending', async () => {
     const h = harness({ loaded: dynamicPending({ delivery_quote_status: 'failed' }) });
+    const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
+
+    expect(res.locationRequest).toBe('sent');
+    expect(res.confirmation).toBe('blocked_by_quote');
+    expect(h.claimed).toEqual(['location_request']);
+  });
+
+  it('con la base ANTERIOR a 0039 vuelve al camino de dos mensajes', async () => {
+    // Mientras el SQL no esté aplicado —o en un pedido que nació con su fila
+    // de recepción pendiente— la base contesta `order_received_not_sent`. Ahí
+    // se manda recepción y después ubicación, como siempre: así el despliegue
+    // puede ir antes o después del SQL sin dejar mudo a ningún pedido.
+    let intentos = 0;
+    const claims: Partial<Record<NotificationType, ClaimResult>> = {
+      get location_request(): ClaimResult {
+        intentos += 1;
+        // El primer intento lo bloquea la base vieja; el segundo llega ya con
+        // la recepción enviada, que es lo que esa base exigía.
+        return intentos === 1
+          ? { claimed: false, reason: 'order_received_not_sent' }
+          : CLAIM_OK.location_request;
+      },
+    };
+    const h = harness({ loaded: dynamicPending(), claims });
     const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
 
     expect(res.orderReceived).toBe('sent');
     expect(res.locationRequest).toBe('sent');
-    expect(res.confirmation).toBe('blocked_by_quote');
-    expect(h.claimed).toEqual(['order_received', 'location_request']);
+    expect(h.claimed).toEqual(['location_request', 'order_received', 'location_request']);
+    expect(h.sentTexts[0]).toContain('Recibimos tu pedido');
+    expect(h.log.indexOf('sendText')).toBeLessThan(h.log.indexOf('sendLocationRequest'));
   });
 
-  it('order_received bloqueada (no sent) → location NO se adelanta', async () => {
+  it('si la recepción tampoco se puede mandar, la ubicación no se fuerza', async () => {
     const h = harness({
       loaded: dynamicPending(),
-      claims: { order_received: { claimed: false, reason: 'in_flight', status: 'sending' } },
+      claims: {
+        location_request: { claimed: false, reason: 'order_received_not_sent' },
+        order_received: { claimed: false, reason: 'in_flight', status: 'sending' },
+      },
     });
     const res = await dispatchExisting(h.store, h.sender, ORDER_ID);
 
     expect(res.locationRequest).toBe('blocked_by_order_received');
     expect(res.confirmation).toBe('blocked_by_quote');
-    expect(h.claimed).toEqual(['order_received']); // no reclama location
     expect(h.log).not.toContain('sendLocationRequest');
   });
 });

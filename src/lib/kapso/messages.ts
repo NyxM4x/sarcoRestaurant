@@ -8,7 +8,7 @@ import { formatBs } from '@/lib/orders/calculate';
 import { shortOrderNumber } from '@/lib/orders/order-number';
 import type { MenuSendReason } from '@/lib/menu/dispatch';
 import type { MenuCtaContext } from '@/lib/menu/cta-context';
-import { LOCATION_HOW_TO_TEXT } from './outbound-classify';
+import { LOCATION_HOW_TO_TEXT, ORDER_RECEIVED_PREFIX } from './outbound-classify';
 
 /**
  * Construcción de mensajes salientes de Kapso — módulo puro.
@@ -21,16 +21,38 @@ export const LOCATION_REQUEST_BODY_TEXT =
   'Por favor comparte tu ubicación actual para coordinar el delivery.';
 
 /**
- * Cuerpo del location_request_message para el checkout WEB (Fase 5.2D).
+ * Cuerpo del mensaje de INGRESO del pedido web: el único que sale cuando el
+ * cliente confirma un delivery (0039, 20-09-2026).
  *
- * Incluye el `order_number` para que el mensaje sea identificable al reconciliar
- * envíos ambiguos contra `GET /messages` (Fase 5.2D.5A): el número de pedido es
- * el único token que permite emparejar un saliente con su notificación.
+ * ── Antes eran dos globos seguidos ──────────────────────────────────────────
  *
- * Es una función separada: el copy por defecto del WhatsApp Flow NO cambia.
+ *   1) 📦 Recibimos tu pedido #42.
+ *      Ahora necesitamos tu ubicación para calcular el costo de delivery.
+ *   2) 📍 Pedido ORD-260919-042: envíame tu ubicación GPS, por favor…
+ *
+ * El segundo repetía lo que acababa de decir el primero y empezaba por un
+ * número largo que el cliente no usa para nada. Ahora es uno: saluda el pedido
+ * con el número corto —el que la gente dice en voz alta— y pide la ubicación.
+ *
+ * ── Por qué el número largo sigue aquí, al final ────────────────────────────
+ *
+ * Porque no es decoración: es el ÚNICO token con el que se empareja un saliente
+ * con su notificación cuando el envío queda ambiguo (`reconciliation.ts` exige
+ * el número exacto). Sin él, ese mensaje no se reconcilia, el worker lo
+ * reintenta y el cliente lo recibe dos veces — justo lo que este cambio viene a
+ * evitar. Va en su propia línea y al final, como una referencia, para que no
+ * estorbe la lectura de lo que sí hay que hacer.
+ *
+ * Las instrucciones de cómo mandar la ubicación NO se escriben aquí: las añade
+ * `buildLocationRequestPayload`, para que ningún camino pueda quedarse sin ellas.
  */
 export function buildWebLocationRequestBodyText(orderNumber: string): string {
-  return `📍 Pedido ${orderNumber}: envíame tu ubicación GPS, por favor, para calcular el costo del envío 😊`;
+  return [
+    `${ORDER_RECEIVED_PREFIX}${shortOrderNumber(orderNumber)}.`,
+    '',
+    '📍 Ahora envíanos tu *UBICACIÓN ACTUAL* por GPS para calcular el costo del envío 😊',
+    `Pedido ${orderNumber}`,
+  ].join('\n');
 }
 
 /**
