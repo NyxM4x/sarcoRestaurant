@@ -3,7 +3,9 @@ import {
   buildQuoteCtaText,
   buildQuoteText,
   hasQuoteQuota,
+  isQuoteEcho,
   isSamePoint,
+  QUOTE_ECHO_WINDOW_MS,
   metersBetween,
   QUOTE_FAILED_CTA_TEXT,
   QUOTE_FAILED_TEXT,
@@ -178,5 +180,38 @@ describe('quote-request — la versión que va CON el botón (03-09-2026)', () =
     // que no llegamos. Ofrecerle el menú después sería contradecirse en el
     // mismo mensaje.
     expect(QUOTE_OUT_OF_COVERAGE_TEXT).not.toContain('👇');
+  });
+});
+
+describe('el eco de la misma ráfaga (20-09-2026)', () => {
+  const AHORA = Date.UTC(2026, 8, 20, 4, 38, 0);
+
+  it('la cifra mandada hace segundos no se repite', () => {
+    // El caso real: pin a las 12:38 y "cuánto está el envío hasta aquí" a las
+    // 12:38. Salían dos globos idénticos, uno detrás de otro.
+    expect(isQuoteEcho(AHORA - 4_000, AHORA)).toBe(true);
+  });
+
+  it('al que vuelve a preguntar un rato después se le contesta', () => {
+    expect(isQuoteEcho(AHORA - QUOTE_ECHO_WINDOW_MS - 1, AHORA)).toBe(false);
+    expect(isQuoteEcho(AHORA - 30 * 60_000, AHORA)).toBe(false);
+  });
+
+  it('justo en el borde de la ventana todavía es eco', () => {
+    expect(isQuoteEcho(AHORA - QUOTE_ECHO_WINDOW_MS, AHORA)).toBe(true);
+  });
+
+  it('sin fecha legible se contesta, como antes de existir la ventana', () => {
+    expect(isQuoteEcho(null, AHORA)).toBe(false);
+    expect(isQuoteEcho(Number.NaN, AHORA)).toBe(false);
+  });
+
+  it('una fecha en el futuro es un reloj desajustado, no un eco', () => {
+    expect(isQuoteEcho(AHORA + 60_000, AHORA)).toBe(false);
+  });
+
+  it('la ventana se mide en minutos, no en horas', () => {
+    // Si alguien la sube a horas, deja mudo al cliente que vuelve esa noche.
+    expect(QUOTE_ECHO_WINDOW_MS).toBeLessThanOrEqual(5 * 60_000);
   });
 });

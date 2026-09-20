@@ -198,7 +198,14 @@ export type AskLocationForQuote = (input: {
   sourceMessageId: string;
   /** Qué texto toca. Ausente = el de siempre. Ver `askLocationForQuote`. */
   reason?: 'asked' | 'link_without_coords';
-}) => Promise<{ ok: boolean }>;
+}) => Promise<{
+  ok: boolean;
+  /**
+   * No salió nada porque la cifra se acababa de mandar (20-09-2026). El turno
+   * queda atendido igual: el cliente YA tiene su respuesta en pantalla.
+   */
+  echo?: boolean;
+}>;
 
 /**
  * En qué situación está el cliente que escribió (03-09-2026).
@@ -1492,7 +1499,13 @@ async function processMessage(
         phoneNumberId: ctx.phoneNumberId,
         sourceMessageId,
       });
-      return { ok: pedida.ok, handled: 'delivery_quote_prompt', result: pedida.ok ? 'sent' : 'failed' };
+      return {
+        ok: pedida.ok,
+        handled: 'delivery_quote_prompt',
+        // `echo` es atendido y en silencio: la cotización salió hace segundos
+        // por el pin que vino con esta misma ráfaga.
+        result: pedida.echo === true ? 'echo_skipped' : pedida.ok ? 'sent' : 'failed',
+      };
     }
   }
 

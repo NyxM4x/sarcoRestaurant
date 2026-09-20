@@ -15,6 +15,7 @@ import {
   buildQuoteCtaText,
   buildQuoteText,
   hasQuoteQuota,
+  isQuoteEcho,
   isSamePoint,
   QUOTE_FAILED_CTA_TEXT,
   QUOTE_FAILED_TEXT,
@@ -271,12 +272,15 @@ async function leerLluvia(supabase: SupabaseClient): Promise<boolean> {
 async function ultimaCotizacion(
   supabase: SupabaseClient,
   phoneDigits: string,
-): Promise<number | null> {
+): Promise<{ fee: number; quotedAtMs: number | null } | null> {
   const desde = new Date(Date.now() - QUOTE_REUSE_WINDOW_HOURS * 3_600_000).toISOString();
   try {
     const { data, error } = await supabase
       .from('delivery_quote_requests')
-      .select('fee_amount')
+      // `created_at` viene con la cifra: es lo que distingue al cliente que
+      // vuelve a preguntar un rato después —al que hay que contestarle— del
+      // eco de la misma ráfaga. Ver `isQuoteEcho`.
+      .select('fee_amount, created_at')
       .eq('customer_phone', phoneDigits)
       .eq('status', 'quoted')
       .gte('created_at', desde)
@@ -284,8 +288,13 @@ async function ultimaCotizacion(
       .limit(1)
       .maybeSingle();
     if (error || !data) return null;
-    const fee = Number((data as { fee_amount: unknown }).fee_amount);
-    return Number.isFinite(fee) ? fee : null;
+    const fila = data as { fee_amount: unknown; created_at: unknown };
+    const fee = Number(fila.fee_amount);
+    if (!Number.isFinite(fee)) return null;
+    // Una fecha ilegible no invalida la cifra: se devuelve `null` y quien
+    // decide lo trata como "no es un eco", que es contestar igual que siempre.
+    const ms = typeof fila.created_at === 'string' ? Date.parse(fila.created_at) : NaN;
+    return { fee, quotedAtMs: Number.isNaN(ms) ? null : ms };
   } catch {
     return null;
   }
@@ -309,6 +318,13 @@ async function ultimaCotizacion(
  * pedir nada se consulta el ledger, y si hay una cotización viva se repite su
  * cifra — que es lo que el cliente estaba preguntando.
  *
+ * ── Pero el eco de la misma ráfaga no se contesta (20-09-2026) ──────────────
+ *
+ * Repetir la cifra vale para quien vuelve un rato después, no para quien manda
+ * el pin y la pregunta en el mismo segundo: ahí salían dos globos idénticos,
+ * uno detrás de otro. Dentro de `QUOTE_ECHO_WINDOW_MS` el turno cierra en
+ * silencio, porque la cifra sigue en pantalla.
+ *
  * `link_without_coords` se queda fuera: ese cliente está intentando cotizar un
  * punto NUEVO que no se pudo leer, y responderle con la tarifa de otra
  * ubicación sería darle un precio que no es el suyo.
@@ -331,12 +347,24 @@ export async function askLocationForQuote(input: {
    * exactamente lo que se vio en las dos conversaciones del 01-09-2026.
    */
   reason?: 'asked' | 'link_without_coords';
-}, supabase: SupabaseClient = getSupabaseAdmin()): Promise<{ ok: boolean }> {
+}, supabase: SupabaseClient = getSupabaseAdmin()): Promise<{ ok: boolean; echo?: true }> {
   let texto: string;
   if (input.reason === 'link_without_coords') {
     texto = QUOTE_LINK_WITHOUT_COORDS_TEXT;
   } else {
     const yaCotizado = await ultimaCotizacion(supabase, input.toDigits);
+
+    // ── El eco de la misma ráfaga no se contesta (20-09-2026) ─────────────
+    //
+    // Mandar el pin y escribir "¿cuánto sale hasta aquí?" en el mismo segundo
+    // son dos mensajes, y cada uno tenía su respuesta: la cotización salía y
+    // acto seguido se repetía, idéntica. Dentro de la ventana la cifra sigue
+    // en pantalla, así que aquí no se manda nada y el turno cierra en
+    // silencio — como hace el menú cuando ya salió su botón.
+    if (yaCotizado !== null && isQuoteEcho(yaCotizado.quotedAtMs, Date.now())) {
+      log.info('delivery_quote_prompt_echo_skipped');
+      return { ok: true, echo: true };
+    }
 
     // Repetir la cifra ES una cotización, así que sale como todas: con el
     // botón. Si no, este cliente —que pregunta el precio por SEGUNDA vez—
@@ -347,8 +375,8 @@ export async function askLocationForQuote(input: {
         customerPhone: input.toDigits,
         sourceMessageId: input.sourceMessageId,
         phoneNumberId: input.phoneNumberId,
-        ctaText: buildQuoteCtaText(yaCotizado),
-        plainText: buildQuoteText(yaCotizado),
+        ctaText: buildQuoteCtaText(yaCotizado.fee),
+        plainText: buildQuoteText(yaCotizado.fee),
       });
       // `responderConMenu` nunca lanza y siempre acaba escribiéndole al
       // cliente por una vía o la otra: el desenlace para el webhook es `ok`.
@@ -359,7 +387,7 @@ export async function askLocationForQuote(input: {
     // necesita que el cliente toque es el botón de ubicación de WhatsApp, y
     // ponerle al lado un botón "Ver menú" es darle dos puertas cuando solo una
     // contesta lo que preguntó.
-    texto = yaCotizado === null ? ASK_LOCATION_FOR_QUOTE_TEXT : buildQuoteText(yaCotizado);
+    texto = yaCotizado === null ? ASK_LOCATION_FOR_QUOTE_TEXT : buildQuoteText(yaCotizado.fee);
   }
   try {
     const enviado = await getKapsoClient().sendText(input.toDigits, texto, {

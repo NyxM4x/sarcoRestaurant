@@ -64,6 +64,44 @@ export const QUOTE_REUSE_TOLERANCE_METERS = 10;
  */
 export const QUOTE_REUSE_WINDOW_HOURS = 12;
 
+/**
+ * Cuánto tarda una cifra ya dicha en volver a ser noticia (20-09-2026).
+ *
+ * Repetir la cotización a quien vuelve a preguntar es deliberado (02-09): el
+ * cliente que manda su pin y escribe "aquí cuánto el envío" está preguntando
+ * lo mismo, y pedirle otra vez la ubicación lo dejaba peor. Pero eso se pensó
+ * para el que vuelve un rato después, no para el que manda las dos cosas en el
+ * mismo segundo.
+ *
+ * Visto en producción: pin a las 12:38 y "Cuanto está el envío hasta aquí ??"
+ * a las 12:38. Salieron dos globos idénticos con la misma cifra, uno detrás de
+ * otro. Dentro de esta ventana el precio sigue en pantalla, así que repetirlo
+ * no informa de nada — solo gasta un mensaje y hace parecer que el sistema se
+ * trabó.
+ *
+ * Dos minutos, y no más: pasado ese rato la conversación pudo haber seguido y
+ * la cifra pudo quedar arriba del todo. Ahí volver a decirla vuelve a ser útil.
+ */
+export const QUOTE_ECHO_WINDOW_MS = 2 * 60_000;
+
+/**
+ * ¿Esta cotización es un eco de la que acabamos de mandar?
+ *
+ * `null` en `quotedAtMs` —no se pudo leer la fecha— responde `false`: ante la
+ * duda se contesta, que es lo que se hacía antes de existir esta ventana.
+ */
+export function isQuoteEcho(
+  quotedAtMs: number | null,
+  nowMs: number,
+  windowMs: number = QUOTE_ECHO_WINDOW_MS,
+): boolean {
+  if (quotedAtMs === null || !Number.isFinite(quotedAtMs)) return false;
+  const transcurrido = nowMs - quotedAtMs;
+  // Una fecha en el futuro es un reloj desajustado, no un eco.
+  if (transcurrido < 0) return false;
+  return transcurrido <= windowMs;
+}
+
 /** Radio terrestre medio, en metros. */
 const EARTH_RADIUS_METERS = 6_371_000;
 

@@ -923,6 +923,29 @@ describe('lo que el default NO toca', () => {
     expect(pedidas).toHaveLength(1);
     expect(cta.enviados).toHaveLength(0);
   });
+
+  it('el eco de la cotización queda atendido y en silencio (20-09-2026)', async () => {
+    // El pin de esta misma ráfaga ya recibió su cifra. La pregunta que viene
+    // detrás no puede producir un segundo globo idéntico, y tampoco puede caer
+    // al modelo: el turno está atendido.
+    const cta = spyCta();
+
+    const { processed } = await deliver(
+      JSON.stringify(envelope({ text: 'cuanto esta el envio hasta aqui' })),
+      {
+        sendMenuCta: cta.sendMenuCta,
+        lookupCustomerState: estado(DESPEJADO),
+        askLocationForQuote: async () => ({ ok: true, echo: true }),
+      },
+    );
+
+    expect(processed?.body).toMatchObject({
+      handled: 'delivery_quote_prompt',
+      result: 'echo_skipped',
+      ok: true,
+    });
+    expect(cta.enviados).toHaveLength(0);
+  });
 });
 
 describe('"¿Dónde están ubicados?" recibe la dirección, no el menú (09-09-2026)', () => {
