@@ -1421,6 +1421,41 @@ describe('lotes — el saludo dentro de una ráfaga es preámbulo', () => {
     expect(spy.turns).toHaveLength(0);
   });
 
+  it('con una ubicación en la ráfaga, el botón suelto NO sale (20-09-2026)', async () => {
+    // Visto a las 12:38: el cliente mandó su pedido escrito y su ubicación
+    // seguidos, y recibió el botón pelado y, un segundo después, la
+    // cotización — que lleva el MISMO botón debajo. La misma puerta dos
+    // veces en el mismo segundo.
+    const spy = spyChannel();
+    const cta = contarCta();
+    const raw = batchBody([
+      envelope({ wamid: 'wamid.A', text: 'Quisiera 2 trancapecho' }),
+      locationEnvelope('wamid.PIN'),
+    ]);
+
+    await deliver(raw, { agentChannel: spy.channel, sendMenuCta: cta.fn });
+
+    expect(cta.calls).toHaveLength(0);
+    // Y el turno queda atendido: no se lo pasa al modelo, porque lo que
+    // contesta —el precio del envío y su botón— va por el otro carril.
+    expect(spy.turns).toHaveLength(0);
+  });
+
+  it('sin ubicación en la ráfaga, el botón sigue saliendo igual', async () => {
+    // La guarda es de la ráfaga con pin, no del pedido escrito: quien solo
+    // escribe lo que quiere tiene que seguir recibiendo su menú.
+    const spy = spyChannel();
+    const cta = contarCta();
+    const raw = batchBody([
+      envelope({ wamid: 'wamid.A', text: 'Quisiera 2 trancapecho' }),
+      envelope({ wamid: 'wamid.B', text: 'quiero pedir' }),
+    ]);
+
+    await deliver(raw, { agentChannel: spy.channel, sendMenuCta: cta.fn });
+
+    expect(cta.calls).toHaveLength(1);
+  });
+
   it('un saludo acompañado de una pregunta deja hablar al agente', async () => {
     // "Hola" / "qué hamburguesas hay?" — el saludo no dispara nada y la
     // pregunta sigue su camino de siempre, que es el modelo.

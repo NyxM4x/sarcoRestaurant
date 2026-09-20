@@ -754,6 +754,13 @@ async function responderPorDefecto(
     /** TODOS los textos entrantes de la entrega. Ver `batchTexts`. */
     textosDelLote?: readonly string[];
     menuYaEnviadoEnElLote?: boolean;
+    /**
+     * ¿Viene un pin de ubicación en esta misma entrega? (20-09-2026)
+     *
+     * Entonces el botón del menú suelto no sale: lo contesta la cotización, que
+     * lleva el mismo botón dentro de su globo.
+     */
+    ubicacionEnElLote?: boolean;
   },
   deps: {
     sendMenuCta: SendMenuCta;
@@ -1090,6 +1097,20 @@ async function responderPorDefecto(
     return { ok: true, handled: 'silence', result: 'silenced' };
   }
 
+  // ── El botón no se manda dos veces en la misma ráfaga (20-09-2026) ────────
+  //
+  // Con una ubicación en la entrega, lo que contesta es la cotización — y esa
+  // cotización sale CON el botón del menú debajo (03-09-2026). Mandar además
+  // este CTA pelado le enseña al cliente la misma puerta dos veces en el mismo
+  // segundo, que es exactamente lo que se vio el 12:38.
+  //
+  // El turno queda atendido: no vuelve al modelo, porque la respuesta —el
+  // precio del envío y el botón— ya va de camino por el otro carril.
+  if (ctx.ubicacionEnElLote === true) {
+    log.info('webhook_menu_cta_skipped', { reason: 'location_in_batch' });
+    return { ok: true, handled: 'menu_cta', result: 'skipped_location_in_batch' };
+  }
+
   const sent = await deps.sendMenuCta({
     toDigits,
     phoneNumberId: ctx.phoneNumberId,
@@ -1162,6 +1183,14 @@ async function processMessage(
      * dos veces, que es peor que el silencio que esta política vino a arreglar.
      */
     menuYaEnviadoEnElLote?: boolean;
+    /**
+     * ¿Viene un pin de ubicación en esta misma entrega? (20-09-2026)
+     *
+     * Hermano del anterior y por el mismo motivo: el botón suelto no sale
+     * cuando la cotización del pin va a salir con el suyo. Se pasa a
+     * `responderPorDefecto`, que es donde se manda ese botón.
+     */
+    ubicacionEnElLote?: boolean;
   },
   deps: {
     confirmOrder: ConfirmOrder;
@@ -1838,6 +1867,22 @@ async function processEnvelopes(
   // Es el mismo criterio de `pickTurnAnchor` (el que cierra la ráfaga es el que
   // el cliente espera que se conteste), aplicado antes y sobre menos cosas: aquí
   // solo cuenta el texto, porque solo el texto puede recibir el botón.
+  // ── ¿Viene una ubicación en esta misma ráfaga? (20-09-2026) ───────────────
+  //
+  // Si viene, el botón del menú SUELTO no sale: el pin se contesta con la
+  // cotización, y esa cotización ya lleva el mismo botón debajo. Visto en
+  // producción a las 12:38 — el cliente mandó su pedido escrito y su ubicación
+  // seguidos, y recibió el botón pelado y, un segundo después, la cotización
+  // con otro botón igual. Dos veces la misma puerta.
+  //
+  // Solo el PIN nativo, y a propósito: un texto con un link de Maps o con
+  // coordenadas escritas se atiende dentro de su propio mensaje, y contarlo
+  // aquí haría que ese mismo mensaje se callara a sí mismo.
+  const hayUbicacionEnElLote = envelopes.some((envelope) => {
+    const { message } = extractMessageContext(envelope.payload);
+    return !isOutboundMessage(message) && message?.type === 'location';
+  });
+
   const ultimoTextoIndex = ((): number | null => {
     let encontrado: number | null = null;
     for (const envelope of envelopes) {
@@ -1889,6 +1934,7 @@ async function processEnvelopes(
         // ráfaga, y solo entonces el saludo se lee como preámbulo.
         rafagaDeVarios: envelopes.length > 1,
         ultimoTextoDelLote: ultimoTextoIndex !== null && envelope.index === ultimoTextoIndex,
+        ubicacionEnElLote: hayUbicacionEnElLote,
         textosDelLote,
         menuYaEnviadoEnElLote: menuYaEnviado,
       },
