@@ -244,11 +244,29 @@ describe('el cuerpo del botón según POR QUÉ se manda el menú', () => {
   it('en noche de promoción se le dice que NO, primero, y cómo sí puede pagar', () => {
     // Un "¡Sí!" lo haría armar el pedido para encontrarse el efectivo
     // deshabilitado en el último paso (14-09-2026).
-    const texto = menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false });
+    const texto = menuCtaBodyText('agent_suggestion', 'cash', {
+      cashAllowed: false,
+      promoActive: true,
+    });
     expect(texto).toMatch(/^Hoy no/);
     expect(texto).toContain('QR');
     expect(texto).not.toMatch(/elegí EFECTIVO/i);
     expect([...texto].filter((c) => /\p{Extended_Pictographic}/u.test(c)).length).toBeLessThanOrEqual(1);
+  });
+
+  it('sin efectivo y SIN promoción también es NO, sin nombrar la promoción (21-09-2026)', () => {
+    // El efectivo se apaga aparte (`orders/cash-enabled`): "por la promoción"
+    // sería mentira, y le haría creer que mañana vuelve.
+    for (const texto of [
+      menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false }),
+      menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false, promoActive: false }),
+    ]) {
+      expect(texto).toMatch(/^Por ahora no/);
+      expect(texto).toContain('QR');
+      expect(texto).not.toMatch(/promoci/i);
+      expect(texto).not.toMatch(/elegí EFECTIVO/i);
+      expect([...texto].filter((c) => /\p{Extended_Pictographic}/u.test(c)).length).toBeLessThanOrEqual(1);
+    }
   });
 
   it('sin efectivo, las preguntas que no son de efectivo no cambian', () => {

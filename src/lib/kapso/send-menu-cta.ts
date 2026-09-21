@@ -90,10 +90,12 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
         // ¿Hay efectivo? Solo se pregunta cuando el cliente preguntó por él
         // (14-09-2026): en noche de promoción la respuesta es no, y un "¡Sí!"
         // lo mandaría a buscar una opción deshabilitada. Nunca lanza.
-        const cashAllowed =
-          bodyText === undefined && ctaContext === 'cash'
-            ? (await readCurrentPromoMode()).cashAllowed
-            : true;
+        // Con el efectivo apagado aparte (21-09-2026) el NO sale también fuera
+        // de la promoción, y `promoActive` decide si se nombra la promoción.
+        const modo =
+          bodyText === undefined && ctaContext === 'cash' ? await readCurrentPromoMode() : null;
+        const cashAllowed = modo?.cashAllowed ?? true;
+        const promoActive = modo?.active ?? false;
 
         return getKapsoClient().sendMenuCtaUrl(customerPhone, {
           phoneNumberId: from,
@@ -103,7 +105,8 @@ export function createMenuDispatchDeps(): MenuDispatchDeps {
           // El texto ya redactado gana, y solo lo trae quien lleva un dato que
           // no cabe en una constante — hoy, la tarifa del envío. Ver
           // `DispatchMenuInput.bodyText`.
-          bodyText: bodyText ?? menuCtaBodyText(reason, ctaContext ?? null, { cashAllowed }),
+          bodyText:
+            bodyText ?? menuCtaBodyText(reason, ctaContext ?? null, { cashAllowed, promoActive }),
         });
       },
     },

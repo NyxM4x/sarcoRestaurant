@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MenuCategory } from '@/types';
+import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 import type { Promotion, PromotionComponent } from './promotion';
 import { NORMAL_MODE, orderSectionsForMode, promoModeAt } from './promo-mode';
 
@@ -74,11 +75,21 @@ describe('promoModeAt — cuándo es noche de promoción', () => {
   it('a las 00:00 en punto vuelve solo al menú de siempre', () => {
     const modo = promoModeAt([DOS_TRANCAPECHOS], MEDIANOCHE);
     expect(modo).toBe(NORMAL_MODE);
-    expect(modo.cashAllowed).toBe(true);
+    // El efectivo vuelve a medianoche solo si `CASH_ENABLED` lo permite: desde
+    // el 21-09-2026 está apagado aparte de la promoción.
+    expect(modo.cashAllowed).toBe(CASH_ENABLED);
     expect(modo.comboOnlyCodes.size).toBe(0);
     // El recojo NO vuelve a medianoche: desde el 15-09-2026 está apagado
     // siempre y no depende de la promoción. Ver `orders/pickup-enabled`.
     expect(modo.pickupAllowed).toBe(false);
+  });
+
+  it('con el efectivo apagado (21-09-2026), el menú de siempre tampoco lo ofrece', () => {
+    // `NORMAL_MODE` es también lo que se usa si las promociones no se pueden
+    // leer: un fallo de Supabase no puede reabrir el efectivo.
+    expect(CASH_ENABLED).toBe(false);
+    expect(NORMAL_MODE.cashAllowed).toBe(false);
+    expect(NORMAL_MODE.active).toBe(false);
   });
 
   it('una promoción apagada no activa nada', () => {
