@@ -276,16 +276,34 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
  * los que no hay ninguna—, y acabaría anunciándole promociones inexistentes a
  * quien solo preguntó por el horario.
  *
+ * ── Sin efectivo y sin promoción (21-09-2026) ───────────────────────────────
+ *
+ * Desde que el efectivo se puede apagar aparte (`orders/cash-enabled`), falta
+ * también en las noches sin promoción. Ahí el bloque de la promoción mentiría
+ * en cada turno, así que va otro sin motivo. En noche de promoción sigue el de
+ * siempre.
+ *
  * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
  */
 export function systemPromptForMode(mode: {
   cashAllowed: boolean;
+  /** ¿Hay promoción vendible ahora? Ausente = no. */
+  active?: boolean;
   /** Pedidos nuevos pausados por saturación (0038). Ausente = no. */
   ordersPaused?: boolean;
 }): string {
   const bloques: string[] = [];
 
-  if (!mode.cashAllowed) {
+  if (!mode.cashAllowed && !mode.active) {
+    bloques.push(
+      [
+        '',
+        'Por ahora no se acepta efectivo: el pago es solo por QR.',
+        '- Esto manda sobre lo que dice arriba del efectivo. No prometas cuándo',
+        '  vuelve: no lo sabes.',
+      ].join('\n'),
+    );
+  } else if (!mode.cashAllowed) {
     bloques.push(
       [
         '',
