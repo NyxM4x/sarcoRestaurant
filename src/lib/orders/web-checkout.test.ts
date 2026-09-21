@@ -13,6 +13,7 @@ import {
 import type { DispatchResult } from '@/lib/orders/notifications/web-notify';
 import { calculateCheckoutFingerprint } from './fingerprint';
 import type { PromoMode } from '@/lib/promotions/promo-mode';
+import { CASH_ENABLED } from './cash-enabled';
 import { hashMenuSessionToken } from '@/lib/menu/session-token';
 
 const SESSION_TOKEN = 'token-opaco-de-prueba';
@@ -1013,10 +1014,28 @@ describe('noche de promoción', () => {
     const deps = new DepsConPromo();
     deps.modoThrows = new Error('supabase caído');
 
-    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
+    const response = await handleCreateWebOrder(
+      request(validBody({ payment_method: 'qr', items: [{ code: 'trancapecho', quantity: 1 }] })),
+      deps,
+    );
 
     expect(response.status).toBe(201);
     expect(deps.rpcCalls).toHaveLength(1);
+  });
+
+  /**
+   * El efectivo apagado aparte (21-09-2026) no depende de las promociones: un
+   * fallo al leerlas cae en el menú de siempre, que tampoco lo ofrece. Ver
+   * `orders/cash-enabled`.
+   */
+  it('si las promociones no se pueden leer, el efectivo apagado sigue apagado', async () => {
+    const deps = new DepsConPromo();
+    deps.modoThrows = new Error('supabase caído');
+
+    const response = await handleCreateWebOrder(request(validBody({ payment_method: 'cash' })), deps);
+
+    expect(response.status).toBe(CASH_ENABLED ? 201 : 422);
+    expect(deps.rpcCalls).toHaveLength(CASH_ENABLED ? 1 : 0);
   });
 });
 

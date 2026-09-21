@@ -240,8 +240,11 @@ export function menuCtaBodyText(
   /**
    * ¿Se acepta efectivo ahora? En noche de promoción no (14-09-2026), ver
    * `promotions/promo-mode`. Ausente = sí, como siempre.
+   *
+   * `promoActive` dice si el motivo es la promoción (21-09-2026): el efectivo
+   * también se apaga aparte, en `orders/cash-enabled`. Ausente = no.
    */
-  options: { cashAllowed?: boolean } = {},
+  options: { cashAllowed?: boolean; promoActive?: boolean } = {},
 ): string {
   // El CONTEXTO manda sobre el motivo cuando consta, porque es más específico:
   // el motivo dice con qué autoridad se manda el menú, y el contexto qué
@@ -261,7 +264,17 @@ export function menuCtaBodyText(
       // En noche de promoción la respuesta es NO, y se dice igual de primero:
       // un "¡Sí!" aquí lo haría armar el pedido para descubrir en el último paso
       // que la opción está deshabilitada. Lo que sigue es cómo sí puede pagar.
+      //
+      // Sin efectivo y SIN promoción (`orders/cash-enabled`, 21-09-2026) también
+      // es NO, pero sin "por la promoción": no es por eso, y el que vuelva
+      // mañana tampoco lo va a encontrar.
       case 'cash':
+        if (options.cashAllowed === false && options.promoActive !== true) {
+          return (
+            'Por ahora no: el pago es solo por QR. Armá tu pedido en el botón 👇 ' +
+            'y pagalo con el QR que te mandamos por acá.'
+          );
+        }
         if (options.cashAllowed === false) {
           return (
             'Hoy no: por la promoción, el pago es solo por QR. Armá tu pedido ' +
