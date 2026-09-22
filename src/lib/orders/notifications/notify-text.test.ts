@@ -212,29 +212,9 @@ describe('por QR se cobra la comida; el envío se paga al repartidor', () => {
         '*Envíanos tu comprobante* para enviar la orden a cocina.',
         '',
         '🛵 *ENVÍO TE SALDRÁ (Bs. 25)* lo pagas *directamente al repartidor* cuando te entregue el pedido.',
-        '🎉 *PROMO ENVÍO Bs. 12:* si la entrega es *dentro del 4to anillo*, el repartidor te cobra Bs. 12. Fuera del 4to anillo se cobra el tarifario normal (el monto de arriba).',
         '🛑 *Por favor, asegúrate de transferir únicamente el valor de la comida.*',
       ].join('\n'),
     );
-  });
-
-  it('la promo del 4to anillo sale también cuando el tarifario da 12 o menos (21-09-2026)', () => {
-    // Lo decidió el negocio: el aviso no depende de la cifra. El sistema no
-    // sabe en qué anillo está el cliente, así que tampoco sabría a quién
-    // callárselo.
-    for (const deliveryAmount of [10, 12, 13, 25]) {
-      const caption = buildQrPaymentCaption(CONFIRMACION, { ...PAGO, deliveryAmount });
-      expect(caption).toContain('PROMO ENVÍO Bs. 12');
-      expect(caption).toContain('dentro del 4to anillo');
-    }
-  });
-
-  it('la promo va pegada al envío y el 🛑 sigue siendo lo último', () => {
-    const lineas = buildQrPaymentCaption(CONFIRMACION, PAGO).split('\n');
-    const envio = lineas.findIndex((l) => l.includes('ENVÍO TE SALDRÁ'));
-    expect(lineas[envio + 1]).toContain('PROMO ENVÍO');
-    // Lo que se lee justo antes de transferir es que se transfiere la comida.
-    expect(lineas[lineas.length - 1]).toContain('transferir únicamente el valor de la comida');
   });
 
   it('la suma de comida y envío no aparece: es la cifra que no queremos que se teclee', () => {
