@@ -137,6 +137,22 @@ describe('quote-request — lo que se le dice al cliente', () => {
   it('fuera de cobertura no habla de un pedido que todavía no existe', () => {
     expect(QUOTE_OUT_OF_COVERAGE_TEXT).not.toMatch(/tu pedido/i);
   });
+
+  it('la cotización avisa de la promo del 4to anillo, también si da 12 o menos (21-09-2026)', () => {
+    for (const monto of [10, 12, 19]) {
+      for (const texto of [buildQuoteText(monto), buildQuoteCtaText(monto)]) {
+        expect(texto).toContain('PROMO ENVÍO Bs 12');
+        expect(texto).toContain('dentro del 4to anillo');
+        // Primero la cifra del tarifario, que es "el monto de arriba".
+        expect(texto.indexOf(`Bs ${monto} 🛵`)).toBeLessThan(texto.indexOf('PROMO'));
+      }
+    }
+  });
+
+  it('en la versión con botón, el "acá 👇" queda al final, pegado al botón', () => {
+    const texto = buildQuoteCtaText(19);
+    expect(texto.indexOf('PROMO')).toBeLessThan(texto.indexOf('👇'));
+  });
 });
 
 describe('quote-request — la versión que va CON el botón (03-09-2026)', () => {

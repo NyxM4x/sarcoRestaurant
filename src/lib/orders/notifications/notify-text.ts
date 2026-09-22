@@ -19,6 +19,7 @@ import {
  * siguen siendo la marca con la que el clasificador reconoce cada mensaje.
  */
 import { shortOrderNumber } from '@/lib/orders/order-number';
+import { RING_PROMO_AMOUNT, ringPromoText } from '@/lib/delivery/ring-promo';
 
 /**
  * Construcción de los textos de confirmación del checkout web — módulo puro.
@@ -353,6 +354,14 @@ export function orderCancelledByCustomerText(orderNumber: string): string {
  * la tarifa mínima (`DELIVERY_BASE_AMOUNT`, Bs 10) y la base rechaza cualquier
  * importe fuera del tarifario. Ahí vuelve el texto de siempre, que no nombra el
  * envío: sin envío que cobrar, mencionarlo solo haría dudar al cliente.
+ *
+ * ── La promo del 4to anillo va pegada al envío (21-09-2026) ────────────────
+ *
+ * Justo debajo de la cifra del envío, porque es la que desmiente: quien vive
+ * dentro del 4to anillo lee "Bs. 19" y el repartidor le cobra 12. Y antes de la
+ * línea del 🛑, que sigue siendo la última: lo que se lee justo antes de
+ * transferir tiene que ser que se transfiere solo la comida. Ver
+ * `delivery/ring-promo`.
  */
 export function buildQrPaymentCaption(
   confirmationText: string,
@@ -368,6 +377,7 @@ export function buildQrPaymentCaption(
     '*Envíanos tu comprobante* para enviar la orden a cocina.',
     '',
     `🛵 *ENVÍO TE SALDRÁ (${formatBs(payment.deliveryAmount)})* lo pagas *directamente al repartidor* cuando te entregue el pedido.`,
+    ringPromoText(formatBs(RING_PROMO_AMOUNT)),
     '🛑 *Por favor, asegúrate de transferir únicamente el valor de la comida.*',
   ].join('\n');
 }
