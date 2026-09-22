@@ -1,5 +1,3 @@
-import { RING_PROMO_AMOUNT, ringPromoText } from './ring-promo';
-
 /**
  * Cotizar el envío ANTES de que exista un pedido — módulo PURO.
  *
@@ -183,16 +181,9 @@ function formatBs(amount: number): string {
  *
  * El precio se compone en UN solo sitio (`quotePrefix`): dos plantillas con la
  * misma cifra son dos plantillas que un día dirán cosas distintas.
- *
- * La promo del 4to anillo (21-09-2026) va aquí dentro por lo mismo, y va entre
- * la cifra y el "armá tu pedido": pegada al número que aclara, y sin separar el
- * "acá 👇" del botón que señala. Ver `./ring-promo`.
  */
 function quotePrefix(amount: number): string {
-  return (
-    `El envío hasta tu ubicación sale Bs ${formatBs(amount)} 🛵\n\n` +
-    `${ringPromoText(`Bs ${formatBs(RING_PROMO_AMOUNT)}`)}\n\n`
-  );
+  return `El envío hasta tu ubicación sale Bs ${formatBs(amount)} 🛵 `;
 }
 
 /**
