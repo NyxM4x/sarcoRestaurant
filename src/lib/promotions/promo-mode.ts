@@ -1,5 +1,4 @@
 import type { MenuCategory } from '@/types';
-import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 import { PICKUP_ENABLED } from '@/lib/orders/pickup-enabled';
 import { evaluatePromotion, isPurchasable, type Promotion } from './promotion';
 
@@ -47,10 +46,7 @@ import { evaluatePromotion, isPurchasable, type Promotion } from './promotion';
 export interface PromoMode {
   /** ¿Hay al menos un combo que se pueda comprar ahora mismo? */
   active: boolean;
-  /**
-   * ¿Se puede elegir efectivo? Solo fuera de la noche de promoción, y solo si
-   * `CASH_ENABLED` lo permite (apagado desde el 21-09-2026, temporal).
-   */
+  /** ¿Se puede elegir efectivo? Solo fuera de la noche de promoción. */
   cashAllowed: boolean;
   /**
    * ¿Se puede pasar a recoger? Desde el 15-09-2026, NO: el negocio dejó de
@@ -74,11 +70,10 @@ export interface PromoMode {
  * apagó para todas las noches (15-09-2026), y este es el modo que se usa
  * cuando la lectura de promociones falla. Escribir `true` aquí haría que un
  * fallo de Supabase reabriera el recojo justo cuando nadie está mirando.
- * `cashAllowed` sale de `CASH_ENABLED` por lo mismo (21-09-2026).
  */
 export const NORMAL_MODE: PromoMode = {
   active: false,
-  cashAllowed: CASH_ENABLED,
+  cashAllowed: true,
   pickupAllowed: PICKUP_ENABLED,
   comboOnlyCodes: new Set(),
 };
