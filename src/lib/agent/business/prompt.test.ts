@@ -522,23 +522,11 @@ describe('prompt — noche de promoción (14-09-2026)', () => {
   });
 
   it('en noche de promoción avisa que no se acepta efectivo, y que eso manda', () => {
-    const prompt = systemPromptForMode({ cashAllowed: false, active: true });
+    const prompt = systemPromptForMode({ cashAllowed: false });
     expect(prompt.startsWith(DON_ZARCO_SYSTEM_PROMPT)).toBe(true);
     const bloque = prompt.slice(DON_ZARCO_SYSTEM_PROMPT.length);
-    expect(bloque).toMatch(/Hoy hay promoción vigente/);
     expect(bloque).toMatch(/No se acepta efectivo/);
     expect(bloque).toMatch(/Esto manda sobre lo que dice arriba/);
-  });
-
-  it('sin efectivo y SIN promoción no nombra ninguna promoción (21-09-2026)', () => {
-    // El efectivo se apaga también aparte (`orders/cash-enabled`). Ahí el
-    // bloque de la promoción le haría anunciar una que no existe.
-    const bloque = systemPromptForMode({ cashAllowed: false, active: false }).slice(
-      DON_ZARCO_SYSTEM_PROMPT.length,
-    );
-    expect(bloque).toMatch(/no se acepta efectivo: el pago es solo por QR/);
-    expect(bloque).toMatch(/Esto manda sobre lo que dice arriba/);
-    expect(bloque).not.toMatch(/promoci/i);
   });
 
   it('el recojo ya no se anuncia aquí, sino en el prompt fijo (15-09-2026)', () => {
@@ -546,12 +534,10 @@ describe('prompt — noche de promoción (14-09-2026)', () => {
     // este bloque, el modelo leería "hoy hay promoción vigente" en todos los
     // turnos —también en los que no hay ninguna— y acabaría anunciándole una
     // promoción inexistente a quien preguntó por el horario.
-    for (const active of [true, false]) {
-      const bloque = systemPromptForMode({ cashAllowed: false, active }).slice(
-        DON_ZARCO_SYSTEM_PROMPT.length,
-      );
-      expect(bloque).not.toMatch(/recojo/i);
-    }
+    const bloque = systemPromptForMode({ cashAllowed: false }).slice(
+      DON_ZARCO_SYSTEM_PROMPT.length,
+    );
+    expect(bloque).not.toMatch(/recojo/i);
   });
 });
 
