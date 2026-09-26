@@ -44,6 +44,8 @@ const serverEnvSchema = z.object({
   WHATSAPP_BUSINESS_NUMBER: optionalString,
   /** Override opcional de la URL base de la API de Kapso (ver client.ts). */
   KAPSO_API_BASE_URL: optionalUrl,
+  TEST_REDIRECT_URL: optionalUrl,
+  TEST_WHATSAPP_TO: optionalString,
   APP_BASE_URL: optionalUrl,
   /** Secreto para generar tokens de sesión de menú (HMAC-SHA256). Fase 5.2B. */
   MENU_SESSION_SECRET: optionalString,
