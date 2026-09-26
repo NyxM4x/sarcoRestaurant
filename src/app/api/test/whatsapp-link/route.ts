@@ -23,6 +23,7 @@ export async function POST() {
     const result = await getKapsoClient().sendText(
       env.TEST_WHATSAPP_TO,
       `Hola Yoan 👋\n\nPara hacer tu pedido ingresa al siguiente link:\n\n${env.TEST_REDIRECT_URL}`,
+      { previewUrl: true },
     );
 
     if (!result.ok) {

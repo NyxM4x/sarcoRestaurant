@@ -38,6 +38,11 @@ describe('buildTextPayload', () => {
     expect(Object.keys(payload.text)).toEqual(['body']);
   });
 
+  it('incluye preview_url cuando se solicita', () => {
+    const payload = buildTextPayload('59170000001', 'Con preview', { previewUrl: true });
+    expect(payload.text).toEqual({ body: 'Con preview', preview_url: true });
+  });
+
   it('conserva el texto verbatim, incluidos saltos de línea', () => {
     const multiline = '📦 ¡Recibí tu pedido ORD-000001!\nResumen:\n• 2x La Fija — Bs. 80\nTotal: Bs. 80';
     const payload = buildTextPayload('59170000001', multiline);

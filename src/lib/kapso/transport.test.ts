@@ -321,6 +321,20 @@ describe('createKapsoTransport.sendText (Fase 5.2D)', () => {
     expect(captured[0].url).toBe('https://api.kapso.ai/meta/whatsapp/v24.0/pnid-1/messages');
   });
 
+  it('activa preview_url solo cuando se solicita', async () => {
+    const captured: Captured[] = [];
+    const client = createKapsoTransport({
+      ...CONFIG,
+      fetchImpl: fakeFetch(200, { messages: [{ id: 'wamid.TXT_PREVIEW' }] }, captured),
+    });
+
+    await client.sendText('59170000001', 'https://preview.example.test/r/test', { previewUrl: true });
+
+    expect(captured[0].body).toMatchObject({
+      text: { body: 'https://preview.example.test/r/test', preview_url: true },
+    });
+  });
+
   it('normaliza el teléfono y rechaza el vacío sin llamar a fetch', async () => {
     const captured: Captured[] = [];
     const client = createKapsoTransport({

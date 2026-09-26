@@ -36,6 +36,7 @@ describe('POST /api/test/whatsapp-link', () => {
     expect(sendText).toHaveBeenCalledWith(
       '59170000001',
       'Hola Yoan 👋\n\nPara hacer tu pedido ingresa al siguiente link:\n\nhttps://preview.example.test/r/test',
+      { previewUrl: true },
     );
     expect(sendMenuCtaUrl).not.toHaveBeenCalled();
   });

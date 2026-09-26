@@ -103,14 +103,18 @@ export function buildLocationRequestPayload(
 /**
  * Payload de un mensaje de texto simple (formato Kapso/WhatsApp Cloud).
  *
- * No incluye `preview_url`: el formato actual de Kapso no lo exige y su omisión
- * deja el comportamiento por defecto de WhatsApp (sin previsualización de enlaces).
+ * `previewUrl` es opt-in: ausente conserva el comportamiento actual sin
+ * previsualización; `true` envía `preview_url: true` a WhatsApp.
  *
  * `toDigits` se espera ya normalizado (lo hace el transporte). `text` se envía
  * verbatim —incluidos saltos de línea— y no puede estar vacío ni ser solo
  * espacios (invariante del emisor, no una condición de runtime).
  */
-export function buildTextPayload(toDigits: string, text: string) {
+export function buildTextPayload(
+  toDigits: string,
+  text: string,
+  options?: { previewUrl?: boolean },
+) {
   if (text.trim() === '') {
     throw new Error('buildTextPayload: text must not be empty');
   }
@@ -121,6 +125,7 @@ export function buildTextPayload(toDigits: string, text: string) {
     type: 'text',
     text: {
       body: text,
+      ...(options?.previewUrl ? { preview_url: true } : {}),
     },
   } as const;
 }

@@ -61,6 +61,8 @@ export interface SendOptions {
    * CTA del menú), que conservan el default de 10 s.
    */
   timeoutMs?: number;
+  /** Activates link previews for text messages. */
+  previewUrl?: boolean;
 }
 
 export function createKapsoTransport(cfg: KapsoTransportConfig) {
@@ -163,7 +165,7 @@ export function createKapsoTransport(cfg: KapsoTransportConfig) {
       // un error tipado y NO se llama a fetch.
       let payload: ReturnType<typeof buildTextPayload>;
       try {
-        payload = buildTextPayload(to, text);
+        payload = buildTextPayload(to, text, { previewUrl: options?.previewUrl });
       } catch {
         return { ok: false, error: 'invalid_text' };
       }
