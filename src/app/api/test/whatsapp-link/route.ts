@@ -20,11 +20,10 @@ export async function POST() {
   }
 
   try {
-    const result = await getKapsoClient().sendMenuCtaUrl(env.TEST_WHATSAPP_TO, {
-      menuUrl: env.TEST_REDIRECT_URL,
-      bodyText: 'Prueba de enlace',
-      buttonText: 'Abrir',
-    });
+    const result = await getKapsoClient().sendText(
+      env.TEST_WHATSAPP_TO,
+      `Hola Yoan 👋\n\nPara hacer tu pedido ingresa al siguiente link:\n\n${env.TEST_REDIRECT_URL}`,
+    );
 
     if (!result.ok) {
       return Response.json({ ok: false, error: result.error }, { status: 502 });
