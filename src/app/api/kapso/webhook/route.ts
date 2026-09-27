@@ -23,6 +23,7 @@ import { escalateIfStuck } from '@/lib/agent/handoff/stuck-customer-service';
 import { lookupCustomerState } from '@/lib/webhook/customer-state-service';
 import { sendProofReminder } from '@/lib/kapso/send-proof-reminder';
 import { sendLocalAddress } from '@/lib/kapso/send-local-address';
+import { sendCashPolicy } from '@/lib/kapso/send-cash-policy';
 import { sendWaitNotice } from '@/lib/kapso/send-wait-notice';
 import { sendCashButtons } from '@/lib/kapso/send-cash-buttons';
 import { appendKitchenNote } from '@/lib/orders/kitchen-note-service';
@@ -112,6 +113,10 @@ export async function POST(request: Request): Promise<Response> {
       // 09-09-2026: quien pregunta donde queda el local recibe la direccion y
       // el enlace de Maps, no el boton del menu. Ver `local-address-intent`.
       sendLocalAddress: (input) => sendLocalAddress(input),
+      // 27-09-2026: el pago es solo por QR. A quien pregunta por el efectivo
+      // con un pedido por QR sin pagar se le explica por qué y cómo paga el
+      // suyo. Ver `orders/cash-enabled`.
+      sendCashPolicy: (input) => sendCashPolicy(input),
       // 05-09-2026: antes del botón de modificar se le enseña lo que armó y se
       // le pregunta si le falta algo. Ver `kapso/send-order-review.ts`.
       sendOrderReview: ({ kept, ...input }) =>

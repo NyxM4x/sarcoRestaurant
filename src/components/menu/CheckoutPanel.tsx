@@ -10,6 +10,7 @@ import { formatMoney } from '@/lib/dashboard/format';
 import { MAX_CUSTOMER_NAME_LENGTH, MAX_NOTES_LENGTH } from '@/lib/checkout/limits';
 import type { CheckoutFormErrors, CheckoutFormFields } from '@/lib/checkout/form';
 import type { CheckoutFailure } from '@/lib/checkout/errors';
+import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 
 /**
  * Formulario del checkout: misma hoja inferior que el carrito, sin librerías.
@@ -238,10 +239,15 @@ export function CheckoutPanel({
               />
               {/* Sin efectivo se DESHABILITA, no desaparece: quien pensaba pagar
                   así lee de un vistazo que hoy no se puede, en vez de buscar la
-                  opción y escribir por WhatsApp para preguntar. */}
+                  opción y escribir por WhatsApp para preguntar.
+
+                  "Hoy" solo cuando es cosa de una noche: con `CASH_ENABLED`
+                  apagado (27-09-2026) le diría que mañana vuelve. */}
               <PaymentOption
                 label="Efectivo"
-                hint={cashAllowed ? 'Pagas al recibir' : 'Hoy no disponible'}
+                hint={
+                  cashAllowed ? 'Pagas al recibir' : CASH_ENABLED ? 'Hoy no disponible' : 'No disponible'
+                }
                 icon="💵"
                 value="cash"
                 active={cashAllowed && fields.payment_method === 'cash'}

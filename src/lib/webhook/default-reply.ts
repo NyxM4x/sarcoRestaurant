@@ -14,6 +14,8 @@ import { readOrderReviewReply } from './order-review-reply';
 import { readCashConfirmReply } from './cash-confirm-reply';
 import type { CashButtonPress } from './cash-confirm-button';
 import { isCourtesyOnly } from './courtesy';
+import { mentionsCash } from '@/lib/menu/cta-context';
+import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 
 /**
  * QUÉ RECIBE EL CLIENTE CUANDO NO PIDIÓ NADA CONCRETO — módulo PURO (03-09-2026).
@@ -332,6 +334,17 @@ export interface CustomerStateSnapshot {
    * que falta se lo vuelve a pedir su siguiente mensaje pasado el cooldown.
    */
   locationRemindedRecently?: boolean;
+  /**
+   * ¿Ya se le explicó a este pedido que el pago es solo por QR? (27-09-2026)
+   *
+   * Una vez por PEDIDO, como el acuse de espera: la explicación no cambia por
+   * volver a preguntar, y a partir de la segunda el mensaje sigue su camino de
+   * siempre —el recordatorio del pago, o el agente, que sabe lo mismo—.
+   *
+   * Ausente = no. Ante un fallo de consulta vale `true`: callar el aviso deja
+   * al cliente con el recordatorio de siempre, que tampoco le miente.
+   */
+  cashPolicySent?: boolean;
 }
 
 /** Por qué este mensaje no recibe nada por defecto. Solo para el log. */
@@ -473,6 +486,12 @@ export type DefaultReplyDecision =
    * los veinte minutos, que es quien tiene el reloj.
    */
   | { action: 'cash_reprompt'; order: OpenOrderSnapshot; step: 'first' | 'last' }
+  /**
+   * "¿Puedo pagar en efectivo?" / "No tengo QR" con un pedido por QR sin pagar
+   * (27-09-2026). El texto es `cashPolicyText`: por qué ya no hay efectivo, y
+   * cómo paga SU pedido.
+   */
+  | { action: 'cash_policy'; order: OpenOrderSnapshot }
   | { action: 'none'; reason: DefaultReplySkipReason };
 
 export interface DefaultReplyInput {
@@ -1000,6 +1019,30 @@ export function decideDefaultReply(input: DefaultReplyInput): DefaultReplyDecisi
           ? { action: 'order_change', order }
           : { action: 'order_review', order };
       }
+    }
+
+    // ── "¿Puedo pagar en efectivo?" / "No tengo QR" (27-09-2026) ───────────
+    //
+    // El pago es solo por QR (`orders/cash-enabled`), y quien lo pregunta con
+    // un pedido ya armado está preguntando cómo lo paga. Sin esta rama recibía
+    // el recordatorio del comprobante —"falta que transfieras…"—, que contesta
+    // otra cosa y le deja la duda entera.
+    //
+    // Va DEBAJO de todo lo que ya estaba: la espera de cocina, la nota y el
+    // cambio de pedido ganan porque son más específicos. Y ENCIMA de los dos
+    // recordatorios, que son justo los que contestarían mal.
+    //
+    // Solo pedidos por QR: el que ya es en efectivo se hizo cuando se podía y
+    // se sigue cobrando en la puerta, así que decirle que no hay efectivo sería
+    // mentirle sobre su propio pedido. Y solo mientras el efectivo esté
+    // apagado de verdad: en noche de promoción el motivo es otro.
+    if (
+      !CASH_ENABLED &&
+      order.paymentMethod !== 'cash' &&
+      state.cashPolicySent !== true &&
+      candidatos.some((t) => mentionsCash(t))
+    ) {
+      return { action: 'cash_policy', order };
     }
 
     // ── El QR todavía no existe: falta la ubicación (07-09-2026) ───────────

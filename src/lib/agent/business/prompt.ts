@@ -283,11 +283,19 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
  * en cada turno, así que va otro sin motivo. En noche de promoción sigue el de
  * siempre.
  *
+ * Desde el 27-09-2026 ese bloque SÍ lleva motivo —los problemas con los pagos
+ * en efectivo—, el mismo que dice WhatsApp (`kapso/messages`, `CASH_POLICY_TEXT`).
+ * Y `active` ya no es "hay promoción" a secas sino "la promoción es el motivo":
+ * lo decide quien llama, que sí puede leer `CASH_ENABLED`. Ver `agent/service`.
+ *
  * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
  */
 export function systemPromptForMode(mode: {
   cashAllowed: boolean;
-  /** ¿Hay promoción vendible ahora? Ausente = no. */
+  /**
+   * ¿Falta el efectivo POR la promoción? Ausente = no. Solo decide qué bloque
+   * del efectivo sale; quien llama lo apaga si el efectivo falta de todos modos.
+   */
   active?: boolean;
   /** Pedidos nuevos pausados por saturación (0038). Ausente = no. */
   ordersPaused?: boolean;
@@ -298,9 +306,13 @@ export function systemPromptForMode(mode: {
     bloques.push(
       [
         '',
-        'Por ahora no se acepta efectivo: el pago es solo por QR.',
+        'Desde ahora no se acepta efectivo: el pago es solo por QR.',
         '- Esto manda sobre lo que dice arriba del efectivo. No prometas cuándo',
         '  vuelve: no lo sabes.',
+        '- Si preguntan por efectivo o dicen que no tienen QR, explícales que',
+        '  cambiamos a pago solo por QR porque tuvimos muchos problemas con los',
+        '  pagos en efectivo. No culpes a los clientes.',
+        '- El envío se le sigue pagando al repartidor cuando llega.',
       ].join('\n'),
     );
   } else if (!mode.cashAllowed) {

@@ -2,6 +2,7 @@ import { orderReviewKeptText, orderReviewText } from './messages';
 import { localAddressText, ORDERS_PAUSED_TEXT, pickupUnavailableText } from './messages';
 import { CASH_WAIT_TEXT, PROOF_WAIT_TEXT, deliveryRelayText } from './messages';
 import { proofReminderText } from './messages';
+import { CASH_POLICY_TEXT, cashPolicyText } from './messages';
 import { QR_TRANSFER_NOW_LABEL } from './outbound-classify';
 import { describe, it, expect } from 'vitest';
 import {
@@ -261,8 +262,12 @@ describe('el cuerpo del botón según POR QUÉ se manda el menú', () => {
       menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false }),
       menuCtaBodyText('agent_suggestion', 'cash', { cashAllowed: false, promoActive: false }),
     ]) {
-      expect(texto).toMatch(/^Por ahora no/);
-      expect(texto).toContain('QR');
+      // Y desde el 27-09-2026 dice POR QUÉ, con el párrafo compartido.
+      expect(texto.startsWith(CASH_POLICY_TEXT)).toBe(true);
+      expect(texto).toContain('solo por QR');
+      // El envío no entra en el QR: quien pregunta por el efectivo tiene que
+      // saber que eso no cambió.
+      expect(texto).toMatch(/envío se lo seguís pagando al repartidor/);
       expect(texto).not.toMatch(/promoci/i);
       expect(texto).not.toMatch(/elegí EFECTIVO/i);
       expect([...texto].filter((c) => /\p{Extended_Pictographic}/u.test(c)).length).toBeLessThanOrEqual(1);
@@ -523,5 +528,50 @@ describe('proofReminderText — la cifra del QR, no el total', () => {
     for (const texto of textos) {
       for (const marca of marcas) expect(texto).not.toContain(marca);
     }
+  });
+});
+
+describe('el pago es solo por QR (27-09-2026)', () => {
+  it('el motivo habla de los pagos, no de los clientes', () => {
+    expect(CASH_POLICY_TEXT).toMatch(/^Desde ahora los pedidos se pagan solo por QR/);
+    expect(CASH_POLICY_TEXT).toMatch(/problemas con los pagos en efectivo/);
+    expect(CASH_POLICY_TEXT).not.toMatch(/clientes/i);
+  });
+
+  it('con el pedido cotizado: la cifra del QR, y el envío aparte', () => {
+    const texto = cashPolicyText({
+      orderNumber: 'ORD-260927-012',
+      foodAmount: 60,
+      totalAmount: 71,
+      awaitingLocation: false,
+    });
+    expect(texto.startsWith(CASH_POLICY_TEXT)).toBe(true);
+    expect(texto).toContain('#12');
+    expect(texto).toContain('*Bs. 60*');
+    expect(texto).not.toContain('71');
+    expect(texto).toMatch(/envío se lo pagás al repartidor/);
+    // Nada de las marcas canónicas de la confirmación: ver `proofReminderText`.
+    expect(texto).not.toMatch(/📦 Pedido |Comida:|Total:/);
+  });
+
+  it('sin envío no lo nombra', () => {
+    const texto = cashPolicyText({
+      orderNumber: 'ORD-260927-012',
+      foodAmount: 60,
+      totalAmount: 60,
+      awaitingLocation: false,
+    });
+    expect(texto).not.toMatch(/envío/);
+  });
+
+  it('sin cotizar no le pide un QR que todavía no existe', () => {
+    const texto = cashPolicyText({
+      orderNumber: 'ORD-260927-012',
+      foodAmount: 60,
+      totalAmount: 60,
+      awaitingLocation: true,
+    });
+    expect(texto).toMatch(/te mandamos el QR/);
+    expect(texto).not.toMatch(/comprobante|transferí|Bs/);
   });
 });

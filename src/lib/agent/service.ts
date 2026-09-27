@@ -11,6 +11,7 @@ import { dispatchMenu, type MenuAutomationMemoryPort } from '@/lib/menu/dispatch
 import { createGetMenuItemsTool, createSendMenuTool, promotionsForModel } from './tools/menu-tools';
 import { readCurrentPromoMode } from '@/lib/promotions/current-mode';
 import { readOrdersPaused } from '@/lib/delivery/settings';
+import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 import { createPromotionsRepository } from '@/lib/promotions/repository';
 // El pedido vivo del cliente y la regla que dice si todavía se puede rearmar:
 // las MISMAS que usa la vía determinística, no una segunda copia.
@@ -107,10 +108,18 @@ export function createAgentChannel(): AgentChannelPort {
           // El prompt viene del Business Adapter: el core no sabe de Don Zarco.
           // Por turno desde el 14-09: en noche de promoción lleva el aviso de
           // que no hay recojo ni efectivo. `readCurrentPromoMode` nunca lanza.
-          systemPrompt: systemPromptForMode({
-            ...(await readCurrentPromoMode()),
-            ordersPaused: await readOrdersPaused(),
-          }),
+          //
+          // `active` va recortado (27-09-2026): con el efectivo apagado de
+          // todos modos (`CASH_ENABLED`), la promoción no es el motivo, y el
+          // bloque que la nombra le diría al cliente que mañana vuelve.
+          systemPrompt: await (async () => {
+            const modo = await readCurrentPromoMode();
+            return systemPromptForMode({
+              ...modo,
+              active: CASH_ENABLED && modo.active,
+              ordersPaused: await readOrdersPaused(),
+            });
+          })(),
           maxOutputTokens: DON_ZARCO_MAX_OUTPUT_TOKENS,
           actions: createAgentActions(),
           // Vision (5C.5). Su ausencia sería el interruptor de apagado: sin

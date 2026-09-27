@@ -58,9 +58,39 @@ export type MenuCtaContext = 'cash' | 'price' | 'delivery' | 'dictated' | 'greet
  * para preguntar por el método. Las otras formas son las de quien lo dice sin
  * nombrarlo —"contra entrega", "pago al recibir"— y la contraria, la de quien
  * cree que solo hay QR.
+ *
+ * `cash` entró el 27-09-2026, con el efectivo ya apagado (`orders/cash-enabled`):
+ * también la escriben así.
  */
 const EFECTIVO =
-  /(^|\s)(efectivo|contra entrega|contraentrega|solo qr|solamente qr|unicamente qr|puro qr)(\s|$)|(pagar|pago|pagarle|cancelar|cancelo|abonar)\s+(al recibir|cuando llegue|cuando me llegue|en la puerta|al final|despues)/;
+  /(^|\s)(efectivo|cash|contra entrega|contraentrega|solo qr|solamente qr|unicamente qr|puro qr)(\s|$)|(pagar|pago|pagarle|cancelar|cancelo|abonar)\s+(al recibir|cuando llegue|cuando me llegue|en la puerta|al final|despues)/;
+
+/**
+ * "No tengo QR" — la misma pregunta dicha al revés (27-09-2026).
+ *
+ * Quien lo escribe no puede o no quiere pagar por QR, y lo que está preguntando
+ * es si hay otra forma. Desde que el pago es solo por QR, la respuesta es la
+ * misma que a quien nombra el efectivo.
+ *
+ * Sin el artículo a propósito: "no tengo EL qr" es otra cosa —casi siempre que
+ * no le llegó el suyo— y contestarle con la política de pagos sería no haberlo
+ * leído.
+ */
+const SIN_QR =
+  /(^|\s)no (tengo|uso|manejo|cuento con|puedo pagar (por|con|en)|tengo (para|como) pagar (por|con)) qr(\s|$)/;
+
+/**
+ * ¿Habla de pagar en efectivo, o de no poder pagar por QR? PURO.
+ *
+ * Es lo que dispara el aviso de que el pago es solo por QR, tenga o no pedido
+ * abierto: sin pedido lo contesta el cuerpo del botón (`menuCtaBodyText`), con
+ * un pedido por QR sin pagar, `default-reply` (`cash_policy`).
+ */
+export function mentionsCash(text: string | null | undefined): boolean {
+  if (typeof text !== 'string') return false;
+  const norm = normalizeIntentText(text);
+  return norm !== '' && (EFECTIVO.test(norm) || SIN_QR.test(norm));
+}
 
 /** Preguntar por un importe. Mismo vocabulario que el detector de cotización. */
 const COSTE = /\b(cuanto|cuantos|precio|precios|costo|coste|vale|valen|sale|salen|cuesta|cuestan)\b/;
@@ -103,7 +133,7 @@ export function classifyMenuCtaContext(
   // El efectivo va PRIMERO, por delante incluso del envío: "se puede pagar el
   // delivery en efectivo" habla de las dos cosas, y lo que de verdad pregunta
   // —lo que le impide tocar el botón— es cómo va a pagar.
-  if (EFECTIVO.test(norm)) return 'cash';
+  if (mentionsCash(text)) return 'cash';
 
   if (COSTE.test(norm) && ENVIO.test(norm)) return 'delivery';
   // Las dos formas de dictar: con dígito ("2 lomitos") y con la cantidad en

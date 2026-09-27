@@ -188,12 +188,13 @@ const ORDER_ALREADY_PAID_MESSAGE =
   'Tu pedido anterior ya está pagado y en preparación, así que este enlace ya no ' +
   'puede cambiarlo. Escribinos por WhatsApp y armamos un pedido nuevo con lo que falte.';
 /**
- * Noche de promoción: el efectivo no está (14-09-2026).
+ * Noche de promoción: el efectivo no está (14-09-2026). Sin el "Hoy" desde el
+ * 27-09-2026: con `CASH_ENABLED` apagado tampoco está mañana.
  *
  * Va como error del CAMPO de pago y no del pedido: el formulario lo pinta
  * debajo de "Método de pago", que es exactamente lo que hay que cambiar.
  */
-const CASH_UNAVAILABLE_MESSAGE = 'Hoy el pago es solo por QR. Elige QR y confirma de nuevo.';
+const CASH_UNAVAILABLE_MESSAGE = 'El pago es solo por QR. Elige QR y confirma de nuevo.';
 /**
  * El recojo se apagó (15-09-2026). Mismo criterio que el efectivo: error del
  * CAMPO, porque el formulario lo pinta debajo de "¿Cómo lo recibes?".

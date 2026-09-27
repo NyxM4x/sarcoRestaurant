@@ -12,7 +12,11 @@ import {
   isShortMapsLink,
   parsePlainCoords,
 } from '@/lib/delivery/maps-link';
-import { classifyMenuCtaContext, type MenuCtaContext } from '@/lib/menu/cta-context';
+import {
+  classifyMenuCtaContext,
+  mentionsCash,
+  type MenuCtaContext,
+} from '@/lib/menu/cta-context';
 import { MENU_CHANGE_BUTTON_TEXT, orderChangeCtaText } from '@/lib/kapso/messages';
 import { isMenuTriggerMessage, isOutboundMessage, extractTextBody } from './menu-trigger';
 import { isGreetingOnly, isMenuIntent } from './menu-intent';
@@ -252,6 +256,23 @@ export type SendLocalAddress = (input: {
   phoneNumberId: string | null;
   /** WAMID del mensaje del cliente. Clave de idempotencia del envío. */
   sourceMessageId: string;
+}) => Promise<{ ok: boolean }>;
+
+/**
+ * Explica que el pago es solo por QR a quien lo pregunta con un pedido por QR
+ * sin pagar (27-09-2026). Ver `kapso/send-cash-policy`.
+ *
+ * NUNCA lanza. Opcional: sin ella ese cliente recibe lo de antes —el
+ * recordatorio de su pago, o el agente—.
+ */
+export type SendCashPolicy = (input: {
+  toDigits: string;
+  phoneNumberId: string | null;
+  sourceMessageId: string;
+  orderNumber: string;
+  foodAmount: number;
+  totalAmount: number;
+  awaitingLocation: boolean;
 }) => Promise<{ ok: boolean }>;
 
 export type SendProofReminder = (input: {
@@ -565,6 +586,8 @@ export interface HandleKapsoWebhookParams {
    * botón del menú — el comportamiento anterior a esta puerta.
    */
   sendLocalAddress?: SendLocalAddress;
+  /** El pago es solo por QR (27-09-2026). Ver `SendCashPolicy`. */
+  sendCashPolicy?: SendCashPolicy;
   sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -767,6 +790,7 @@ async function responderPorDefecto(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     sendLocalAddress?: SendLocalAddress;
+    sendCashPolicy?: SendCashPolicy;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -1004,6 +1028,29 @@ async function responderPorDefecto(
     };
   }
 
+  if (decision.action === 'cash_policy') {
+    // Sin puerto no se improvisa: el mensaje sigue su camino, que es el de
+    // antes de esta rama.
+    if (!deps.sendCashPolicy) return null;
+
+    const enviada = await deps.sendCashPolicy({
+      toDigits,
+      phoneNumberId: ctx.phoneNumberId,
+      sourceMessageId,
+      orderNumber: decision.order.orderNumber,
+      foodAmount: decision.order.foodAmount,
+      totalAmount: decision.order.totalAmount,
+      awaitingLocation: decision.order.status === 'awaiting_location',
+    });
+    // Ni el teléfono ni el texto: solo si se pudo.
+    log.info('webhook_cash_policy', { result: enviada.ok ? 'sent' : 'failed' });
+    return {
+      ok: enviada.ok,
+      handled: 'cash_policy',
+      result: enviada.ok ? 'sent' : 'failed',
+    };
+  }
+
   if (decision.action === 'proof_reminder') {
     // Sin puerto de recordatorio no se improvisa con el menú: mandarle la carta
     // a quien está por pagar es exactamente lo que esta rama evita.
@@ -1126,7 +1173,13 @@ async function responderPorDefecto(
     // El botón es el único mensaje que sale, así que su texto contesta lo que
     // el cliente acababa de preguntar. Es lo que convierte un botón en una
     // respuesta: quien pregunta un precio lee "los precios están todos ahí".
-    ctaContext: classifyMenuCtaContext(texto),
+    //
+    // El efectivo se busca en la ráfaga ENTERA (27-09-2026): con el pago solo
+    // por QR, "puedo pagar en efectivo?" seguido de "gracias" no puede perder
+    // su respuesta por no ir el último.
+    ctaContext: (ctx.textosDelLote ?? []).some((t) => mentionsCash(t))
+      ? 'cash'
+      : classifyMenuCtaContext(texto),
   });
 
   if (sent.result === 'failed' || sent.result === 'send_unknown') {
@@ -1205,6 +1258,7 @@ async function processMessage(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     sendLocalAddress?: SendLocalAddress;
+    sendCashPolicy?: SendCashPolicy;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -1847,6 +1901,7 @@ async function processEnvelopes(
     lookupCustomerState?: LookupCustomerState;
     sendProofReminder?: SendProofReminder;
     sendLocalAddress?: SendLocalAddress;
+    sendCashPolicy?: SendCashPolicy;
     sendWaitNotice?: SendWaitNotice;
   sendOrderReview?: SendOrderReview;
   decideCashOrder?: DecideCashOrder;
@@ -2555,6 +2610,7 @@ async function runBusiness(
       lookupCustomerState: params.lookupCustomerState,
       sendProofReminder: params.sendProofReminder,
       sendLocalAddress: params.sendLocalAddress,
+      sendCashPolicy: params.sendCashPolicy,
       sendWaitNotice: params.sendWaitNotice,
       sendOrderReview: params.sendOrderReview,
       decideCashOrder: params.decideCashOrder,

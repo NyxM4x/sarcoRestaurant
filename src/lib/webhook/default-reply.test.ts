@@ -1050,3 +1050,73 @@ describe('decideDefaultReply — el pedido parado esperando ubicación', () => {
     expect(decision).toMatchObject({ action: 'proof_reminder', variant: 'missing' });
   });
 });
+
+/**
+ * "¿Puedo pagar en efectivo?" / "No tengo QR" con un pedido ya armado
+ * (27-09-2026).
+ *
+ * Estos casos dan por hecho que el efectivo está apagado (`CASH_ENABLED =
+ * false` en `orders/cash-enabled`). Si vuelve, la rama se apaga sola y estos
+ * tests son los que avisan.
+ */
+describe('decideDefaultReply — el pago es solo por QR', () => {
+  const conPedido = (
+    over: Partial<OpenOrderSnapshot> = {},
+    estado: Partial<CustomerStateSnapshot> = {},
+  ): CustomerStateSnapshot => ({
+    ...SIN_NADA,
+    openOrder: pedido({ paymentMethod: 'qr', ...over }),
+    ...estado,
+  });
+
+  const decidir = (
+    texto: string,
+    state: CustomerStateSnapshot,
+    batchTexts?: readonly string[],
+  ) => decideDefaultReply({ ...AUTOMATICO, text: texto, batchTexts, state });
+
+  it('al que pregunta por el efectivo con el QR por pagar le explica, no le recuerda el pago', () => {
+    for (const frase of ['puedo pagar en efectivo?', 'no tengo qr', 'aceptan cash?']) {
+      const decision = decidir(frase, conPedido());
+      expect(decision.action, frase).toBe('cash_policy');
+    }
+  });
+
+  it('también con el pedido esperando la ubicación', () => {
+    const decision = decidir(
+      'puedo pagar en efectivo?',
+      conPedido({ status: 'awaiting_location' }),
+    );
+    expect(decision.action).toBe('cash_policy');
+  });
+
+  it('mira la ráfaga entera, no solo el último mensaje', () => {
+    const decision = decidir('gracias', conPedido(), ['no tengo qr', 'gracias']);
+    expect(decision.action).toBe('cash_policy');
+  });
+
+  it('una vez por pedido: después vuelve el recordatorio de siempre', () => {
+    const decision = decidir('no tengo qr', conPedido({}, { cashPolicySent: true }));
+    expect(decision.action).toBe('proof_reminder');
+  });
+
+  it('el pedido que YA es en efectivo no recibe "no hay efectivo"', () => {
+    const decision = decidir(
+      'pago en efectivo al delivery?',
+      conPedido({ paymentMethod: 'cash', awaitingCashConfirm: true }),
+    );
+    expect(decision.action).not.toBe('cash_policy');
+  });
+
+  it('con el pedido ya pagado no se mete: lo más probable es que hable del envío', () => {
+    const decision = decidir(
+      'el envio le pago en efectivo?',
+      conPedido({ payment: 'accepted', proofReceived: true }, { waitNoticeSent: true }),
+    );
+    expect(decision.action).not.toBe('cash_policy');
+  });
+
+  it('lo que no habla de pagar sigue su camino', () => {
+    expect(decidir('hola', conPedido()).action).toBe('proof_reminder');
+  });
+});

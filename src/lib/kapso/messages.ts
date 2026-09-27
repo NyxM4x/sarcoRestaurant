@@ -267,12 +267,15 @@ export function menuCtaBodyText(
       //
       // Sin efectivo y SIN promoción (`orders/cash-enabled`, 21-09-2026) también
       // es NO, pero sin "por la promoción": no es por eso, y el que vuelva
-      // mañana tampoco lo va a encontrar.
+      // mañana tampoco lo va a encontrar. Desde el 27-09-2026 se le dice además
+      // POR QUÉ, con el mismo párrafo que recibe quien ya tiene pedido: ver
+      // `CASH_POLICY_TEXT`.
       case 'cash':
         if (options.cashAllowed === false && options.promoActive !== true) {
           return (
-            'Por ahora no: el pago es solo por QR. Armá tu pedido en el botón 👇 ' +
-            'y pagalo con el QR que te mandamos por acá.'
+            `${CASH_POLICY_TEXT}\n\n` +
+            'Armá tu pedido en el botón 👇 y pagalo con el QR que te mandamos por ' +
+            'acá. El envío se lo seguís pagando al repartidor cuando llega.'
           );
         }
         if (options.cashAllowed === false) {
@@ -581,6 +584,64 @@ export function proofReminderText(
     `Tu pedido ${shortOrderNumber(orderNumber)} está guardado 🙌 ` +
     `Falta que transfieras *${formatBs(foodAmount)}*${envio} y nos mandes la foto ` +
     'del comprobante por acá. Con eso lo pasamos a la cocina al toque.'
+  );
+}
+
+// ── El pago es solo por QR (27-09-2026) ──────────────────────────────────────
+
+/**
+ * Por qué ya no hay efectivo, dicho una sola vez y en un solo sitio.
+ *
+ * Lo leen los dos que preguntan: el que todavía no pidió —va dentro del cuerpo
+ * del botón del menú, ver `menuCtaBodyText`— y el que ya tiene un pedido por QR
+ * sin pagar, ver `cashPolicyText`. Escrito dos veces acabaría diciendo dos
+ * cosas distintas.
+ *
+ * El motivo habla de los PAGOS en efectivo y no de los clientes: quien lo lee
+ * es un cliente, y nadie sigue pidiendo después de leer que el problema es él.
+ */
+export const CASH_POLICY_TEXT =
+  'Desde ahora los pedidos se pagan solo por QR. Tuvimos muchos problemas con ' +
+  'los pagos en efectivo, y así nos aseguramos de que cada pedido llegue bien.';
+
+/**
+ * "¿Puedo pagar en efectivo?" / "No tengo QR", con un pedido por QR sin pagar.
+ *
+ * El aviso de la política y, debajo, lo que le falta a SU pedido — que es la
+ * pregunta que de verdad hace: cómo lo paga.
+ *
+ * Sin pedido cotizado no hay QR todavía, así que no se le pide uno: se le dice
+ * que le llega. Con él, la cifra es la del QR —`foodAmount`— y el envío se
+ * nombra aparte, igual que en `proofReminderText` y por lo mismo: a quien
+ * pregunta por el efectivo es a quien más fácil se le ocurre transferir el
+ * total entero.
+ */
+export function cashPolicyText(input: {
+  orderNumber: string;
+  foodAmount: number;
+  totalAmount: number;
+  /** ¿El pedido todavía espera la ubicación, y con ella el QR? */
+  awaitingLocation: boolean;
+}): string {
+  const pedido = shortOrderNumber(input.orderNumber);
+
+  if (input.awaitingLocation) {
+    return (
+      `${CASH_POLICY_TEXT}\n\n` +
+      `Tu pedido ${pedido} sigue guardado: en cuanto tengamos tu ubicación y el ` +
+      'envío calculado, te mandamos el QR por acá para pagarlo.'
+    );
+  }
+
+  const envio =
+    input.totalAmount > input.foodAmount
+      ? ' El envío se lo pagás al repartidor cuando llega.'
+      : '';
+  return (
+    `${CASH_POLICY_TEXT}\n\n` +
+    `Tu pedido ${pedido} sigue guardado: transferí *${formatBs(input.foodAmount)}* ` +
+    'con el QR que te mandamos y mandanos la foto del comprobante por acá.' +
+    envio
   );
 }
 
