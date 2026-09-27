@@ -21,6 +21,8 @@ import { createMenuRepository } from '@/lib/menu/repository';
 import { PROOF_REMINDER_ACTION } from '@/lib/kapso/send-proof-reminder';
 import { ORDER_REVIEW_ACTION } from '@/lib/kapso/send-order-review';
 import { CASH_REPROMPT_ACTION } from '@/lib/kapso/send-cash-buttons';
+import { CASH_POLICY_ACTION } from '@/lib/kapso/send-cash-policy';
+import { CASH_ENABLED } from '@/lib/orders/cash-enabled';
 import {
   CASH_WAIT_ACTION,
   DELIVERY_RELAY_ACTION,
@@ -460,6 +462,21 @@ export async function lookupCustomerState(
         )
       : 0;
 
+    // 3f. ¿Ya se le explicó que el pago es solo por QR? (27-09-2026)
+    //
+    //     Una vez por pedido: se cuenta desde que nació. Solo se pregunta
+    //     cuando la rama que lo lee puede alcanzarse —efectivo apagado, pedido
+    //     por QR, nada esperando de nuestro lado—; el resto no paga la consulta.
+    const cashPolicySent =
+      !CASH_ENABLED && openOrder.paymentMethod !== 'cash' && espera === null
+        ? await avisoDeEsperaEnviado(
+            supabase,
+            pausa?.conversationId ?? null,
+            CASH_POLICY_ACTION,
+            pedido.created_at,
+          )
+        : false;
+
     // 4. La carta, mientras el pedido admita notas o todavía se pueda rearmar.
     //    Sin ella ninguna frase se anota: no poder descartar que el cliente
     //    nombró un producto es razón suficiente para no tocar el pedido.
@@ -491,6 +508,7 @@ export async function lookupCustomerState(
       deliveryRelaySentRecently,
       locationRemindedRecently,
       cashRepromptsSent,
+      cashPolicySent,
     };
   } catch {
     // Sin `error.message`: puede traer detalle técnico de Supabase.

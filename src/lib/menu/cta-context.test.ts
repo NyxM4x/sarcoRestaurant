@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyMenuCtaContext } from './cta-context';
+import { classifyMenuCtaContext, mentionsCash } from './cta-context';
 import { menuCtaBodyText } from '@/lib/kapso/messages';
 
 describe('classifyMenuCtaContext — de qué venía hablando el cliente', () => {
@@ -155,6 +155,27 @@ describe('el que pregunta por el efectivo antes de entrar', () => {
       'puedo cancelar cuando llegue',
     ]) {
       expect(classifyMenuCtaContext(texto), texto).toBe('cash');
+    }
+  });
+
+  it('también "cash" y "no tengo QR" (27-09-2026)', () => {
+    for (const texto of [
+      'aceptan cash?',
+      'puedo pagar en cash',
+      'no tengo qr',
+      'Yo no tengo QR, puedo pagar de otra forma?',
+      'no uso qr',
+      'no puedo pagar por qr',
+      'no tengo como pagar con qr',
+    ]) {
+      expect(classifyMenuCtaContext(texto), texto).toBe('cash');
+      expect(mentionsCash(texto), texto).toBe(true);
+    }
+  });
+
+  it('"no tengo EL qr" es otra cosa: casi siempre, que no le llegó', () => {
+    for (const texto of ['no tengo el qr', 'no me llegó el qr', 'mandame el qr']) {
+      expect(mentionsCash(texto), texto).toBe(false);
     }
   });
 

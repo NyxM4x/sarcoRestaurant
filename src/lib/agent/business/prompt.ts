@@ -276,16 +276,46 @@ export const DON_ZARCO_SYSTEM_PROMPT = [
  * los que no hay ninguna—, y acabaría anunciándole promociones inexistentes a
  * quien solo preguntó por el horario.
  *
+ * ── Sin efectivo y sin promoción (21-09-2026) ───────────────────────────────
+ *
+ * Desde que el efectivo se puede apagar aparte (`orders/cash-enabled`), falta
+ * también en las noches sin promoción. Ahí el bloque de la promoción mentiría
+ * en cada turno, así que va otro sin motivo. En noche de promoción sigue el de
+ * siempre.
+ *
+ * Desde el 27-09-2026 ese bloque SÍ lleva motivo —los problemas con los pagos
+ * en efectivo—, el mismo que dice WhatsApp (`kapso/messages`, `CASH_POLICY_TEXT`).
+ * Y `active` ya no es "hay promoción" a secas sino "la promoción es el motivo":
+ * lo decide quien llama, que sí puede leer `CASH_ENABLED`. Ver `agent/service`.
+ *
  * Fuera del modo devuelve exactamente `DON_ZARCO_SYSTEM_PROMPT`.
  */
 export function systemPromptForMode(mode: {
   cashAllowed: boolean;
+  /**
+   * ¿Falta el efectivo POR la promoción? Ausente = no. Solo decide qué bloque
+   * del efectivo sale; quien llama lo apaga si el efectivo falta de todos modos.
+   */
+  active?: boolean;
   /** Pedidos nuevos pausados por saturación (0038). Ausente = no. */
   ordersPaused?: boolean;
 }): string {
   const bloques: string[] = [];
 
-  if (!mode.cashAllowed) {
+  if (!mode.cashAllowed && !mode.active) {
+    bloques.push(
+      [
+        '',
+        'Desde ahora no se acepta efectivo: el pago es solo por QR.',
+        '- Esto manda sobre lo que dice arriba del efectivo. No prometas cuándo',
+        '  vuelve: no lo sabes.',
+        '- Si preguntan por efectivo o dicen que no tienen QR, explícales que',
+        '  cambiamos a pago solo por QR porque tuvimos muchos problemas con los',
+        '  pagos en efectivo. No culpes a los clientes.',
+        '- El envío se le sigue pagando al repartidor cuando llega.',
+      ].join('\n'),
+    );
+  } else if (!mode.cashAllowed) {
     bloques.push(
       [
         '',
