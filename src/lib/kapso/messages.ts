@@ -830,11 +830,14 @@ export function pickupUnavailableText(orderNumber: string): string {
  * más reclama si lee "pausamos los pedidos" sin esa frase.
  *
  * No manda a hablar con nadie: la cola es justamente lo que no hay que alargar.
+ *
+ * Desde el 28-09-2026 el botón se usa para cerrar la noche entera, no para un
+ * rato: el dueño pidió que diga de frente que hoy no se atiende. Con la pausa
+ * el cliente no llega al menú web, así que este es el único aviso que ve.
  */
 export const ORDERS_PAUSED_TEXT =
-  'Estamos con demasiados pedidos en este momento 🙏 Para no hacerte esperar de ' +
-  'más, pausamos los pedidos nuevos por un rato. Escribinos de nuevo en unos ' +
-  'minutos y te pasamos el menú. Si ya hiciste tu pedido, sigue en curso.';
+  'El día de hoy NO ESTAMOS ATENDIENDO, MIL DISCULPAS 🙏 ' +
+  'Si ya hiciste tu pedido, sigue en curso.';
 
 /**
  * Lo que recibe quien pide algo para la plancha sobre un pedido ya armado.
