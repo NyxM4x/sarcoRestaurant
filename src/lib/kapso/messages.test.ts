@@ -478,9 +478,9 @@ describe('sin recojo', () => {
 });
 
 describe('pedidos pausados por saturación (0038)', () => {
-  it('dice qué pasa, qué hacer y tranquiliza a quien ya pidió, sin derivar', () => {
-    expect(ORDERS_PAUSED_TEXT).toMatch(/demasiados pedidos/);
-    expect(ORDERS_PAUSED_TEXT).toMatch(/Escribinos de nuevo/);
+  it('dice que hoy no se atiende y tranquiliza a quien ya pidió, sin derivar', () => {
+    expect(ORDERS_PAUSED_TEXT).toMatch(/El día de hoy NO ESTAMOS ATENDIENDO, MIL DISCULPAS/);
+    expect(ORDERS_PAUSED_TEXT).not.toMatch(/Escribinos de nuevo|unos minutos/);
     expect(ORDERS_PAUSED_TEXT).toMatch(/Si ya hiciste tu pedido, sigue en curso/);
     expect(ORDERS_PAUSED_TEXT).not.toMatch(/compañero|equipo|operador|persona/i);
   });
